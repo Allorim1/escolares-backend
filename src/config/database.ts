@@ -38,7 +38,7 @@ class Database {
     const collections = await this.db.listCollections().toArray();
     const collectionNames = collections.map((c) => c.name);
 
-    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos'];
+    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas'];
 
     for (const name of requiredCollections) {
       if (!collectionNames.includes(name)) {

@@ -107,7 +107,6 @@ router.post('/refresh', (req: Request, res: Response) => authController.refreshT
  */
 router.get('/users', authenticateToken, async (req: Request, res: Response) => {
   try {
-    console.log('Headers:', req.headers.authorization);
     await authController.getAll(req, res);
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener usuarios' });

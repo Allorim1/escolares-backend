@@ -33,7 +33,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cookieParser());
 
-const DOLAR_API_KEY = '24f1738b060fc95cf53c1da0f817314af5fc01bae5ff4280e7f463a8826c0ae9';
+const DOLAR_API_KEY = '43dd3cbe6c7e05cc994e3c98aefa0eb84c5c36ab4d615a3dc7c24d85d76afe0f';
 const DOLAR_API_URL = 'https://api.dolarvzla.com/public/bcv/exchange-rate';
 const USDT_API_URL = 'https://api.dolarvzla.com/public/usdt/exchange-rate';
 
@@ -103,13 +103,71 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'OK', message: 'API Escolares funcionando' });
 });
 
+app.post('/api/registros', async (req: Request, res: Response) => {
+  try {
+    const { accion, modulo, descripcion, usuario, datos } = req.body;
+
+    const registro = {
+      accion,
+      modulo,
+      descripcion,
+      usuario: usuario || 'admin',
+      datos: datos || {},
+      fecha: new Date(),
+    };
+
+    const collection = database.getCollection('registros');
+    const result = await collection.insertOne(registro);
+
+    res.json({ success: result.insertedId });
+  } catch (error) {
+    console.error('Error guardando registro:', error);
+    res.status(500).json({ error: 'Error al guardar registro' });
+  }
+});
+
+app.get('/api/registros', async (req: Request, res: Response) => {
+  try {
+    const { modulo, limit = 100 } = req.query;
+    const collection = database.getCollection('registros');
+
+    const filter: any = {};
+    if (modulo) {
+      filter.modulo = modulo;
+    }
+
+    const registros = await collection
+      .find(filter)
+      .sort({ fecha: -1 })
+      .limit(Number(limit))
+      .toArray();
+
+    res.json(registros);
+  } catch (error) {
+    console.error('Error obteniendo registros:', error);
+    res.status(500).json({ error: 'Error al obtener registros' });
+  }
+});
+
+app.delete('/api/registros', async (req: Request, res: Response) => {
+  try {
+    const collection = database.getCollection('registros');
+    await collection.deleteMany({});
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando registros:', error);
+    res.status(500).json({ error: 'Error al eliminar registros' });
+  }
+});
+
 app.post('/api/costos', async (req: Request, res: Response) => {
   try {
-    const { nombre, numero, data } = req.body;
+    const { nombre, numero, tipo, data } = req.body;
 
     const grupo = {
       nombre,
       numero,
+      tipo,
       fecha: new Date(),
       data: data || [],
     };
@@ -228,6 +286,120 @@ app.delete('/api/costos/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error eliminando grupo:', error);
     res.status(500).json({ error: 'Error al eliminar grupo' });
+  }
+});
+
+app.post('/api/facturas', async (req: Request, res: Response) => {
+  try {
+    const { cliente, productos, total, estado } = req.body;
+
+    const factura = {
+      cliente,
+      productos: productos || [],
+      total: total || 0,
+      estado: estado || 'pendiente',
+      fecha: new Date(),
+      fechaPago: estado === 'pagado' ? new Date() : null,
+    };
+
+    const collection = database.getCollection('facturas');
+    const result = await collection.insertOne(factura);
+
+    res.json({ success: true, id: result.insertedId });
+  } catch (error) {
+    console.error('Error guardando factura:', error);
+    res.status(500).json({ error: 'Error al guardar factura' });
+  }
+});
+
+app.get('/api/facturas', async (req: Request, res: Response) => {
+  try {
+    const collection = database.getCollection('facturas');
+    const facturas = await collection.find().sort({ fecha: -1 }).toArray();
+    res.json(facturas);
+  } catch (error) {
+    console.error('Error obteniendo facturas:', error);
+    res.status(500).json({ error: 'Error al obtener facturas' });
+  }
+});
+
+app.get('/api/facturas/resumen', async (req: Request, res: Response) => {
+  try {
+    const collection = database.getCollection('facturas');
+    const facturas = await collection.find().toArray();
+
+    const pendientes = facturas.filter(f => f.estado === 'pendiente');
+    const pagadas = facturas.filter(f => f.estado === 'pagado');
+
+    const dineroEntrante = pendientes.reduce((sum, f) => sum + (f.total || 0), 0);
+    const dineroReal = pagadas.reduce((sum, f) => sum + (f.total || 0), 0);
+    const brecha = dineroEntrante;
+
+    const porMes: Record<string, { entrante: number; real: number }> = {};
+    
+    facturas.forEach(f => {
+      const mes = new Date(f.fecha).toLocaleString('es-VE', { year: 'numeric', month: 'short' });
+      if (!porMes[mes]) {
+        porMes[mes] = { entrante: 0, real: 0 };
+      }
+      if (f.estado === 'pendiente') {
+        porMes[mes].entrante += f.total || 0;
+      } else if (f.estado === 'pagado') {
+        porMes[mes].real += f.total || 0;
+      }
+    });
+
+    res.json({
+      dineroEntrante,
+      dineroReal,
+      brecha,
+      totalFacturas: facturas.length,
+      pendientes: pendientes.length,
+      pagadas: pagadas.length,
+      porMes: Object.entries(porMes).map(([mes, datos]) => ({ mes, ...datos }))
+    });
+  } catch (error) {
+    console.error('Error obteniendo resumen:', error);
+    res.status(500).json({ error: 'Error al obtener resumen' });
+  }
+});
+
+app.put('/api/facturas/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const { estado } = req.body;
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    
+    const updateData: any = { estado };
+    if (estado === 'pagado') {
+      updateData.fechaPago = new Date();
+    }
+
+    const collection = database.getCollection('facturas');
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando factura:', error);
+    res.status(500).json({ error: 'Error al actualizar factura' });
+  }
+});
+
+app.delete('/api/facturas/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const collection = database.getCollection('facturas');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando factura:', error);
+    res.status(500).json({ error: 'Error al eliminar factura' });
   }
 });
 
