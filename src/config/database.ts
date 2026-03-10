@@ -4,7 +4,7 @@ import * as path from 'path';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-const MONGODB_URL = process.env["DB_URL"] || 'mongodb://127.0.0.1:27017';
+const MONGODB_URL = process.env["DB_URL"] || 'mongodb+srv://escolares_test:u0k8aKhXvjG0IzLD@escolares.p5nmwji.mongodb.net/?appName=escolares';
 const DB_NAME = process.env['mongodb_dbname'] || 'test';
 
 let dbInstance: Db | null = null;
