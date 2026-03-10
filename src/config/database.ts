@@ -1,8 +1,4 @@
 import { MongoClient, Db, Collection, Document } from 'mongodb';
-import * as dotenv from 'dotenv';
-import * as path from 'path';
-
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const MONGODB_URL = process.env["DB_URL"] || 'mongodb+srv://escolares_test:u0k8aKhXvjG0IzLD@escolares.p5nmwji.mongodb.net/?appName=escolares';
 const DB_NAME = process.env['mongodb_dbname'] || 'test';
