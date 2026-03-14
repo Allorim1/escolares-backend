@@ -568,27 +568,33 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
     const tipoDoc = tipo || 'factura';
     let baseImpo = baseImponible || 0;
     let baseEx = baseExenta || 0;
-    let iva = montoIva || 0;
+    let iva = montoIva !== undefined ? montoIva : 0;
     let iva75 = 0;
     let iva25 = 0;
     let totalPagar = 0;
     let deudaActual = 0;
     let deudaIva = 0;
+    let deudaIva25 = 0;
     
     if (tipoDoc === 'nota') {
       baseImpo = 0;
       baseEx = monto || 0;
       iva = 0;
+      iva75 = 0;
+      iva25 = 0;
       totalPagar = baseEx;
       deudaActual = baseEx;
+      deudaIva = 0;
+      deudaIva25 = 0;
     } else {
       const ivaPorcentaje = porcentajeIva || 0;
-      iva = montoIva || (baseImpo * (ivaPorcentaje / 100));
+      iva = montoIva !== undefined ? montoIva : (baseImpo * (ivaPorcentaje / 100));
       iva75 = iva * 0.75;
       iva25 = iva * 0.25;
-      totalPagar = monto + iva;
-      deudaActual = monto;
+      totalPagar = monto + baseEx + iva;
+      deudaActual = monto + baseEx;
       deudaIva = iva75;
+      deudaIva25 = iva25;
     }
     
     const factura = {
@@ -605,9 +611,11 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       iva25: iva25,
       abonos: 0,
       abonosIva: 0,
+      abonosIva25: 0,
       totalPagar: totalPagar,
       deudaActual: deudaActual,
       deudaIva: deudaIva,
+      deudaIva25: deudaIva25 || 0,
     };
     
     const collection = (database as any).getCollection('proveedores');
@@ -643,14 +651,15 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
     const factura = proveedor.facturas[index];
     const tipoDoc = tipo || factura.tipo || 'factura';
     let nuevaBaseImponible = baseImponible !== undefined ? baseImponible : factura.baseImponible;
-    let nuevaBaseExenta = baseExenta !== undefined ? baseExenta : factura.baseExenta;
+    let nuevaBaseExenta = baseExenta !== undefined ? baseExenta : (factura.baseExenta || 0);
     const nuevosAbonos = abonos !== undefined ? abonos : factura.abonos;
     let deudaActual = 0;
     let nuevoTotalPagar = totalPagar !== undefined ? totalPagar : factura.totalPagar;
-    let nuevoIva = factura.iva;
-    let nuevoIva75 = factura.iva75;
-    let nuevoIva25 = factura.iva25;
-    let deudaIva = factura.deudaIva;
+    let nuevoIva = factura.iva || 0;
+    let nuevoIva75 = factura.iva75 || 0;
+    let nuevoIva25 = factura.iva25 || 0;
+    let deudaIva = factura.deudaIva || 0;
+    let deudaIva25 = factura.deudaIva25 || 0;
     
     if (tipoDoc === 'nota') {
       nuevaBaseImponible = 0;
@@ -661,17 +670,19 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
       deudaActual = nuevaBaseExenta - nuevosAbonos;
       nuevoTotalPagar = nuevaBaseExenta;
       deudaIva = 0;
+      deudaIva25 = 0;
     } else {
       const montoFact = monto !== undefined ? monto : factura.monto || 0;
       const montoIvaFact = montoIva !== undefined ? montoIva : factura.montoIva || 0;
+      const baseExentaFact = nuevaBaseExenta;
       nuevaBaseImponible = montoFact;
-      nuevaBaseExenta = nuevaBaseExenta;
       nuevoIva = montoIvaFact;
       nuevoIva75 = montoIvaFact * 0.75;
       nuevoIva25 = montoIvaFact * 0.25;
-      deudaActual = montoFact - nuevosAbonos;
-      nuevoTotalPagar = montoFact + montoIvaFact;
+      deudaActual = montoFact + baseExentaFact - nuevosAbonos;
+      nuevoTotalPagar = montoFact + baseExentaFact + montoIvaFact;
       deudaIva = nuevoIva75;
+      deudaIva25 = nuevoIva25;
     }
     
     proveedor.facturas[index] = {
@@ -690,6 +701,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
       totalPagar: nuevoTotalPagar,
       deudaActual,
       deudaIva,
+      deudaIva25,
     };
     
     await collection.updateOne(
