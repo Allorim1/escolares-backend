@@ -427,7 +427,7 @@ app.get('/api/proveedores', async (req: Request, res: Response) => {
 
 app.post('/api/proveedores', async (req: Request, res: Response) => {
   try {
-    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
+    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias, creadoPor } = req.body;
     
     if (!nombre) {
       res.status(400).json({ error: 'El nombre es requerido' });
@@ -455,11 +455,28 @@ app.post('/api/proveedores', async (req: Request, res: Response) => {
       vendedor: vendedor || '',
       cuentasBancarias: cuentasBancarias || [],
       facturas: [],
+      creadoPor: creadoPor || 'Sistema',
       fechaCreacion: new Date(),
     };
     
     const collection = (database as any).getCollection('proveedores');
     const result = await collection.insertOne(proveedor);
+    
+    const dbInstance = (database as any).db;
+    let registrosCollection = dbInstance.getCollection('registros');
+    if (!registrosCollection) {
+      await dbInstance.createCollection('registros');
+      registrosCollection = dbInstance.getCollection('registros');
+    }
+    await registrosCollection.insertOne({
+      accion: 'Creación',
+      modulo: 'Proveedores',
+      descripcion: `Proveedor creado: ${nombre}`,
+      datos: { proveedor: proveedor },
+      usuario: creadoPor || 'Sistema',
+      fecha: new Date(),
+    });
+    
     res.json({ success: true, id: result.insertedId });
   } catch (error: any) {
     console.error('Error creando proveedor:', error);
@@ -470,14 +487,57 @@ app.post('/api/proveedores', async (req: Request, res: Response) => {
 app.put('/api/proveedores/:id', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
+    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias, modificadoPor } = req.body;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const collection = (database as any).getCollection('proveedores');
+    
+    const proveedorActual = await collection.findOne({ _id: new ObjectId(id) });
+    
+    const modificaciones: { campo: string; valorAnterior: string; valorNuevo: string; fecha: Date; usuario: string }[] = [];
+    
+    const campos = ['nombre', 'rif', 'direccion', 'correo', 'telefono', 'vendedor', 'cuentasBancarias'];
+    campos.forEach(campo => {
+      const valorAnterior = JSON.stringify(proveedorActual?.[campo]);
+      const valorNuevo = JSON.stringify(req.body[campo]);
+      if (valorAnterior !== valorNuevo) {
+        modificaciones.push({
+          campo,
+          valorAnterior: proveedorActual?.[campo] || '',
+          valorNuevo: req.body[campo] || '',
+          fecha: new Date(),
+          usuario: modificadoPor || 'Sistema'
+        });
+      }
+    });
+    
+    const updateData: any = { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias, modificadoPor: modificadoPor || 'Sistema', fechaModificacion: new Date() };
+    
+    if (modificaciones.length > 0) {
+      updateData.$push = { modificaciones: { $each: modificaciones } };
+    }
+    
     await collection.updateOne(
       { _id: new ObjectId(id) },
-      { $set: { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } }
+      { $set: updateData }
     );
+    
+    if (modificaciones.length > 0) {
+      const dbInstance = (database as any).db;
+      const registrosCollection = dbInstance.getCollection('registros');
+      if (!registrosCollection) {
+        await dbInstance.createCollection('registros');
+      }
+      await registrosCollection.insertOne({
+        accion: 'Modificación',
+        modulo: 'Proveedores',
+        descripcion: `Proveedor modificado: ${nombre}`,
+        datos: { modificaciones, proveedorId: id },
+        usuario: modificadoPor || 'Sistema',
+        fecha: new Date(),
+      });
+    }
+    
     res.json({ success: true });
   } catch (error) {
     console.error('Error actualizando proveedor:', error);
