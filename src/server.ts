@@ -462,11 +462,10 @@ app.post('/api/proveedores', async (req: Request, res: Response) => {
     const collection = (database as any).getCollection('proveedores');
     const result = await collection.insertOne(proveedor);
     
-    const dbInstance = (database as any).db;
-    let registrosCollection = dbInstance.getCollection('registros');
+    let registrosCollection = (database as any).getCollection('registros');
     if (!registrosCollection) {
-      await dbInstance.createCollection('registros');
-      registrosCollection = dbInstance.getCollection('registros');
+      await (database as any).db.createCollection('registros');
+      registrosCollection = (database as any).getCollection('registros');
     }
     await registrosCollection.insertOne({
       accion: 'Creación',
@@ -523,10 +522,10 @@ app.put('/api/proveedores/:id', async (req: Request, res: Response) => {
     );
     
     if (modificaciones.length > 0) {
-      const dbInstance = (database as any).db;
-      const registrosCollection = dbInstance.getCollection('registros');
+      let registrosCollection = (database as any).getCollection('registros');
       if (!registrosCollection) {
-        await dbInstance.createCollection('registros');
+        await (database as any).db.createCollection('registros');
+        registrosCollection = (database as any).getCollection('registros');
       }
       await registrosCollection.insertOne({
         accion: 'Modificación',
@@ -562,32 +561,53 @@ app.delete('/api/proveedores/:id', async (req: Request, res: Response) => {
 app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { numero, fecha, baseImponible, baseExenta, porcentajeIva } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, porcentajeIva } = req.body;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     
-    const baseImpo = baseImponible || 0;
-    const baseEx = baseExenta || 0;
-    const ivaPorcentaje = porcentajeIva || 0;
-    const iva = baseImpo * (ivaPorcentaje / 100);
-    const iva75 = iva * 0.75;
-    const iva25 = iva * 0.25;
-    const totalPagar = baseImpo + baseEx + iva;
+    const tipoDoc = tipo || 'factura';
+    let baseImpo = baseImponible || 0;
+    let baseEx = baseExenta || 0;
+    let iva = montoIva || 0;
+    let iva75 = 0;
+    let iva25 = 0;
+    let totalPagar = 0;
+    let deudaActual = 0;
+    let deudaIva = 0;
+    
+    if (tipoDoc === 'nota') {
+      baseImpo = 0;
+      baseEx = monto || 0;
+      iva = 0;
+      totalPagar = baseEx;
+      deudaActual = baseEx;
+    } else {
+      const ivaPorcentaje = porcentajeIva || 0;
+      iva = montoIva || (baseImpo * (ivaPorcentaje / 100));
+      iva75 = iva * 0.75;
+      iva25 = iva * 0.25;
+      totalPagar = monto + iva;
+      deudaActual = monto;
+      deudaIva = iva75;
+    }
     
     const factura = {
       numero,
+      tipo: tipoDoc,
+      monto: monto || 0,
+      montoIva: montoIva || 0,
       fecha: fecha ? new Date(fecha) : new Date(),
       baseImponible: baseImpo,
       baseExenta: baseEx,
-      porcentajeIva: ivaPorcentaje,
+      porcentajeIva: porcentajeIva || 0,
       iva: iva,
       iva75: iva75,
       iva25: iva25,
       abonos: 0,
       abonosIva: 0,
       totalPagar: totalPagar,
-      deudaActual: baseImpo + baseEx,
-      deudaIva: iva75,
+      deudaActual: deudaActual,
+      deudaIva: deudaIva,
     };
     
     const collection = (database as any).getCollection('proveedores');
@@ -610,7 +630,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
     const indexParam = req.params.index;
     const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
     
-    const { numero, fecha, baseImponible, baseExenta, abonos, totalPagar } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, abonos, totalPagar } = req.body;
     
     const collection = (database as any).getCollection('proveedores');
     const proveedor = await collection.findOne({ _id: new ObjectId(id) });
@@ -621,20 +641,55 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
     }
     
     const factura = proveedor.facturas[index];
-    const nuevaBaseImponible = baseImponible !== undefined ? baseImponible : factura.baseImponible;
-    const nuevaBaseExenta = baseExenta !== undefined ? baseExenta : factura.baseExenta;
+    const tipoDoc = tipo || factura.tipo || 'factura';
+    let nuevaBaseImponible = baseImponible !== undefined ? baseImponible : factura.baseImponible;
+    let nuevaBaseExenta = baseExenta !== undefined ? baseExenta : factura.baseExenta;
     const nuevosAbonos = abonos !== undefined ? abonos : factura.abonos;
-    const deudaActual = nuevaBaseImponible + nuevaBaseExenta - nuevosAbonos;
+    let deudaActual = 0;
+    let nuevoTotalPagar = totalPagar !== undefined ? totalPagar : factura.totalPagar;
+    let nuevoIva = factura.iva;
+    let nuevoIva75 = factura.iva75;
+    let nuevoIva25 = factura.iva25;
+    let deudaIva = factura.deudaIva;
+    
+    if (tipoDoc === 'nota') {
+      nuevaBaseImponible = 0;
+      nuevaBaseExenta = monto !== undefined ? monto : factura.monto || 0;
+      nuevoIva = 0;
+      nuevoIva75 = 0;
+      nuevoIva25 = 0;
+      deudaActual = nuevaBaseExenta - nuevosAbonos;
+      nuevoTotalPagar = nuevaBaseExenta;
+      deudaIva = 0;
+    } else {
+      const montoFact = monto !== undefined ? monto : factura.monto || 0;
+      const montoIvaFact = montoIva !== undefined ? montoIva : factura.montoIva || 0;
+      nuevaBaseImponible = montoFact;
+      nuevaBaseExenta = nuevaBaseExenta;
+      nuevoIva = montoIvaFact;
+      nuevoIva75 = montoIvaFact * 0.75;
+      nuevoIva25 = montoIvaFact * 0.25;
+      deudaActual = montoFact - nuevosAbonos;
+      nuevoTotalPagar = montoFact + montoIvaFact;
+      deudaIva = nuevoIva75;
+    }
     
     proveedor.facturas[index] = {
       ...factura,
       numero: numero !== undefined ? numero : factura.numero,
       fecha: fecha ? new Date(fecha) : factura.fecha,
+      tipo: tipoDoc,
+      monto: monto !== undefined ? monto : factura.monto || 0,
+      montoIva: montoIva !== undefined ? montoIva : factura.montoIva || 0,
       baseImponible: nuevaBaseImponible,
       baseExenta: nuevaBaseExenta,
+      iva: nuevoIva,
+      iva75: nuevoIva75,
+      iva25: nuevoIva25,
       abonos: nuevosAbonos,
-      totalPagar: totalPagar !== undefined ? totalPagar : factura.totalPagar,
+      totalPagar: nuevoTotalPagar,
       deudaActual,
+      deudaIva,
     };
     
     await collection.updateOne(
