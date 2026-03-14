@@ -1,7 +1,7 @@
 import { MongoClient, Db, Collection, Document } from 'mongodb';
 
 const MONGODB_URL = process.env["DB_URL"] || 'mongodb+srv://escolares_test:u0k8aKhXvjG0IzLD@escolares.p5nmwji.mongodb.net/?appName=escolares';
-const DB_NAME = process.env['mongodb_dbname'] || 'test';
+const DB_NAME = process.env['mongodb_dbname'] || 'main';
 
 let dbInstance: Db | null = null;
 

@@ -427,7 +427,7 @@ app.get('/api/proveedores', async (req: Request, res: Response) => {
 
 app.post('/api/proveedores', async (req: Request, res: Response) => {
   try {
-    const { nombre, rif, direccion, cuentasBancarias } = req.body;
+    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
     
     if (!nombre) {
       res.status(400).json({ error: 'El nombre es requerido' });
@@ -450,6 +450,9 @@ app.post('/api/proveedores', async (req: Request, res: Response) => {
       nombre,
       rif: rif || '',
       direccion: direccion || '',
+      correo: correo || '',
+      telefono: telefono || '',
+      vendedor: vendedor || '',
       cuentasBancarias: cuentasBancarias || [],
       facturas: [],
       fechaCreacion: new Date(),
@@ -467,13 +470,13 @@ app.post('/api/proveedores', async (req: Request, res: Response) => {
 app.put('/api/proveedores/:id', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { nombre, rif, direccion, cuentasBancarias } = req.body;
+    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const collection = (database as any).getCollection('proveedores');
     await collection.updateOne(
       { _id: new ObjectId(id) },
-      { $set: { nombre, rif, direccion, cuentasBancarias } }
+      { $set: { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } }
     );
     res.json({ success: true });
   } catch (error) {
