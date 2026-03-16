@@ -1150,8 +1150,6 @@ function comprimirImagenBase64(base64String: string, maxWidth: number = 800, qua
 }
 
 function extraerDatosFactura(texto: string): any {
-  console.log('Texto OCR:', texto.substring(0, 500));
-  
   const datos: any = {};
   
   const numeroMatch = texto.match(/(?:N[°o]|#|Factura|factura|N)[.:\s]*([A-Z0-9\-]+)/i);
@@ -1237,7 +1235,6 @@ function extraerDatosFactura(texto: string): any {
   const serieMatch = texto.match(/(?:Serie|S\/N|SN)[.:\s]*([A-Z0-9\-]+)/i);
   if (serieMatch) datos.serie = serieMatch[1].trim();
   
-  console.log('Datos extraídos:', datos);
   return datos;
 }
 
@@ -1274,8 +1271,13 @@ app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res:
           logger: m => console.log('OCR:', m)
         });
         const texto = result.data.text;
+        console.log('===== TEXTO OCR COMPLETO =====');
+        console.log(texto);
+        console.log('===== FIN TEXTO OCR =====');
         datosExtraidos = extraerDatosFactura(texto);
-        console.log('Datos extraídos:', datosExtraidos);
+        console.log('===== DATOS EXTRAIDOS COMPLETOS =====');
+        console.log(JSON.stringify(datosExtraidos, null, 2));
+        console.log('===== FIN DATOS EXTRAIDOS =====');
       } catch (ocrError) {
         console.error('Error en OCR:', ocrError);
       }
