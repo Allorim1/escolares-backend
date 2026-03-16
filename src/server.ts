@@ -33,7 +33,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cookieParser());
 
-const DOLAR_API_KEY = '43dd3cbe6c7e05cc994e3c98aefa0eb84c5c36ab4d615a3dc7c24d85d76afe0f';
+const DOLAR_API_KEY = '5b6923c0eab6d964c50c501ecdd8142be721bc8579097b2b68137686850531b1';
 const DOLAR_API_URL = 'https://api.dolarvzla.com/public/bcv/exchange-rate';
 const USDT_API_URL = 'https://api.dolarvzla.com/public/usdt/exchange-rate';
 
