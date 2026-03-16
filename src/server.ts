@@ -5,6 +5,7 @@ import swaggerUi from 'swagger-ui-express';
 import cookieParser from 'cookie-parser';
 import { database } from './config/database';
 import { swaggerConfig } from './config/swagger';
+import { authenticateToken } from './middlewares/auth.middleware';
 
 import marcasRoutes from './routes/marcas.routes';
 import lineasRoutes from './routes/lineas.routes';
@@ -425,9 +426,10 @@ app.get('/api/proveedores', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/proveedores', async (req: Request, res: Response) => {
+app.post('/api/proveedores', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias, creadoPor } = req.body;
+    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
+    const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
     
     if (!nombre) {
       res.status(400).json({ error: 'El nombre es requerido' });
@@ -455,7 +457,7 @@ app.post('/api/proveedores', async (req: Request, res: Response) => {
       vendedor: vendedor || '',
       cuentasBancarias: cuentasBancarias || [],
       facturas: [],
-      creadoPor: creadoPor || 'Sistema',
+      creadoPor: usuario,
       fechaCreacion: new Date(),
     };
     
@@ -472,7 +474,7 @@ app.post('/api/proveedores', async (req: Request, res: Response) => {
       modulo: 'Proveedores',
       descripcion: `Proveedor creado: ${nombre}`,
       datos: { proveedor: proveedor },
-      usuario: creadoPor || 'Sistema',
+      usuario: usuario,
       fecha: new Date(),
     });
     
@@ -483,10 +485,11 @@ app.post('/api/proveedores', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/proveedores/:id', async (req: Request, res: Response) => {
+app.put('/api/proveedores/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias, modificadoPor } = req.body;
+    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
+    const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const collection = (database as any).getCollection('proveedores');
@@ -505,12 +508,12 @@ app.put('/api/proveedores/:id', async (req: Request, res: Response) => {
           valorAnterior: proveedorActual?.[campo] || '',
           valorNuevo: req.body[campo] || '',
           fecha: new Date(),
-          usuario: modificadoPor || 'Sistema'
+          usuario: usuario
         });
       }
     });
     
-    const updateData: any = { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias, modificadoPor: modificadoPor || 'Sistema', fechaModificacion: new Date() };
+    const updateData: any = { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias, modificadoPor: usuario, fechaModificacion: new Date() };
     
     const updateOperation: any = { $set: updateData };
     
@@ -534,7 +537,7 @@ app.put('/api/proveedores/:id', async (req: Request, res: Response) => {
         modulo: 'Proveedores',
         descripcion: `Proveedor modificado: ${nombre}`,
         datos: { modificaciones, proveedorId: id },
-        usuario: modificadoPor || 'Sistema',
+        usuario: usuario,
         fecha: new Date(),
       });
     }
@@ -546,13 +549,31 @@ app.put('/api/proveedores/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/proveedores/:id', async (req: Request, res: Response) => {
+app.delete('/api/proveedores/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
     const collection = (database as any).getCollection('proveedores');
+    
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
     await collection.deleteOne({ _id: new ObjectId(id) });
+    
+    let registrosCollection = (database as any).getCollection('registros');
+    if (!registrosCollection) {
+      await (database as any).db.createCollection('registros');
+      registrosCollection = (database as any).getCollection('registros');
+    }
+    await registrosCollection.insertOne({
+      accion: 'Eliminación',
+      modulo: 'Proveedores',
+      descripcion: `Proveedor eliminado: ${proveedor?.nombre || 'Desconocido'}`,
+      datos: { proveedorId: id, proveedor: proveedor },
+      usuario: usuario,
+      fecha: new Date(),
+    });
+    
     res.json({ success: true });
   } catch (error) {
     console.error('Error eliminando proveedor:', error);
