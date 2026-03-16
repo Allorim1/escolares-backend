@@ -6,6 +6,9 @@ import cookieParser from 'cookie-parser';
 import { database } from './config/database';
 import { swaggerConfig } from './config/swagger';
 import { authenticateToken } from './middlewares/auth.middleware';
+import QRCode from 'qrcode';
+import { randomBytes } from 'crypto';
+import multer from 'multer';
 
 import marcasRoutes from './routes/marcas.routes';
 import lineasRoutes from './routes/lineas.routes';
@@ -884,6 +887,224 @@ app.use('/api/marcas', marcasRoutes);
 app.use('/api/lineas', lineasRoutes);
 app.use('/api/ofertas', ofertasRoutes);
 app.use('/api/auth', authRoutes);
+
+const uploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; expiresAt: Date }>();
+
+app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { proveedorId, facturaIndex } = req.body;
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    
+    uploadTokens.set(token, { proveedorId, facturaIndex, expiresAt });
+    
+    const host = req.get('host');
+    const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1');
+    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
+    const uploadUrl = `${baseUrl}/upload-factura/${token}`;
+    
+    const qrDataUrl = await QRCode.toDataURL(uploadUrl, {
+      width: 300,
+      margin: 2,
+    });
+    
+    res.json({ qrCode: qrDataUrl, uploadUrl, expiresAt: expiresAt.toISOString() });
+  } catch (error) {
+    console.error('Error generating QR:', error);
+    res.status(500).json({ error: 'Error al generar código QR' });
+  }
+});
+
+app.get('/upload-factura/:token', async (req: Request, res: Response) => {
+  const token = req.params.token as string;
+  const uploadData = uploadTokens.get(token);
+  
+  if (!uploadData) {
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Enlace expirado</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+          .error { color: red; }
+        </style>
+      </head>
+      <body>
+        <h1 class="error">Enlace expirado o inválido</h1>
+        <p>Por favor genera un nuevo código QR desde la aplicación.</p>
+      </body>
+      </html>
+    `);
+    return;
+  }
+  
+  if (new Date() > uploadData.expiresAt) {
+    uploadTokens.delete(token);
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Enlace expirado</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+          .error { color: red; }
+        </style>
+      </head>
+      <body>
+        <h1 class="error">El enlace ha expirado</h1>
+        <p>Por favor genera un nuevo código QR desde la aplicación.</p>
+      </body>
+      </html>
+    `);
+    return;
+  }
+  
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Subir foto de factura</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 500px; margin: 0 auto; }
+        h1 { text-align: center; color: #333; }
+        .upload-area {
+          border: 2px dashed #ccc;
+          border-radius: 10px;
+          padding: 30px;
+          text-align: center;
+          margin: 20px 0;
+          cursor: pointer;
+        }
+        .upload-area:hover { border-color: #007bff; background: #f8f9fa; }
+        input[type="file"] { display: none; }
+        .btn-camera {
+          background: #007bff;
+          color: white;
+          padding: 15px 30px;
+          border: none;
+          border-radius: 5px;
+          font-size: 16px;
+          cursor: pointer;
+          width: 100%;
+        }
+        .btn-camera:hover { background: #0056b3; }
+        .preview { margin-top: 20px; }
+        .preview img { max-width: 100%; border-radius: 5px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .loading { text-align: center; padding: 20px; }
+      </style>
+    </head>
+    <body>
+      <h1>📷 Subir Foto de Factura</h1>
+      <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFileSelect(event)">
+        <button class="btn-camera">📸 Tomar foto o seleccionar</button>
+        <p id="statusText"></p>
+      </div>
+      <div class="preview" id="preview"></div>
+      <div class="loading" id="loading" style="display:none;">Subiendo...</div>
+      <script>
+        let selectedFile = null;
+        
+        function handleFileSelect(event) {
+          selectedFile = event.target.files[0];
+          if (selectedFile) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              document.getElementById('preview').innerHTML = '<img src="' + e.target.result + '" alt="Preview">';
+              uploadFile();
+            };
+            reader.readAsDataURL(selectedFile);
+          }
+        }
+        
+        async function uploadFile() {
+          if (!selectedFile) return;
+          
+          document.getElementById('loading').style.display = 'block';
+          document.getElementById('statusText').textContent = 'Subiendo imagen...';
+          
+          const formData = new FormData();
+          formData.append('imagen', selectedFile);
+          formData.append('token', '${token}');
+          
+          try {
+            const response = await fetch('/api/facturas/upload-photo', {
+              method: 'POST',
+              body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+              document.getElementById('statusText').textContent = '✅ ¡Foto subida exitosamente!';
+              document.getElementById('statusText').className = 'status success';
+            } else {
+              document.getElementById('statusText').textContent = '❌ Error: ' + (data.error || 'Error al subir');
+              document.getElementById('statusText').className = 'status error';
+            }
+          } catch (error) {
+            document.getElementById('statusText').textContent = '❌ Error de conexión';
+            document.getElementById('statusText').className = 'status error';
+          }
+          
+          document.getElementById('loading').style.display = 'none';
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: Response) => {
+  try {
+    const token = req.body?.token as string;
+    const files = req.files as any[];
+    const file = files?.[0];
+    const imagen = req.body?.imagen;
+    
+    const uploadData = uploadTokens.get(token);
+    
+    if (!uploadData) {
+      res.status(400).json({ error: 'Token inválido o expirado' });
+      return;
+    }
+    
+    if (new Date() > uploadData.expiresAt) {
+      uploadTokens.delete(token);
+      res.status(400).json({ error: 'Token expirado' });
+      return;
+    }
+    
+    let imagenBase64 = imagen;
+    if (file) {
+      imagenBase64 = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+    }
+    
+    const { ObjectId } = await import('mongodb');
+    const collection = (database as any).getCollection('proveedores');
+    
+    const updateField = `facturas.${uploadData.facturaIndex}.imagen`;
+    await collection.updateOne(
+      { _id: new ObjectId(uploadData.proveedorId) },
+      { $set: { [updateField]: imagenBase64 } }
+    );
+    
+    uploadTokens.delete(token);
+    
+    res.json({ success: true, message: 'Foto guardada exitosamente' });
+  } catch (error) {
+    console.error('Error uploading photo:', error);
+    res.status(500).json({ error: 'Error al guardar la foto' });
+  }
+});
 
 app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Ruta no encontrada' });

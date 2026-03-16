@@ -190,7 +190,7 @@ export class AuthController {
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
-      res.json({ accessToken: tokens.accessToken });
+      res.json({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
     } catch (error) {
       res.status(500).json({ error: 'Error al refresh token' });
     }

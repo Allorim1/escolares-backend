@@ -8,6 +8,7 @@ export class MarcasController {
       const marcas = await database.getCollection<Marca>('marcas').find({}).toArray();
       res.json(marcas);
     } catch (error) {
+      console.error('Error getting marcas:', error);
       res.status(500).json({ error: 'Error al obtener marcas' });
     }
   }
