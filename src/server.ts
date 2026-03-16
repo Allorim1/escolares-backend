@@ -916,6 +916,105 @@ app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, re
   }
 });
 
+app.get('/api/facturas/imagenes/:proveedorId/:facturaIndex', async (req: Request, res: Response) => {
+  try {
+    const proveedorIdParam = req.params.proveedorId;
+    const facturaIndexParam = req.params.facturaIndex;
+    const proveedorId = Array.isArray(proveedorIdParam) ? proveedorIdParam[0] : proveedorIdParam;
+    const facturaIndex = Array.isArray(facturaIndexParam) ? facturaIndexParam[0] : facturaIndexParam;
+    
+    const { ObjectId } = await import('mongodb');
+    const collection = (database as any).getCollection('proveedores');
+    
+    const proveedor = await collection.findOne({ _id: new ObjectId(proveedorId) });
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    const facturas = proveedor.facturas || [];
+    const factura = facturas[parseInt(facturaIndex)];
+    
+    if (!factura) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const imagenes = factura.imagenes || [];
+    res.json({ imagenes });
+  } catch (error) {
+    console.error('Error getting images:', error);
+    res.status(500).json({ error: 'Error al obtener imágenes' });
+  }
+});
+
+app.delete('/api/facturas/imagenes/:proveedorId/:facturaIndex/:imagenIndex', async (req: Request, res: Response) => {
+  try {
+    const proveedorIdParam = req.params.proveedorId;
+    const facturaIndexParam = req.params.facturaIndex;
+    const imagenIndexParam = req.params.imagenIndex;
+    const proveedorId = Array.isArray(proveedorIdParam) ? proveedorIdParam[0] : proveedorIdParam;
+    const facturaIndex = Array.isArray(facturaIndexParam) ? facturaIndexParam[0] : facturaIndexParam;
+    const imagenIndex = Array.isArray(imagenIndexParam) ? imagenIndexParam[0] : imagenIndexParam;
+    const { ObjectId } = await import('mongodb');
+    const collection = (database as any).getCollection('proveedores');
+    
+    const proveedor = await collection.findOne({ _id: new ObjectId(proveedorId) });
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    const idx = parseInt(facturaIndex);
+    const imgIdx = parseInt(imagenIndex);
+    
+    const updateField = `facturas.${idx}.imagenes.${imgIdx}`;
+    await collection.updateOne(
+      { _id: new ObjectId(proveedorId) },
+      { $unset: { [updateField]: 1 } }
+    );
+    
+    await collection.updateOne(
+      { _id: new ObjectId(proveedorId) },
+      { $pull: { [`facturas.${idx}.imagenes`]: null } }
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting image:', error);
+    res.status(500).json({ error: 'Error al eliminar imagen' });
+  }
+});
+
+app.put('/api/facturas/imagenes/:proveedorId/:facturaIndex/:imagenIndex', async (req: Request, res: Response) => {
+  try {
+    const proveedorIdParam = req.params.proveedorId;
+    const facturaIndexParam = req.params.facturaIndex;
+    const imagenIndexParam = req.params.imagenIndex;
+    const proveedorId = Array.isArray(proveedorIdParam) ? proveedorIdParam[0] : proveedorIdParam;
+    const facturaIndex = Array.isArray(facturaIndexParam) ? facturaIndexParam[0] : facturaIndexParam;
+    const imagenIndex = Array.isArray(imagenIndexParam) ? imagenIndexParam[0] : imagenIndexParam;
+    const { imagen } = req.body;
+    
+    const { ObjectId } = await import('mongodb');
+    const collection = (database as any).getCollection('proveedores');
+    
+    const idx = parseInt(facturaIndex);
+    const imgIdx = parseInt(imagenIndex);
+    
+    const updateField = `facturas.${idx}.imagenes.${imgIdx}`;
+    await collection.updateOne(
+      { _id: new ObjectId(proveedorId) },
+      { $set: { [updateField]: imagen } }
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating image:', error);
+    res.status(500).json({ error: 'Error al actualizar imagen' });
+  }
+});
+
 app.get('/upload-factura/:token', async (req: Request, res: Response) => {
   const token = req.params.token as string;
   const uploadData = uploadTokens.get(token);
@@ -1028,13 +1127,27 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
         .datos-extraidos p {
           margin: 5px 0;
         }
+        .btn-cerrar {
+          margin-top: 15px;
+          width: 100%;
+          padding: 12px;
+          background: #28a745;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          font-size: 16px;
+          cursor: pointer;
+        }
+        .btn-cerrar:hover {
+          background: #218838;
+        }
       </style>
     </head>
     <body>
       <h1>📷 Subir Foto de Factura</h1>
       <div class="checkbox-container">
-        <input type="checkbox" id="extraerDatos" checked>
-        <label for="extraerDatos">🤖 Extraer datos automáticamente</label>
+        <input type="checkbox" id="extraerDatos">
+        <label for="extraerDatos">🤖 Extraer datos automáticamente (IA)</label>
       </div>
       <div class="upload-area" onclick="document.getElementById('fileInput').click()">
         <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFileSelect(event)">
@@ -1085,8 +1198,9 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
               document.getElementById('statusText').textContent = '✅ ¡Foto subida exitosamente!';
               document.getElementById('statusText').className = 'status success';
               
+              let datosHtml = '';
               if (data.datosExtraidos && Object.keys(data.datosExtraidos).length > 0) {
-                let datosHtml = '<div class="datos-extraidos">';
+                datosHtml = '<div class="datos-extraidos">';
                 datosHtml += '<h3>🤖 Datos Extraídos</h3>';
                 
                 const campos = [
@@ -1117,7 +1231,7 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
                   { key: 'direccion', label: 'Dirección' },
                   { key: 'serie', label: 'Serie' },
                 ];
-                
+
                 campos.forEach(campo => {
                   if (data.datosExtraidos[campo.key]) {
                     const valor = campo.isMoneda ? '$' + data.datosExtraidos[campo.key] : data.datosExtraidos[campo.key];
@@ -1126,8 +1240,14 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
                 });
                 
                 datosHtml += '</div>';
-                document.getElementById('datosExtraidos').innerHTML = datosHtml;
               }
+              
+              datosHtml += '<button onclick="window.close()" class="btn-cerrar">Cerrar</button>';
+              document.getElementById('datosExtraidos').innerHTML = datosHtml;
+              
+              setTimeout(() => {
+                window.close();
+              }, 5000);
             } else {
               document.getElementById('statusText').textContent = '❌ Error: ' + (data.error || 'Error al subir');
               document.getElementById('statusText').className = 'status error';
@@ -1288,7 +1408,7 @@ app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res:
     
     const updateData: any = {};
     if (uploadData.facturaIndex >= 0) {
-      updateData[`facturas.${uploadData.facturaIndex}.imagen`] = imagenBase64;
+      updateData[`facturas.${uploadData.facturaIndex}.imagenes`] = { $each: [imagenBase64] };
       if (datosExtraidos) {
         updateData[`facturas.${uploadData.facturaIndex}.datosExtraidos`] = datosExtraidos;
         if (datosExtraidos.numero) updateData[`facturas.${uploadData.facturaIndex}.numero`] = datosExtraidos.numero;
@@ -1304,17 +1424,21 @@ app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res:
         if (datosExtraidos.subtotal) updateData[`facturas.${uploadData.facturaIndex}.subtotal`] = datosExtraidos.subtotal;
         if (datosExtraidos.descuento) updateData[`facturas.${uploadData.facturaIndex}.descuento`] = datosExtraidos.descuento;
       }
+      
+      await collection.updateOne(
+        { _id: new ObjectId(uploadData.proveedorId) },
+        { $push: updateData }
+      );
     } else {
       updateData.imagenTemporal = imagenBase64;
       if (datosExtraidos) {
         updateData.datosExtraidos = datosExtraidos;
       }
+      await collection.updateOne(
+        { _id: new ObjectId(uploadData.proveedorId) },
+        { $set: updateData }
+      );
     }
-    
-    await collection.updateOne(
-      { _id: new ObjectId(uploadData.proveedorId) },
-      { $set: updateData }
-    );
     
     uploadTokens.delete(token);
     
