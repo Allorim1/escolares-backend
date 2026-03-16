@@ -512,13 +512,15 @@ app.put('/api/proveedores/:id', async (req: Request, res: Response) => {
     
     const updateData: any = { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias, modificadoPor: modificadoPor || 'Sistema', fechaModificacion: new Date() };
     
+    const updateOperation: any = { $set: updateData };
+    
     if (modificaciones.length > 0) {
-      updateData.$push = { modificaciones: { $each: modificaciones } };
+      updateOperation.$push = { modificaciones: { $each: modificaciones } };
     }
     
     await collection.updateOne(
       { _id: new ObjectId(id) },
-      { $set: updateData }
+      updateOperation
     );
     
     if (modificaciones.length > 0) {
