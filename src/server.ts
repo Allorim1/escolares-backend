@@ -9,6 +9,7 @@ import { authenticateToken } from './middlewares/auth.middleware';
 import QRCode from 'qrcode';
 import { randomBytes } from 'crypto';
 import multer from 'multer';
+import Tesseract from 'tesseract.js';
 
 import marcasRoutes from './routes/marcas.routes';
 import lineasRoutes from './routes/lineas.routes';
@@ -999,17 +1000,50 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
         .status.success { background: #d4edda; color: #155724; }
         .status.error { background: #f8d7da; color: #721c24; }
         .loading { text-align: center; padding: 20px; }
+        .checkbox-container {
+          margin: 15px 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .checkbox-container input {
+          width: auto;
+          margin-right: 8px;
+        }
+        .checkbox-container label {
+          font-size: 14px;
+          color: #333;
+        }
+        .datos-extraidos {
+          background: #e7f3ff;
+          border: 1px solid #b3d9ff;
+          border-radius: 8px;
+          padding: 15px;
+          margin-top: 15px;
+        }
+        .datos-extraidos h3 {
+          margin-top: 0;
+          color: #0066cc;
+        }
+        .datos-extraidos p {
+          margin: 5px 0;
+        }
       </style>
     </head>
     <body>
       <h1>📷 Subir Foto de Factura</h1>
+      <div class="checkbox-container">
+        <input type="checkbox" id="extraerDatos" checked>
+        <label for="extraerDatos">🤖 Extraer datos automáticamente</label>
+      </div>
       <div class="upload-area" onclick="document.getElementById('fileInput').click()">
         <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFileSelect(event)">
         <button class="btn-camera">📸 Tomar foto o seleccionar</button>
         <p id="statusText"></p>
       </div>
       <div class="preview" id="preview"></div>
-      <div class="loading" id="loading" style="display:none;">Subiendo...</div>
+      <div class="loading" id="loading" style="display:none;">Procesando imagen y extrayendo datos...</div>
+      <div id="datosExtraidos"></div>
       <script>
         let selectedFile = null;
         
@@ -1028,12 +1062,16 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
         async function uploadFile() {
           if (!selectedFile) return;
           
+          const extraerDatos = document.getElementById('extraerDatos').checked;
+          
           document.getElementById('loading').style.display = 'block';
-          document.getElementById('statusText').textContent = 'Subiendo imagen...';
+          document.getElementById('statusText').textContent = extraerDatos ? 'Procesando imagen y extrayendo datos con IA...' : 'Subiendo imagen...';
+          document.getElementById('datosExtraidos').innerHTML = '';
           
           const formData = new FormData();
           formData.append('imagen', selectedFile);
           formData.append('token', '${token}');
+          formData.append('extraerDatos', extraerDatos.toString());
           
           try {
             const response = await fetch('/api/facturas/upload-photo', {
@@ -1046,6 +1084,18 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
             if (response.ok) {
               document.getElementById('statusText').textContent = '✅ ¡Foto subida exitosamente!';
               document.getElementById('statusText').className = 'status success';
+              
+              if (data.datosExtraidos && Object.keys(data.datosExtraidos).length > 0) {
+                let datosHtml = '<div class="datos-extraidos">';
+                datosHtml += '<h3>🤖 Datos Extraídos</h3>';
+                if (data.datosExtraidos.numero) datosHtml += '<p><strong>Número:</strong> ' + data.datosExtraidos.numero + '</p>';
+                if (data.datosExtraidos.fecha) datosHtml += '<p><strong>Fecha:</strong> ' + data.datosExtraidos.fecha + '</p>';
+                if (data.datosExtraidos.monto) datosHtml += '<p><strong>Monto:</strong> $' + data.datosExtraidos.monto + '</p>';
+                if (data.datosExtraidos.rif) datosHtml += '<p><strong>RIF:</strong> ' + data.datosExtraidos.rif + '</p>';
+                if (data.datosExtraidos.montoIva) datosHtml += '<p><strong>IVA:</strong> $' + data.datosExtraidos.montoIva + '</p>';
+                datosHtml += '</div>';
+                document.getElementById('datosExtraidos').innerHTML = datosHtml;
+              }
             } else {
               document.getElementById('statusText').textContent = '❌ Error: ' + (data.error || 'Error al subir');
               document.getElementById('statusText').className = 'status error';
@@ -1063,12 +1113,43 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
   `);
 });
 
+function comprimirImagenBase64(base64String: string, maxWidth: number = 800, quality: number = 0.6): string {
+  return base64String;
+}
+
+function extraerDatosFactura(texto: string): any {
+  const datos: any = {};
+  
+  const numeroMatch = texto.match(/(?:N[°o]|#|Factura|factura|N)[.:\s]*([A-Z0-9\-]+)/i);
+  if (numeroMatch) datos.numero = numeroMatch[1].trim();
+  
+  const fechaMatch = texto.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (fechaMatch) {
+    const dia = fechaMatch[1].padStart(2, '0');
+    const mes = fechaMatch[2].padStart(2, '0');
+    const anio = fechaMatch[3].length === 2 ? `20${fechaMatch[3]}` : fechaMatch[3];
+    datos.fecha = `${anio}-${mes}-${dia}`;
+  }
+  
+  const montoMatch = texto.match(/(?:Total|monto|monto total|importe|amount)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (montoMatch) datos.monto = parseFloat(montoMatch[1].replace(/,/g, '.'));
+  
+  const rifMatch = texto.match(/(?:RIF|R.I.F.)[.:\s]*([JGVEP]\-?\d{6,9})/i);
+  if (rifMatch) datos.rif = rifMatch[1].toUpperCase();
+  
+  const ivaMatch = texto.match(/(?:IVA|impuesto)[%:\s]*[\$€£]?\s*([\d.,]+)/i);
+  if (ivaMatch) datos.montoIva = parseFloat(ivaMatch[1].replace(/,/g, '.'));
+  
+  return datos;
+}
+
 app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: Response) => {
   try {
     const token = req.body?.token as string;
     const files = req.files as any[];
     const file = files?.[0];
     const imagen = req.body?.imagen;
+    const extraerDatos = req.body?.extraerDatos === 'true';
     
     const uploadData = uploadTokens.get(token);
     
@@ -1088,18 +1169,50 @@ app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res:
       imagenBase64 = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     }
     
+    let datosExtraidos = null;
+    if (extraerDatos && imagenBase64) {
+      try {
+        const result = await Tesseract.recognize(imagenBase64, 'spa+eng', {
+          logger: m => console.log('OCR:', m)
+        });
+        const texto = result.data.text;
+        datosExtraidos = extraerDatosFactura(texto);
+        console.log('Datos extraídos:', datosExtraidos);
+      } catch (ocrError) {
+        console.error('Error en OCR:', ocrError);
+      }
+    }
+    
     const { ObjectId } = await import('mongodb');
     const collection = (database as any).getCollection('proveedores');
     
-    const updateField = `facturas.${uploadData.facturaIndex}.imagen`;
+    const updateData: any = {};
+    if (uploadData.facturaIndex >= 0) {
+      updateData[`facturas.${uploadData.facturaIndex}.imagen`] = imagenBase64;
+      if (datosExtraidos) {
+        if (datosExtraidos.numero) updateData[`facturas.${uploadData.facturaIndex}.numero`] = datosExtraidos.numero;
+        if (datosExtraidos.fecha) updateData[`facturas.${uploadData.facturaIndex}.fecha`] = new Date(datosExtraidos.fecha);
+        if (datosExtraidos.monto) updateData[`facturas.${uploadData.facturaIndex}.monto`] = datosExtraidos.monto;
+      }
+    } else {
+      updateData.imagenTemporal = imagenBase64;
+      if (datosExtraidos) {
+        updateData.datosExtraidos = datosExtraidos;
+      }
+    }
+    
     await collection.updateOne(
       { _id: new ObjectId(uploadData.proveedorId) },
-      { $set: { [updateField]: imagenBase64 } }
+      { $set: updateData }
     );
     
     uploadTokens.delete(token);
     
-    res.json({ success: true, message: 'Foto guardada exitosamente' });
+    res.json({ 
+      success: true, 
+      message: 'Foto guardada exitosamente',
+      datosExtraidos: datosExtraidos
+    });
   } catch (error) {
     console.error('Error uploading photo:', error);
     res.status(500).json({ error: 'Error al guardar la foto' });
