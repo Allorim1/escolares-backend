@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { marcasController } from '../controllers/marcas.controller';
+import { authenticateToken } from '../middlewares/auth.middleware';
 
 const router = Router();
 
@@ -73,7 +74,7 @@ router.get('/:id', (req: Request, res: Response) => marcasController.getById(req
  *             schema:
  *               $ref: '#/components/schemas/Marca'
  */
-router.post('/', (req: Request, res: Response) => marcasController.create(req, res));
+router.post('/', authenticateToken, (req: Request, res: Response) => marcasController.create(req, res));
 
 /**
  * @swagger
@@ -108,7 +109,7 @@ router.post('/', (req: Request, res: Response) => marcasController.create(req, r
  *       404:
  *         description: Marca no encontrada
  */
-router.put('/:id', (req: Request, res: Response) => marcasController.update(req, res));
+router.put('/:id', authenticateToken, (req: Request, res: Response) => marcasController.update(req, res));
 
 /**
  * @swagger
@@ -128,6 +129,6 @@ router.put('/:id', (req: Request, res: Response) => marcasController.update(req,
  *       404:
  *         description: Marca no encontrada
  */
-router.delete('/:id', (req: Request, res: Response) => marcasController.delete(req, res));
+router.delete('/:id', authenticateToken, (req: Request, res: Response) => marcasController.delete(req, res));
 
 export default router;
