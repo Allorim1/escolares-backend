@@ -55,7 +55,7 @@ export class OfertasController {
         res.status(404).json({ error: 'Oferta no encontrada' });
         return;
       }
-      res.status(204).send();
+      res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Error al eliminar oferta' });
     }
