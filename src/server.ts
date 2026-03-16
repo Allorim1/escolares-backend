@@ -646,11 +646,15 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
     };
     
     const collection = (database as any).getCollection('proveedores');
+    
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    const nuevoIndex = proveedor?.facturas?.length || 0;
+    
     await collection.updateOne(
       { _id: new ObjectId(id) },
       { $push: { facturas: factura } }
     );
-    res.json({ success: true });
+    res.json({ success: true, index: nuevoIndex });
   } catch (error) {
     console.error('Error agregando factura:', error);
     res.status(500).json({ error: 'Error al agregar factura' });
@@ -930,6 +934,11 @@ app.get('/api/facturas/imagenes/:proveedorId/:facturaIndex', async (req: Request
     if (!proveedor) {
       res.status(404).json({ error: 'Proveedor no encontrado' });
       return;
+    }
+    
+    if (parseInt(facturaIndex) < 0) {
+      const imagenTemporal = proveedor.imagenTemporal || null;
+      return res.json({ imagenes: imagenTemporal ? [imagenTemporal] : [], imagenTemporal });
     }
     
     const facturas = proveedor.facturas || [];
@@ -1406,38 +1415,46 @@ app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res:
     const { ObjectId } = await import('mongodb');
     const collection = (database as any).getCollection('proveedores');
     
-    const updateData: any = {};
     if (uploadData.facturaIndex >= 0) {
-      updateData[`facturas.${uploadData.facturaIndex}.imagenes`] = { $each: [imagenBase64] };
-      if (datosExtraidos) {
-        updateData[`facturas.${uploadData.facturaIndex}.datosExtraidos`] = datosExtraidos;
-        if (datosExtraidos.numero) updateData[`facturas.${uploadData.facturaIndex}.numero`] = datosExtraidos.numero;
-        if (datosExtraidos.fecha) updateData[`facturas.${uploadData.facturaIndex}.fecha`] = new Date(datosExtraidos.fecha);
-        if (datosExtraidos.monto) updateData[`facturas.${uploadData.facturaIndex}.monto`] = datosExtraidos.monto;
-        if (datosExtraidos.montoDollar) updateData[`facturas.${uploadData.facturaIndex}.monto`] = datosExtraidos.montoDollar;
-        if (datosExtraidos.baseImponible) updateData[`facturas.${uploadData.facturaIndex}.baseImponible`] = datosExtraidos.baseImponible;
-        if (datosExtraidos.baseExenta) updateData[`facturas.${uploadData.facturaIndex}.baseExenta`] = datosExtraidos.baseExenta;
-        if (datosExtraidos.montoIva) updateData[`facturas.${uploadData.facturaIndex}.montoIva`] = datosExtraidos.montoIva;
-        if (datosExtraidos.iva75) updateData[`facturas.${uploadData.facturaIndex}.iva75`] = datosExtraidos.iva75;
-        if (datosExtraidos.iva25) updateData[`facturas.${uploadData.facturaIndex}.iva25`] = datosExtraidos.iva25;
-        if (datosExtraidos.iva16) updateData[`facturas.${uploadData.facturaIndex}.iva16`] = datosExtraidos.iva16;
-        if (datosExtraidos.subtotal) updateData[`facturas.${uploadData.facturaIndex}.subtotal`] = datosExtraidos.subtotal;
-        if (datosExtraidos.descuento) updateData[`facturas.${uploadData.facturaIndex}.descuento`] = datosExtraidos.descuento;
-      }
+      const pushData: any = {};
+      pushData[`facturas.${uploadData.facturaIndex}.imagenes`] = { $each: [imagenBase64] };
       
       await collection.updateOne(
         { _id: new ObjectId(uploadData.proveedorId) },
-        { $push: updateData }
+        { $push: pushData }
       );
-    } else {
-      updateData.imagenTemporal = imagenBase64;
+      
       if (datosExtraidos) {
-        updateData.datosExtraidos = datosExtraidos;
+        const setData: any = {};
+        setData[`facturas.${uploadData.facturaIndex}.datosExtraidos`] = datosExtraidos;
+        if (datosExtraidos.numero) setData[`facturas.${uploadData.facturaIndex}.numero`] = datosExtraidos.numero;
+        if (datosExtraidos.fecha) setData[`facturas.${uploadData.facturaIndex}.fecha`] = new Date(datosExtraidos.fecha);
+        if (datosExtraidos.monto) setData[`facturas.${uploadData.facturaIndex}.monto`] = datosExtraidos.monto;
+        if (datosExtraidos.montoDollar) setData[`facturas.${uploadData.facturaIndex}.monto`] = datosExtraidos.montoDollar;
+        if (datosExtraidos.baseImponible) setData[`facturas.${uploadData.facturaIndex}.baseImponible`] = datosExtraidos.baseImponible;
+        if (datosExtraidos.baseExenta) setData[`facturas.${uploadData.facturaIndex}.baseExenta`] = datosExtraidos.baseExenta;
+        if (datosExtraidos.montoIva) setData[`facturas.${uploadData.facturaIndex}.montoIva`] = datosExtraidos.montoIva;
+        if (datosExtraidos.iva75) setData[`facturas.${uploadData.facturaIndex}.iva75`] = datosExtraidos.iva75;
+        if (datosExtraidos.iva25) setData[`facturas.${uploadData.facturaIndex}.iva25`] = datosExtraidos.iva25;
+        if (datosExtraidos.iva16) setData[`facturas.${uploadData.facturaIndex}.iva16`] = datosExtraidos.iva16;
+        if (datosExtraidos.subtotal) setData[`facturas.${uploadData.facturaIndex}.subtotal`] = datosExtraidos.subtotal;
+        if (datosExtraidos.descuento) setData[`facturas.${uploadData.facturaIndex}.descuento`] = datosExtraidos.descuento;
+        
+        await collection.updateOne(
+          { _id: new ObjectId(uploadData.proveedorId) },
+          { $set: setData }
+        );
+      }
+    } else {
+      const setData: any = { imagenTemporal: imagenBase64 };
+      if (datosExtraidos) {
+        setData.datosExtraidos = datosExtraidos;
       }
       await collection.updateOne(
         { _id: new ObjectId(uploadData.proveedorId) },
-        { $set: updateData }
+        { $set: setData }
       );
+    }
     }
     
     uploadTokens.delete(token);
@@ -1450,6 +1467,42 @@ app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res:
   } catch (error) {
     console.error('Error uploading photo:', error);
     res.status(500).json({ error: 'Error al guardar la foto' });
+  }
+});
+
+app.post('/api/facturas/save-temp-image', async (req: Request, res: Response) => {
+  try {
+    const { proveedorId, facturaIndex } = req.body;
+    
+    if (!proveedorId || facturaIndex === undefined) {
+      return res.status(400).json({ error: 'Faltan datos requeridos' });
+    }
+    
+    const { ObjectId } = await import('mongodb');
+    const collection = (database as any).getCollection('proveedores');
+    
+    const proveedor = await collection.findOne({ _id: new ObjectId(proveedorId) });
+    if (!proveedor) {
+      return res.status(404).json({ error: 'Proveedor no encontrado' });
+    }
+    
+    const imagenTemporal = proveedor.imagenTemporal;
+    if (!imagenTemporal) {
+      return res.json({ success: true, message: 'No hay imagen temporal' });
+    }
+    
+    await collection.updateOne(
+      { _id: new ObjectId(proveedorId) },
+      { 
+        $push: { [`facturas.${facturaIndex}.imagenes`]: imagenTemporal },
+        $unset: { imagenTemporal: '', datosExtraidos: '' }
+      }
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving temp image:', error);
+    res.status(500).json({ error: 'Error al guardar imagen temporal' });
   }
 });
 
