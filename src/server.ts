@@ -1088,11 +1088,43 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
               if (data.datosExtraidos && Object.keys(data.datosExtraidos).length > 0) {
                 let datosHtml = '<div class="datos-extraidos">';
                 datosHtml += '<h3>🤖 Datos Extraídos</h3>';
-                if (data.datosExtraidos.numero) datosHtml += '<p><strong>Número:</strong> ' + data.datosExtraidos.numero + '</p>';
-                if (data.datosExtraidos.fecha) datosHtml += '<p><strong>Fecha:</strong> ' + data.datosExtraidos.fecha + '</p>';
-                if (data.datosExtraidos.monto) datosHtml += '<p><strong>Monto:</strong> $' + data.datosExtraidos.monto + '</p>';
-                if (data.datosExtraidos.rif) datosHtml += '<p><strong>RIF:</strong> ' + data.datosExtraidos.rif + '</p>';
-                if (data.datosExtraidos.montoIva) datosHtml += '<p><strong>IVA:</strong> $' + data.datosExtraidos.montoIva + '</p>';
+                
+                const campos = [
+                  { key: 'numero', label: 'Número' },
+                  { key: 'numeroControl', label: 'Nro Control' },
+                  { key: 'rif', label: 'RIF' },
+                  { key: 'nombre', label: 'Proveedor' },
+                  { key: 'fecha', label: 'Fecha' },
+                  { key: 'fechaVencimiento', label: 'Vencimiento' },
+                  { key: 'subtotal', label: 'Subtotal', isMoneda: true },
+                  { key: 'descuento', label: 'Descuento', isMoneda: true },
+                  { key: 'baseImponible', label: 'Base Imponible', isMoneda: true },
+                  { key: 'baseExenta', label: 'Base Exenta', isMoneda: true },
+                  { key: 'iva16', label: 'IVA 16%', isMoneda: true },
+                  { key: 'iva12', label: 'IVA 12%', isMoneda: true },
+                  { key: 'ivaGeneral', label: 'IVA 21%', isMoneda: true },
+                  { key: 'iva75', label: 'IVA 75%', isMoneda: true },
+                  { key: 'iva25', label: 'IVA 25%', isMoneda: true },
+                  { key: 'montoIva', label: 'IVA', isMoneda: true },
+                  { key: 'monto', label: 'Total', isMoneda: true },
+                  { key: 'montoDollar', label: 'Total $', isMoneda: true },
+                  { key: 'efectivo', label: 'Efectivo', isMoneda: true },
+                  { key: 'tarjeta', label: 'Tarjeta', isMoneda: true },
+                  { key: 'cambio', label: 'Cambio', isMoneda: true },
+                  { key: 'diasCredito', label: 'Días Crédito' },
+                  { key: 'retencion', label: 'Retención', isMoneda: true },
+                  { key: 'telefono', label: 'Teléfono' },
+                  { key: 'direccion', label: 'Dirección' },
+                  { key: 'serie', label: 'Serie' },
+                ];
+                
+                campos.forEach(campo => {
+                  if (data.datosExtraidos[campo.key]) {
+                    const valor = campo.isMoneda ? '$' + data.datosExtraidos[campo.key] : data.datosExtraidos[campo.key];
+                    datosHtml += '<p><strong>' + campo.label + ':</strong> ' + valor + '</p>';
+                  }
+                });
+                
                 datosHtml += '</div>';
                 document.getElementById('datosExtraidos').innerHTML = datosHtml;
               }
@@ -1118,10 +1150,15 @@ function comprimirImagenBase64(base64String: string, maxWidth: number = 800, qua
 }
 
 function extraerDatosFactura(texto: string): any {
+  console.log('Texto OCR:', texto.substring(0, 500));
+  
   const datos: any = {};
   
   const numeroMatch = texto.match(/(?:N[°o]|#|Factura|factura|N)[.:\s]*([A-Z0-9\-]+)/i);
   if (numeroMatch) datos.numero = numeroMatch[1].trim();
+  
+  const controlMatch = texto.match(/(?:N[°o]?\s*Control|Control)[.:\s]*([\d\-]+)/i);
+  if (controlMatch) datos.numeroControl = controlMatch[1].trim();
   
   const fechaMatch = texto.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
   if (fechaMatch) {
@@ -1131,15 +1168,76 @@ function extraerDatosFactura(texto: string): any {
     datos.fecha = `${anio}-${mes}-${dia}`;
   }
   
-  const montoMatch = texto.match(/(?:Total|monto|monto total|importe|amount)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  const fechaVencMatch = texto.match(/(?:Vence?|Vencimiento|Fecha\s*vto)[.:\s]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+  if (fechaVencMatch) datos.fechaVencimiento = fechaVencMatch[1];
+  
+  const rifMatch = texto.match(/(?:RIF|R\.I\.F\.)[.:\s]*([JGVEP]\-?\d{6,9}[A-Z]?)/i);
+  if (rifMatch) datos.rif = rifMatch[1].toUpperCase().replace(/\s/g, '');
+  
+  const nombreMatch = texto.match(/(?:Proveedor|Cliente|Raz[óo]n\s*Social|Establecimiento)[.:\s]*([^\n]{3,50})/i);
+  if (nombreMatch) datos.nombre = nombreMatch[1].trim();
+  
+  const telefonoMatch = texto.match(/(?:Tel|Teléfono|Fono)[.:\s]*([\d\-\+\(\)]{7,20})/i);
+  if (telefonoMatch) datos.telefono = telefonoMatch[1].trim();
+  
+  const direccionMatch = texto.match(/(?:Dir|Direcci[óo]n|Address)[.:\s]*([^\n]{10,100})/i);
+  if (direccionMatch) datos.direccion = direccionMatch[1].trim();
+  
+  const subtotalMatch = texto.match(/(?:Subtotal|Sub\s*Total|Brut[oa])[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (subtotalMatch) datos.subtotal = parseFloat(subtotalMatch[1].replace(/,/g, '.'));
+  
+  const descuentoMatch = texto.match(/(?:Descuento|Desc|Discount)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (descuentoMatch) datos.descuento = parseFloat(descuentoMatch[1].replace(/,/g, '.'));
+  
+  const baseImponibleMatch = texto.match(/(?:Base\s*Imponible|Base\s*Tributable|Gravable)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (baseImponibleMatch) datos.baseImponible = parseFloat(baseImponibleMatch[1].replace(/,/g, '.'));
+  
+  const montoMatch = texto.match(/(?:Total\s*(?:a\s*)?Pagar|Total\s*General|Total\s*Factura|Importe\s*Total|Grand\s*Total)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
   if (montoMatch) datos.monto = parseFloat(montoMatch[1].replace(/,/g, '.'));
   
-  const rifMatch = texto.match(/(?:RIF|R.I.F.)[.:\s]*([JGVEP]\-?\d{6,9})/i);
-  if (rifMatch) datos.rif = rifMatch[1].toUpperCase();
+  const montoDollarMatch = texto.match(/(?:Total\s*\$|Total\s*US\$|Total\s*USD)[.\s:]*([\d.,]+)/i);
+  if (montoDollarMatch) datos.montoDollar = parseFloat(montoDollarMatch[1].replace(/,/g, '.'));
   
-  const ivaMatch = texto.match(/(?:IVA|impuesto)[%:\s]*[\$€£]?\s*([\d.,]+)/i);
+  const iva16Match = texto.match(/(?:IVA\s*16%|IVA\s*16|IVA\s*reduci[td]o)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (iva16Match) datos.iva16 = parseFloat(iva16Match[1].replace(/,/g, '.'));
+  
+  const iva12Match = texto.match(/(?:IVA\s*12%|IVA\s*12)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (iva12Match) datos.iva12 = parseFloat(iva12Match[1].replace(/,/g, '.'));
+  
+  const ivaGeneralMatch = texto.match(/(?:IVA\s*(?:general)?\s*21%|IVA\s*21|IVA\s*general)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (ivaGeneralMatch) datos.ivaGeneral = parseFloat(ivaGeneralMatch[1].replace(/,/g, '.'));
+  
+  const ivaMatch = texto.match(/(?:IVA|Impuesto|TAX)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
   if (ivaMatch) datos.montoIva = parseFloat(ivaMatch[1].replace(/,/g, '.'));
   
+  const exentoMatch = texto.match(/(?:Exento|Exenta|Base\s*Exenta|Base\s*0%)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (exentoMatch) datos.baseExenta = parseFloat(exentoMatch[1].replace(/,/g, '.'));
+  
+  const iva75Match = texto.match(/(?:IVA\s*75%|IVA\s*Reduci[td]o\s*75%)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (iva75Match) datos.iva75 = parseFloat(iva75Match[1].replace(/,/g, '.'));
+  
+  const iva25Match = texto.match(/(?:IVA\s*25%|IVA\s*Adicional\s*25%)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (iva25Match) datos.iva25 = parseFloat(iva25Match[1].replace(/,/g, '.'));
+  
+  const retencionMatch = texto.match(/(?:Retenci[óo]n|ISR|Ret)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (retencionMatch) datos.retencion = parseFloat(retencionMatch[1].replace(/,/g, '.'));
+  
+  const creditoMatch = texto.match(/(?:D[íoa]s?\s*cr[éo]dito|Cr[éo]dito\s*(?:a|a\s*)?\s*(\d+)\s*d[íoa]s)/i);
+  if (creditoMatch) datos.diasCredito = parseInt(creditoMatch[1]);
+  
+  const efectivoMatch = texto.match(/(?:Efectivo|Paid\s*Cash|Cash)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (efectivoMatch) datos.efectivo = parseFloat(efectivoMatch[1].replace(/,/g, '.'));
+  
+  const cambioMatch = texto.match(/(?:Cambio|Change|Vuelto)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (cambioMatch) datos.cambio = parseFloat(cambioMatch[1].replace(/,/g, '.'));
+  
+  const tarjetaMatch = texto.match(/(?:Tarjeta|D[éo]bito|Cr[éo]dito\s*(?:card)?)[$€£]?\s*:?\s*[\$€£]?\s*([\d.,]+)/i);
+  if (tarjetaMatch) datos.tarjeta = parseFloat(tarjetaMatch[1].replace(/,/g, '.'));
+  
+  const serieMatch = texto.match(/(?:Serie|S\/N|SN)[.:\s]*([A-Z0-9\-]+)/i);
+  if (serieMatch) datos.serie = serieMatch[1].trim();
+  
+  console.log('Datos extraídos:', datos);
   return datos;
 }
 
@@ -1190,9 +1288,19 @@ app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res:
     if (uploadData.facturaIndex >= 0) {
       updateData[`facturas.${uploadData.facturaIndex}.imagen`] = imagenBase64;
       if (datosExtraidos) {
+        updateData[`facturas.${uploadData.facturaIndex}.datosExtraidos`] = datosExtraidos;
         if (datosExtraidos.numero) updateData[`facturas.${uploadData.facturaIndex}.numero`] = datosExtraidos.numero;
         if (datosExtraidos.fecha) updateData[`facturas.${uploadData.facturaIndex}.fecha`] = new Date(datosExtraidos.fecha);
         if (datosExtraidos.monto) updateData[`facturas.${uploadData.facturaIndex}.monto`] = datosExtraidos.monto;
+        if (datosExtraidos.montoDollar) updateData[`facturas.${uploadData.facturaIndex}.monto`] = datosExtraidos.montoDollar;
+        if (datosExtraidos.baseImponible) updateData[`facturas.${uploadData.facturaIndex}.baseImponible`] = datosExtraidos.baseImponible;
+        if (datosExtraidos.baseExenta) updateData[`facturas.${uploadData.facturaIndex}.baseExenta`] = datosExtraidos.baseExenta;
+        if (datosExtraidos.montoIva) updateData[`facturas.${uploadData.facturaIndex}.montoIva`] = datosExtraidos.montoIva;
+        if (datosExtraidos.iva75) updateData[`facturas.${uploadData.facturaIndex}.iva75`] = datosExtraidos.iva75;
+        if (datosExtraidos.iva25) updateData[`facturas.${uploadData.facturaIndex}.iva25`] = datosExtraidos.iva25;
+        if (datosExtraidos.iva16) updateData[`facturas.${uploadData.facturaIndex}.iva16`] = datosExtraidos.iva16;
+        if (datosExtraidos.subtotal) updateData[`facturas.${uploadData.facturaIndex}.subtotal`] = datosExtraidos.subtotal;
+        if (datosExtraidos.descuento) updateData[`facturas.${uploadData.facturaIndex}.descuento`] = datosExtraidos.descuento;
       }
     } else {
       updateData.imagenTemporal = imagenBase64;
