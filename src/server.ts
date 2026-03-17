@@ -15,6 +15,7 @@ import marcasRoutes from './routes/marcas.routes';
 import lineasRoutes from './routes/lineas.routes';
 import ofertasRoutes from './routes/ofertas.routes';
 import authRoutes from './routes/auth.routes';
+import productsRoutes from './routes/products.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -900,6 +901,7 @@ app.use('/api/marcas', marcasRoutes);
 app.use('/api/lineas', lineasRoutes);
 app.use('/api/ofertas', ofertasRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/products', productsRoutes);
 
 const uploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; expiresAt: Date }>();
 
