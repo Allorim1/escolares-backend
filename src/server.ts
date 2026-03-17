@@ -42,6 +42,8 @@ const DOLAR_API_KEY = 'bbbd54363b1dd358ef88e852f45273054a48d95626fecab50090e3cae
 const DOLAR_API_URL = 'https://api.dolarvzla.com/public/bcv/exchange-rate';
 const USDT_API_URL = 'https://api.dolarvzla.com/public/usdt/exchange-rate';
 
+const qrUploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; timestamp: number }>();
+
 app.get('/api/tasas', async (req: Request, res: Response) => {
   try {
     const [bcvRes, usdtRes] = await Promise.all([
@@ -588,7 +590,7 @@ app.delete('/api/proveedores/:id', authenticateToken, async (req: Request, res: 
 app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, porcentajeIva } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, porcentajeIva, imagenes } = req.body;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     
@@ -611,7 +613,7 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       iva25 = 0;
       totalPagar = baseEx;
       deudaActual = baseEx;
-      deudaIva = 0;
+      ivaIva = 0;
       deudaIva25 = 0;
     } else {
       const ivaPorcentaje = porcentajeIva || 0;
@@ -624,7 +626,7 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       deudaIva25 = iva25;
     }
     
-    const factura = {
+    const factura: any = {
       numero,
       tipo: tipoDoc,
       monto: monto || 0,
@@ -644,6 +646,10 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       deudaIva: deudaIva,
       deudaIva25: deudaIva25 || 0,
     };
+    
+    if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
+      factura.imagenes = imagenes;
+    }
     
     const collection = (database as any).getCollection('proveedores');
     
@@ -669,7 +675,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
     const indexParam = req.params.index;
     const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
     
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, abonos, totalPagar } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, abonos, totalPagar, imagenes } = req.body;
     
     const collection = (database as any).getCollection('proveedores');
     const proveedor = await collection.findOne({ _id: new ObjectId(id) });
@@ -680,6 +686,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
     }
     
     const factura = proveedor.facturas[index];
+    const imagenesActuales = factura.imagenes || [];
     const tipoDoc = tipo || factura.tipo || 'factura';
     let nuevaBaseImponible = baseImponible !== undefined ? baseImponible : factura.baseImponible;
     let nuevaBaseExenta = baseExenta !== undefined ? baseExenta : (factura.baseExenta || 0);
@@ -733,6 +740,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
       deudaActual,
       deudaIva,
       deudaIva25,
+      imagenes: imagenes !== undefined ? imagenes : imagenesActuales,
     };
     
     await collection.updateOne(
