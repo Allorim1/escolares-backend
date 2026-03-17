@@ -916,12 +916,9 @@ app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, re
     const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
     const uploadUrl = `${baseUrl}/upload-factura/${token}`;
     
-    const qrDataUrl = await QRCode.toDataURL(uploadUrl, {
-      width: 300,
-      margin: 2,
-    });
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
     
-    res.json({ qrCode: qrDataUrl, uploadUrl, expiresAt: expiresAt.toISOString() });
+    res.json({ qrCode: qrApiUrl, uploadUrl, expiresAt: expiresAt.toISOString() });
   } catch (error) {
     console.error('Error generating QR:', error);
     res.status(500).json({ error: 'Error al generar código QR' });
