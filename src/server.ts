@@ -1463,7 +1463,6 @@ app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res:
         { $set: setData }
       );
     }
-    }
     
     uploadTokens.delete(token);
     
