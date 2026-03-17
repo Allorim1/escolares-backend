@@ -613,7 +613,7 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       iva25 = 0;
       totalPagar = baseEx;
       deudaActual = baseEx;
-      ivaIva = 0;
+      deudaIva = 0;
       deudaIva25 = 0;
     } else {
       const ivaPorcentaje = porcentajeIva || 0;
