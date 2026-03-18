@@ -64,34 +64,6 @@ export class AuthController {
     }
   }
 
-      const tokens = jwtConfig.generateTokens({
-        userId: newUser.id,
-        email: newUser.email,
-        rol: newUser.rol || 'usuario',
-      });
-
-      res.cookie('accessToken', tokens.accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 15 * 60 * 1000,
-      });
-
-      res.cookie('refreshToken', tokens.refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-
-      const { password: _, ...userWithoutPassword } = newUser;
-      res.status(201).json(userWithoutPassword);
-    } catch (error) {
-      console.error('Error en register:', error);
-      res.status(500).json({ error: 'Error al registrar usuario' });
-    }
-  }
-
   async login(req: Request, res: Response): Promise<void> {
     try {
       const { email, username, password } = req.body;
