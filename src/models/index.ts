@@ -103,6 +103,8 @@ export interface Rol {
   descripcion: string;
   permisos: string[];
   esDefault: boolean;
+  esVendedor: boolean;
+  comision: number;
   createdAt: Date;
   updatedAt: Date;
 }

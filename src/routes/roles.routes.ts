@@ -125,27 +125,26 @@ router.put('/:id', authenticateToken, requireRoot, async (req: Request, res: Res
     }
 
     const { id } = req.params;
-    const { nombre, descripcion, permisos, esDefault } = req.body;
+    const { nombre, descripcion, permisos, esDefault, esVendedor, comision } = req.body;
 
-    const existingRol = await database.getCollection<Rol>('roles').findOne({ id });
-    if (!existingRol) {
+    const existingRolById = await database.getCollection<Rol>('roles').findOne({ id });
+    if (!existingRolById) {
       res.status(404).json({ error: 'Rol no encontrado' });
       return;
     }
 
-    if (existingRol.nombre === 'owner' && solicitanteRol !== 'root') {
-      res.status(403).json({ error: 'No puedes editar el rol de owner' });
+    if (existingRolById.nombre === 'root' || existingRolById.nombre === 'owner') {
+      res.status(400).json({ error: 'No puedes editar roles del sistema' });
       return;
     }
 
-    const updateData: Partial<Rol> = {
-      updatedAt: new Date(),
-    };
-
+    const updateData: Partial<Rol> = {};
     if (nombre !== undefined) updateData.nombre = nombre;
     if (descripcion !== undefined) updateData.descripcion = descripcion;
     if (permisos !== undefined) updateData.permisos = permisos;
     if (esDefault !== undefined) updateData.esDefault = esDefault;
+    if (esVendedor !== undefined) updateData.esVendedor = esVendedor;
+    if (comision !== undefined) updateData.comision = comision;
 
     const result = await database.getCollection<Rol>('roles').findOneAndUpdate(
       { id },
