@@ -52,9 +52,8 @@ router.get('/', async (req: Request, res: Response) => {
       await database.getCollection('home').insertOne({ type: 'settings', ...defaultSettings });
       return res.json(defaultSettings);
     }
-    delete home._id;
-    delete home.type;
-    res.json(home);
+    const { _id, type, ...rest } = home;
+    res.json(rest);
   } catch (error) {
     console.error('Error getting home settings:', error);
     res.status(500).json({ error: 'Error al obtener configuración del inicio' });
@@ -83,9 +82,12 @@ router.put('/', authenticateToken, async (req: Request, res: Response) => {
     );
 
     const updated = await database.getCollection('home').findOne({ type: 'settings' });
-    delete updated?._id;
-    delete updated?.type;
-    res.json(updated);
+    if (updated) {
+      const { _id, type, ...rest } = updated;
+      res.json(rest);
+    } else {
+      res.json(null);
+    }
   } catch (error) {
     console.error('Error updating home settings:', error);
     res.status(500).json({ error: 'Error al actualizar configuración del inicio' });
