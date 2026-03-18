@@ -264,10 +264,10 @@ export class AuthController {
 
   async updateRol(req: Request, res: Response): Promise<void> {
     try {
-      const { targetUserId, rol } = req.body;
+      const { targetUserId, rol, rolId } = req.body;
       const solicitanteRol = (req as any).userRol;
 
-      if (!targetUserId || !rol) {
+      if (!targetUserId || (!rol && !rolId)) {
         res.status(400).json({ error: 'ID de usuario y rol requeridos' });
         return;
       }
@@ -292,11 +292,20 @@ export class AuthController {
         return;
       }
 
+      const updateData: Partial<User> = {};
+      if (rol) {
+        updateData.rol = rol;
+        updateData.isAdmin = rol === 'admin';
+      }
+      if (rolId !== undefined) {
+        updateData.rolId = rolId;
+      }
+
       const result = await database
         .getCollection<User>('users')
         .findOneAndUpdate(
           { id: targetUserId },
-          { $set: { rol, isAdmin: rol === 'admin' } },
+          { $set: updateData },
           { returnDocument: 'after' },
         );
 

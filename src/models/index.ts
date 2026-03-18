@@ -28,6 +28,7 @@ export interface User {
   isAdmin: boolean;
   isOwner?: boolean;
   rol?: 'owner' | 'admin' | 'empleado' | 'usuario';
+  rolId?: string;
   nombreCompleto?: string;
   direccion?: string;
   telefono?: string;
@@ -51,4 +52,56 @@ export interface Product {
   marcaId?: string;
   lineaId?: string;
   stock: number;
+}
+
+export interface OrderItem {
+  productId: number | string;
+  title: string;
+  price: number;
+  quantity: number;
+  image: string;
+}
+
+export interface Order {
+  _id?: string;
+  id: string;
+  userId: string;
+  items: OrderItem[];
+  total: number;
+  nombre: string;
+  cedula: string;
+  telefono: string;
+  direccion: string;
+  metodoPago: string;
+  referencia: string;
+  status: OrderStatus;
+  historial: OrderHistorial[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type OrderStatus = 'pendiente' | 'procesando' | 'enviado' | 'entregado' | 'cancelado';
+
+export interface OrderHistorial {
+  status: OrderStatus;
+  fecha: Date;
+  observaciones?: string;
+}
+
+export interface Permiso {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  modulo: string;
+}
+
+export interface Rol {
+  _id?: string;
+  id: string;
+  nombre: string;
+  descripcion: string;
+  permisos: string[];
+  esDefault: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
