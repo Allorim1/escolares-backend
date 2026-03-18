@@ -102,6 +102,8 @@ router.post('/', authenticateToken, requireRoot, async (req: Request, res: Respo
       descripcion: descripcion || '',
       permisos: permisos || [],
       esDefault: esDefault || false,
+      esVendedor: esVendedor || false,
+      comision: comision || 0,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
