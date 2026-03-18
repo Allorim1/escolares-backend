@@ -8,10 +8,10 @@ import { AuthRequest } from '../middlewares/auth.middleware';
 export class AuthController {
   async register(req: Request, res: Response): Promise<void> {
     try {
-      const { username, email, password } = req.body;
+      const { username, email, password, rif, telefono, direccion, tipoPersona } = req.body;
 
-      if (!username || !email || !password) {
-        res.status(400).json({ error: 'Todos los campos son requeridos' });
+      if (!username || !email || !password || !rif || !telefono || !direccion) {
+        res.status(400).json({ error: 'Todos los campos son requeridos, incluyendo tipo de persona' });
         return;
       }
 
@@ -35,6 +35,10 @@ export class AuthController {
         password: hashedPassword,
         isAdmin: false,
         rol: 'usuario',
+        cedula: rif,
+        telefono,
+        direccion,
+        tipoPersona: tipoPersona as 'natural' | 'juridica' || 'natural',
       };
 
       await database.getCollection<User>('users').insertOne(newUser);

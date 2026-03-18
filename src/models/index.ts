@@ -33,6 +33,7 @@ export interface User {
   direccion?: string;
   telefono?: string;
   cedula?: string;
+  tipoPersona?: 'natural' | 'juridica';
   direcciones?: Direccion[];
 }
 
