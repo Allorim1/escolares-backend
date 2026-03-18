@@ -5,6 +5,21 @@ import { Rol } from '../models';
 
 const router = Router();
 
+const isRoot = (req: Request): boolean => {
+  const userRol = (req as any).userRol;
+  return userRol === 'root';
+};
+
+const requireRoot = (req: Request, res: Response, next: () => void) => {
+  const userRol = (req as any).userRol;
+  console.log('requireRoot - userRol:', userRol, 'isRoot:', isRoot(req));
+  if (!isRoot(req)) {
+    res.status(403).json({ error: 'Solo el usuario root puede acceder a esta sección', debug: { userRol } });
+    return;
+  }
+  next();
+};
+
 const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modulo: string }[] = [
   { id: 'ver_productos', nombre: 'Ver Productos', descripcion: 'Puede ver la lista de productos', modulo: 'productos' },
   { id: 'crear_productos', nombre: 'Crear Productos', descripcion: 'Puede crear nuevos productos', modulo: 'productos' },
@@ -30,7 +45,7 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
   { id: 'ver_reportes', nombre: 'Ver Reportes', descripcion: 'Puede ver reportes y estadísticas', modulo: 'reportes' },
 ];
 
-router.get('/permisos', authenticateToken, async (req: Request, res: Response) => {
+router.get('/permisos', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
     res.json(DEFAULT_PERMISOS);
   } catch (error) {
@@ -39,7 +54,7 @@ router.get('/permisos', authenticateToken, async (req: Request, res: Response) =
   }
 });
 
-router.get('/', authenticateToken, async (req: Request, res: Response) => {
+router.get('/', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
     const roles = await database.getCollection<Rol>('roles').find({}).toArray();
     res.json(roles);
@@ -49,7 +64,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
-router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
+router.get('/:id', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const rol = await database.getCollection<Rol>('roles').findOne({ id });
@@ -66,15 +81,8 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
-router.post('/', authenticateToken, async (req: Request, res: Response) => {
+router.post('/', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
-    const solicitanteRol = (req as any).userRol;
-    
-    if (solicitanteRol !== 'owner' && solicitanteRol !== 'admin') {
-      res.status(403).json({ error: 'No tienes permisos para crear roles' });
-      return;
-    }
-
     const { nombre, descripcion, permisos, esDefault } = req.body;
 
     if (!nombre) {
@@ -107,11 +115,11 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
-router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
+router.put('/:id', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
     const solicitanteRol = (req as any).userRol;
     
-    if (solicitanteRol !== 'owner' && solicitanteRol !== 'admin') {
+    if (solicitanteRol !== 'root') {
       res.status(403).json({ error: 'No tienes permisos para editar roles' });
       return;
     }
@@ -125,7 +133,7 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
       return;
     }
 
-    if (existingRol.nombre === 'owner' && solicitanteRol !== 'owner') {
+    if (existingRol.nombre === 'owner' && solicitanteRol !== 'root') {
       res.status(403).json({ error: 'No puedes editar el rol de owner' });
       return;
     }
@@ -152,12 +160,12 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
+router.delete('/:id', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
     const solicitanteRol = (req as any).userRol;
     
-    if (solicitanteRol !== 'owner') {
-      res.status(403).json({ error: 'Solo el owner puede eliminar roles' });
+    if (solicitanteRol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede eliminar roles' });
       return;
     }
 
@@ -169,7 +177,7 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
       return;
     }
 
-    if (existingRol.nombre === 'owner') {
+    if (existingRol.nombre === 'root' || existingRol.nombre === 'owner') {
       res.status(400).json({ error: 'No puedes eliminar el rol de owner' });
       return;
     }

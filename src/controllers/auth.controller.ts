@@ -52,6 +52,27 @@ export class AuthController {
       res.cookie('accessToken', tokens.accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000,
+      });
+
+      const { password: _, ...userWithoutPassword } = newUser;
+      res.status(201).json(userWithoutPassword);
+    } catch (error) {
+      console.error('Error en registro:', error);
+      res.status(500).json({ error: 'Error al registrar usuario' });
+    }
+  }
+
+      const tokens = jwtConfig.generateTokens({
+        userId: newUser.id,
+        email: newUser.email,
+        rol: newUser.rol || 'usuario',
+      });
+
+      res.cookie('accessToken', tokens.accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
         maxAge: 15 * 60 * 1000,
       });
@@ -276,30 +297,21 @@ export class AuthController {
         return;
       }
 
-      if (rol === 'owner') {
-        res.status(403).json({ error: 'No se puede asignar rol de owner' });
+      if (rol === 'root') {
+        res.status(403).json({ error: 'No se puede asignar rol de root' });
         return;
       }
 
-      if (rol === 'admin' && solicitanteRol !== 'owner') {
-        res.status(403).json({ error: 'Solo el owner puede asignar rol de admin' });
-        return;
-      }
-
-      if (rol === 'empleado' && solicitanteRol === 'usuario') {
-        res.status(403).json({ error: 'No tienes permisos para asignar roles' });
-        return;
-      }
-
-      if (solicitanteRol === 'admin' && rol === 'admin') {
-        res.status(403).json({ error: 'Un admin no puede asignar rol de admin' });
+      if (rol === 'owner' && solicitanteRol !== 'root') {
+        res.status(403).json({ error: 'Solo el usuario root puede asignar rol de owner' });
         return;
       }
 
       const updateData: Partial<User> = {};
       if (rol) {
-        updateData.rol = rol;
-        updateData.isAdmin = rol === 'admin';
+        updateData.rol = rol as 'owner' | 'usuario';
+        updateData.isAdmin = rol === 'owner';
+        updateData.isOwner = rol === 'owner';
       }
       if (rolId !== undefined) {
         updateData.rolId = rolId;
