@@ -31,6 +31,14 @@ export interface User {
   nombreCompleto?: string;
   direccion?: string;
   telefono?: string;
+  cedula?: string;
+  direcciones?: Direccion[];
+}
+
+export interface Direccion {
+  id: string;
+  nombre: string;
+  direccion: string;
 }
 
 export interface Product {

@@ -227,12 +227,13 @@ export class AuthController {
     }
   }
 
-  async update(req: Request, res: Response): Promise<void> {
+  async update(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { userId, username, email, nombreCompleto, direccion, telefono } = req.body;
+      const userId = req.user?.userId;
+      const { username, email, nombreCompleto, direccion, telefono, cedula, direcciones } = req.body;
 
       if (!userId) {
-        res.status(400).json({ error: 'ID de usuario requerido' });
+        res.status(401).json({ error: 'No autorizado' });
         return;
       }
 
@@ -242,6 +243,8 @@ export class AuthController {
       if (nombreCompleto !== undefined) updateData.nombreCompleto = nombreCompleto;
       if (direccion !== undefined) updateData.direccion = direccion;
       if (telefono !== undefined) updateData.telefono = telefono;
+      if (cedula !== undefined) updateData.cedula = cedula;
+      if (direcciones !== undefined) updateData.direcciones = direcciones;
 
       const result = await database
         .getCollection<User>('users')
