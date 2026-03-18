@@ -127,12 +127,13 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
       cancelado: 'Pedido cancelado',
     };
 
+    const validStatus = status as OrderStatus;
     const updatedHistorial = [
       ...order.historial,
       {
-        status,
+        status: validStatus,
         fecha: new Date(),
-        observaciones: observaciones || statusLabels[status],
+        observaciones: observaciones || statusLabels[validStatus],
       },
     ];
 
@@ -140,7 +141,7 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
       { id },
       {
         $set: {
-          status,
+          status: validStatus,
           historial: updatedHistorial,
           updatedAt: new Date(),
         },
