@@ -81,7 +81,7 @@ export interface Order {
   updatedAt: Date;
 }
 
-export type OrderStatus = 'pendiente' | 'procesando' | 'enviado' | 'entregado' | 'cancelado';
+export type OrderStatus = 'confirmar' | 'pendiente' | 'procesando' | 'enviado' | 'entregado' | 'cancelado';
 
 export interface OrderHistorial {
   status: OrderStatus;

@@ -106,7 +106,7 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
       return;
     }
 
-    const validStatuses: OrderStatus[] = ['pendiente', 'procesando', 'enviado', 'entregado', 'cancelado'];
+    const validStatuses: OrderStatus[] = ['confirmar', 'pendiente', 'procesando', 'enviado', 'entregado', 'cancelado'];
     if (!validStatuses.includes(status)) {
       res.status(400).json({ error: 'Estado inválido' });
       return;
@@ -120,6 +120,7 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
     }
 
     const statusLabels: Record<OrderStatus, string> = {
+      confirmar: 'Esperando confirmación',
       pendiente: 'Pedido recibido',
       procesando: 'Pedido en proceso',
       enviado: 'Pedido enviado',
@@ -153,6 +154,32 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
   } catch (error) {
     console.error('Error updating order status:', error);
     res.status(500).json({ error: 'Error al actualizar estado del pedido' });
+  }
+});
+
+router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.userId;
+
+    const order = await database.getCollection<Order>('orders').findOne({ id, userId });
+
+    if (!order) {
+      res.status(404).json({ error: 'Pedido no encontrado' });
+      return;
+    }
+
+    if (order.status !== 'confirmar') {
+      res.status(400).json({ error: 'Solo se pueden eliminar pedidos en espera de confirmación' });
+      return;
+    }
+
+    await database.getCollection<Order>('orders').deleteOne({ id });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting order:', error);
+    res.status(500).json({ error: 'Error al eliminar pedido' });
   }
 });
 
