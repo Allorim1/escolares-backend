@@ -1130,12 +1130,13 @@ app.get('/upload-pago/:token', async (req: Request, res: Response) => {
   `);
 });
 
-app.post('/api/pago/upload-photo', async (req: Request, res: Response) => {
+app.post('/api/pago/upload-photo', multer().any(), async (req: Request, res: Response) => {
   try {
     const token = req.body.token;
-    const imagen = req.body.imagen;
+    const files = req.files as any[];
+    const imagenFile = files?.find(f => f.fieldname === 'imagen');
     
-    if (!token || !imagen) {
+    if (!token || !imagenFile) {
       return res.json({ success: false, error: 'Faltan datos' });
     }
     
@@ -1148,6 +1149,8 @@ app.post('/api/pago/upload-photo', async (req: Request, res: Response) => {
       pagoReceiptTokens.delete(token);
       return res.json({ success: false, error: 'Token expirado' });
     }
+    
+    const imagen = `data:${imagenFile.mimetype};base64,${imagenFile.buffer.toString('base64')}`;
     
     const collection = (database as any).getCollection('pagos');
     await collection.insertOne({
