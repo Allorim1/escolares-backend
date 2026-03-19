@@ -5,6 +5,32 @@ import { Order, OrderStatus } from '../models';
 
 const router = Router();
 
+router.get('/admin/all', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ error: 'No autorizado' });
+      return;
+    }
+
+    const user = await database.getCollection('users').findOne({ id: userId });
+    if (!user || (user.rol !== 'root' && user.rol !== 'owner')) {
+      res.status(403).json({ error: 'Acceso denegado' });
+      return;
+    }
+
+    const orders = await database.getCollection<Order>('orders')
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json(orders);
+  } catch (error) {
+    console.error('Error getting all orders:', error);
+    res.status(500).json({ error: 'Error al obtener pedidos' });
+  }
+});
+
 router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
