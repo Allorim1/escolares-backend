@@ -911,6 +911,19 @@ app.use('/api/roles', rolesRoutes);
 
 const uploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; expiresAt: Date }>();
 
+app.get('/api/pago/debug/:token', async (req: Request, res: Response) => {
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+  const collection = (database as any).getCollection('pagos');
+  const tokenData = await collection.findOne({ token });
+  res.json({ 
+    token, 
+    found: !!tokenData, 
+    hasImage: !!tokenData?.imagen,
+    expiresAt: tokenData?.expiresAt,
+    imagenLength: tokenData?.imagen?.length
+  });
+});
+
 app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
   try {
     const token = randomBytes(32).toString('hex');
@@ -962,9 +975,11 @@ app.get('/api/pago/check/:token', async (req: Request, res: Response) => {
   }
   
   if (tokenData.imagen) {
+    console.log('Retornando imagen de', tokenData.imagen.length, 'bytes');
     return res.json({ success: true, imagen: tokenData.imagen });
   }
   
+  console.log('No hay imagen aún');
   res.json({ success: false });
 });
 
