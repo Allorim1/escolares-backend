@@ -953,6 +953,8 @@ app.get('/api/pago/check/:token', async (req: Request, res: Response) => {
   const collection = (database as any).getCollection('pagos');
   const tokenData = await collection.findOne({ token });
   
+  console.log('Check token:', token, 'found:', !!tokenData, 'hasImage:', !!tokenData?.imagen);
+  
   if (!tokenData) {
     return res.json({ success: false, error: 'Token no válido' });
   }
@@ -1160,6 +1162,7 @@ app.post('/api/pago/upload-photo', multer().any(), async (req: Request, res: Res
       { $set: { imagen } }
     );
     
+    console.log('Foto guardada para token:', token);
     res.json({ success: true });
   } catch (error) {
     console.error('Error uploading photo:', error);
