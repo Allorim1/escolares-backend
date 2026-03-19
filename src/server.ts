@@ -910,6 +910,258 @@ app.use('/api/orders', ordersRoutes);
 app.use('/api/roles', rolesRoutes);
 
 const uploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; expiresAt: Date }>();
+const pagoReceiptTokens = new Map<string, { expiresAt: Date }>();
+
+app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
+  try {
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    
+    pagoReceiptTokens.set(token, { expiresAt });
+    
+    const host = req.get('host');
+    const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1');
+    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
+    const uploadUrl = `${baseUrl}/upload-pago/${token}`;
+    
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
+    
+    try {
+      const response = await fetch(qrApiUrl);
+      const buffer = await response.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      const dataUrl = `data:image/png;base64,${base64}`;
+      
+      res.json({ qrCode: dataUrl, uploadUrl, expiresAt: expiresAt.toISOString() });
+    } catch (fetchError) {
+      console.error('Error fetching QR:', fetchError);
+      res.json({ qrCode: qrApiUrl, uploadUrl, expiresAt: expiresAt.toISOString() });
+    }
+  } catch (error) {
+    console.error('Error generating QR:', error);
+    res.status(500).json({ error: 'Error al generar código QR' });
+  }
+});
+
+app.get('/api/pago/check/:token', async (req: Request, res: Response) => {
+  const token = req.params.token;
+  const tokenData = pagoReceiptTokens.get(token);
+  
+  if (!tokenData) {
+    return res.json({ success: false, error: 'Token no válido' });
+  }
+  
+  if (new Date() > tokenData.expiresAt) {
+    pagoReceiptTokens.delete(token);
+    return res.json({ success: false, error: 'Token expirado' });
+  }
+  
+  const collection = (database as any).getCollection('pagos');
+  const pago = await collection.findOne({ token });
+  
+  if (pago && pago.imagen) {
+    pagoReceiptTokens.delete(token);
+    return res.json({ success: true, imagen: pago.imagen });
+  }
+  
+  res.json({ success: false });
+});
+
+app.get('/upload-pago/:token', async (req: Request, res: Response) => {
+  const token = req.params.token;
+  const tokenData = pagoReceiptTokens.get(token);
+  
+  if (!tokenData) {
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Enlace expirado</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+          .error { color: red; }
+        </style>
+      </head>
+      <body>
+        <h1 class="error">Enlace expirado o inválido</h1>
+        <p>Por favor genera un nuevo código QR desde la aplicación.</p>
+      </body>
+      </html>
+    `);
+    return;
+  }
+  
+  if (new Date() > tokenData.expiresAt) {
+    pagoReceiptTokens.delete(token);
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Enlace expirado</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; }
+          .error { color: red; }
+        </style>
+      </head>
+      <body>
+        <h1 class="error">El enlace ha expirado</h1>
+        <p>Por favor genera un nuevo código QR desde la aplicación.</p>
+      </body>
+      </html>
+    `);
+    return;
+  }
+  
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Subir comprobante de pago</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 500px; margin: 0 auto; }
+        h1 { text-align: center; color: #333; }
+        .upload-area {
+          border: 2px dashed #ccc;
+          border-radius: 10px;
+          padding: 30px;
+          text-align: center;
+          margin: 20px 0;
+          cursor: pointer;
+        }
+        .upload-area:hover { border-color: #007bff; background: #f8f9fa; }
+        input[type="file"] { display: none; }
+        .btn-camera {
+          background: #25D366;
+          color: white;
+          padding: 15px 30px;
+          border: none;
+          border-radius: 5px;
+          font-size: 16px;
+          cursor: pointer;
+        }
+        .btn-camera:hover { background: #20BD5A; }
+        .preview { margin-top: 20px; }
+        .preview img { max-width: 100%; border-radius: 5px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .loading { text-align: center; padding: 20px; }
+        .btn-cerrar {
+          margin-top: 15px;
+          width: 100%;
+          padding: 12px;
+          background: #28a745;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          font-size: 16px;
+          cursor: pointer;
+        }
+        .btn-cerrar:hover { background: #218838; }
+      </style>
+    </head>
+    <body>
+      <h1>📷 Subir Comprobante de Pago</h1>
+      <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFileSelect(event)">
+        <button class="btn-camera">📸 Tomar foto o seleccionar</button>
+        <p id="statusText"></p>
+      </div>
+      <div class="preview" id="preview"></div>
+      <div class="loading" id="loading" style="display:none;">Subiendo imagen...</div>
+      <script>
+        let selectedFile = null;
+        
+        function handleFileSelect(event) {
+          selectedFile = event.target.files[0];
+          if (selectedFile) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              document.getElementById('preview').innerHTML = '<img src="' + e.target.result + '" alt="Preview">';
+              uploadFile();
+            };
+            reader.readAsDataURL(selectedFile);
+          }
+        }
+        
+        async function uploadFile() {
+          if (!selectedFile) return;
+          
+          document.getElementById('loading').style.display = 'block';
+          document.getElementById('statusText').textContent = 'Subiendo imagen...';
+          
+          const formData = new FormData();
+          formData.append('imagen', selectedFile);
+          formData.append('token', '${token}');
+          
+          try {
+            const response = await fetch('/api/pago/upload-photo', {
+              method: 'POST',
+              body: formData
+            });
+            const data = await response.json();
+            
+            document.getElementById('loading').style.display = 'none';
+            
+            if (data.success) {
+              document.getElementById('statusText').textContent = '✅ ¡Foto subida exitosamente!';
+              document.getElementById('statusText').className = 'status success';
+              document.getElementById('preview').innerHTML += '<button onclick="window.close()" class="btn-cerrar">Cerrar</button>';
+              setTimeout(() => {
+                window.close();
+              }, 3000);
+            } else {
+              document.getElementById('statusText').textContent = '❌ Error: ' + (data.error || 'Error al subir');
+              document.getElementById('statusText').className = 'status error';
+            }
+          } catch (error) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('statusText').textContent = '❌ Error de conexión';
+            document.getElementById('statusText').className = 'status error';
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+app.post('/api/pago/upload-photo', async (req: Request, res: Response) => {
+  try {
+    const token = req.body.token;
+    const imagen = req.body.imagen;
+    
+    if (!token || !imagen) {
+      return res.json({ success: false, error: 'Faltan datos' });
+    }
+    
+    const tokenData = pagoReceiptTokens.get(token);
+    if (!tokenData) {
+      return res.json({ success: false, error: 'Token no válido' });
+    }
+    
+    if (new Date() > tokenData.expiresAt) {
+      pagoReceiptTokens.delete(token);
+      return res.json({ success: false, error: 'Token expirado' });
+    }
+    
+    const collection = (database as any).getCollection('pagos');
+    await collection.insertOne({
+      token,
+      imagen,
+      createdAt: new Date()
+    });
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error uploading photo:', error);
+    res.json({ success: false, error: 'Error al procesar la imagen' });
+  }
+});
 
 app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, res: Response) => {
   try {
