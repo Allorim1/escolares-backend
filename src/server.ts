@@ -438,7 +438,7 @@ app.get('/api/proveedores', async (req: Request, res: Response) => {
 
 app.post('/api/proveedores', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
+    const { nombre, alias, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
     const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
     
     if (!nombre) {
@@ -460,6 +460,7 @@ app.post('/api/proveedores', authenticateToken, async (req: Request, res: Respon
     
     const proveedor = {
       nombre,
+      alias: alias || '',
       rif: rif || '',
       direccion: direccion || '',
       correo: correo || '',
