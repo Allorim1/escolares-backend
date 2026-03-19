@@ -83,7 +83,7 @@ router.get('/:id', authenticateToken, requireRoot, async (req: Request, res: Res
 
 router.post('/', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
-    const { nombre, descripcion, permisos, esDefault } = req.body;
+    const { nombre, descripcion, permisos, esDefault, esVendedor, comision } = req.body;
 
     if (!nombre) {
       res.status(400).json({ error: 'El nombre del rol es requerido' });

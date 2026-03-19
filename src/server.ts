@@ -944,7 +944,7 @@ app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
 });
 
 app.get('/api/pago/check/:token', async (req: Request, res: Response) => {
-  const token = req.params.token;
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const tokenData = pagoReceiptTokens.get(token);
   
   if (!tokenData) {
@@ -968,7 +968,7 @@ app.get('/api/pago/check/:token', async (req: Request, res: Response) => {
 });
 
 app.get('/upload-pago/:token', async (req: Request, res: Response) => {
-  const token = req.params.token;
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const tokenData = pagoReceiptTokens.get(token);
   
   if (!tokenData) {
