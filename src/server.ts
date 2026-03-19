@@ -910,14 +910,18 @@ app.use('/api/orders', ordersRoutes);
 app.use('/api/roles', rolesRoutes);
 
 const uploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; expiresAt: Date }>();
-const pagoReceiptTokens = new Map<string, { expiresAt: Date }>();
 
 app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
   try {
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
     
-    pagoReceiptTokens.set(token, { expiresAt });
+    const collection = (database as any).getCollection('pagos');
+    await collection.insertOne({
+      token,
+      expiresAt,
+      createdAt: new Date()
+    });
     
     const host = req.get('host');
     const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1');
@@ -945,23 +949,20 @@ app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
 
 app.get('/api/pago/check/:token', async (req: Request, res: Response) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
-  const tokenData = pagoReceiptTokens.get(token);
+  
+  const collection = (database as any).getCollection('pagos');
+  const tokenData = await collection.findOne({ token });
   
   if (!tokenData) {
     return res.json({ success: false, error: 'Token no válido' });
   }
   
-  if (new Date() > tokenData.expiresAt) {
-    pagoReceiptTokens.delete(token);
+  if (new Date() > new Date(tokenData.expiresAt)) {
     return res.json({ success: false, error: 'Token expirado' });
   }
   
-  const collection = (database as any).getCollection('pagos');
-  const pago = await collection.findOne({ token });
-  
-  if (pago && pago.imagen) {
-    pagoReceiptTokens.delete(token);
-    return res.json({ success: true, imagen: pago.imagen });
+  if (tokenData.imagen) {
+    return res.json({ success: true, imagen: tokenData.imagen });
   }
   
   res.json({ success: false });
@@ -969,7 +970,9 @@ app.get('/api/pago/check/:token', async (req: Request, res: Response) => {
 
 app.get('/upload-pago/:token', async (req: Request, res: Response) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
-  const tokenData = pagoReceiptTokens.get(token);
+  
+  const collection = (database as any).getCollection('pagos');
+  const tokenData = await collection.findOne({ token });
   
   if (!tokenData) {
     res.send(`
@@ -992,8 +995,7 @@ app.get('/upload-pago/:token', async (req: Request, res: Response) => {
     return;
   }
   
-  if (new Date() > tokenData.expiresAt) {
-    pagoReceiptTokens.delete(token);
+  if (new Date() > new Date(tokenData.expiresAt)) {
     res.send(`
       <!DOCTYPE html>
       <html>
@@ -1140,24 +1142,23 @@ app.post('/api/pago/upload-photo', multer().any(), async (req: Request, res: Res
       return res.json({ success: false, error: 'Faltan datos' });
     }
     
-    const tokenData = pagoReceiptTokens.get(token);
+    const collection = (database as any).getCollection('pagos');
+    const tokenData = await collection.findOne({ token });
+    
     if (!tokenData) {
       return res.json({ success: false, error: 'Token no válido' });
     }
     
-    if (new Date() > tokenData.expiresAt) {
-      pagoReceiptTokens.delete(token);
+    if (new Date() > new Date(tokenData.expiresAt)) {
       return res.json({ success: false, error: 'Token expirado' });
     }
     
     const imagen = `data:${imagenFile.mimetype};base64,${imagenFile.buffer.toString('base64')}`;
     
-    const collection = (database as any).getCollection('pagos');
-    await collection.insertOne({
-      token,
-      imagen,
-      createdAt: new Date()
-    });
+    await collection.updateOne(
+      { token },
+      { $set: { imagen } }
+    );
     
     res.json({ success: true });
   } catch (error) {
