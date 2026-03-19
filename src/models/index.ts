@@ -75,6 +75,7 @@ export interface Order {
   direccion: string;
   metodoPago: string;
   referencia: string;
+  fotoComprobante?: string;
   status: OrderStatus;
   historial: OrderHistorial[];
   createdAt: Date;
