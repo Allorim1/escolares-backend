@@ -923,9 +923,7 @@ app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
       createdAt: new Date()
     });
     
-    const host = req.get('host');
-    const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1');
-    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
+    const baseUrl = process.env.BASE_URL || 'https://escolares-backend.onrender.com';
     const uploadUrl = `${baseUrl}/upload-pago/${token}`;
     
     const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
@@ -1134,24 +1132,36 @@ app.get('/upload-pago/:token', async (req: Request, res: Response) => {
   `);
 });
 
-app.post('/api/pago/upload-photo', multer().any(), async (req: Request, res: Response) => {
+app.post('/api/pago/upload-photo', multer({ limits: { fileSize: 10 * 1024 * 1024 } }).any(), async (req: Request, res: Response) => {
   try {
-    const token = req.body.token;
+    console.log('Upload request received');
+    console.log('Body:', req.body);
+    console.log('Files:', req.files);
+    
+    const token = req.body?.token;
     const files = req.files as any[];
     const imagenFile = files?.find(f => f.fieldname === 'imagen');
     
-    if (!token || !imagenFile) {
-      return res.json({ success: false, error: 'Faltan datos' });
+    if (!token) {
+      console.log('No token provided');
+      return res.json({ success: false, error: 'Faltan datos: token' });
+    }
+    
+    if (!imagenFile) {
+      console.log('No image file provided');
+      return res.json({ success: false, error: 'Faltan datos: imagen' });
     }
     
     const collection = (database as any).getCollection('pagos');
     const tokenData = await collection.findOne({ token });
     
     if (!tokenData) {
+      console.log('Token no encontrado:', token);
       return res.json({ success: false, error: 'Token no válido' });
     }
     
     if (new Date() > new Date(tokenData.expiresAt)) {
+      console.log('Token expirado');
       return res.json({ success: false, error: 'Token expirado' });
     }
     
