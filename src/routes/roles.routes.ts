@@ -6,10 +6,14 @@ import { Rol } from '../models';
 const router = Router();
 
 const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
-  let registrosCollection = database.getCollection('registros');
-  if (!registrosCollection) {
-    await database.db.createCollection('registros');
-    registrosCollection = database.getCollection('registros');
+  const db = database.db;
+  if (!db) return;
+  let registrosCollection = db.collection('registros');
+  const exists = await db.listCollections().toArray();
+  const names = exists.map((c: any) => c.name);
+  if (!names.includes('registros')) {
+    await db.createCollection('registros');
+    registrosCollection = db.collection('registros');
   }
   await registrosCollection.insertOne({
     accion,

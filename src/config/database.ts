@@ -7,16 +7,20 @@ let dbInstance: Db | null = null;
 
 class Database {
   private client: MongoClient | null = null;
-  private db: Db | null = null;
+  private _db: Db | null = null;
+
+  get db(): Db | null {
+    return this._db;
+  }
 
   async connect(): Promise<boolean> {
-    if (this.db) return true;
+    if (this._db) return true;
 
     try {
       this.client = new MongoClient(MONGODB_URL, { family: 4, connectTimeoutMS: 10000 });
       await this.client.connect();
-      this.db = this.client.db(DB_NAME);
-      dbInstance = this.db;
+      this._db = this.client.db(DB_NAME);
+      dbInstance = this._db;
       console.log('Conectado a MongoDB');
 
       await this.initCollections();
@@ -29,16 +33,16 @@ class Database {
   }
 
   private async initCollections(): Promise<void> {
-    if (!this.db) return;
+    if (!this._db) return;
 
-    const collections = await this.db.listCollections().toArray();
+    const collections = await this._db.listCollections().toArray();
     const collectionNames = collections.map((c) => c.name);
 
     const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home'];
 
     for (const name of requiredCollections) {
       if (!collectionNames.includes(name)) {
-        await this.db.createCollection(name);
+        await this._db.createCollection(name);
         console.log(`Colección '${name}' creada`);
       }
     }
@@ -47,11 +51,11 @@ class Database {
   }
 
   private async seedData(): Promise<void> {
-    if (!this.db) return;
+    if (!this._db) return;
 
-    const marcasCount = await this.db.collection('marcas').countDocuments();
+    const marcasCount = await this._db.collection('marcas').countDocuments();
     if (marcasCount === 0) {
-      await this.db.collection('marcas').insertMany([
+      await this._db.collection('marcas').insertMany([
         { id: '1', name: 'Nike', image: '' },
         { id: '2', name: 'Adidas', image: '' },
         { id: '3', name: 'Puma', image: '' },
@@ -60,9 +64,9 @@ class Database {
       ]);
     }
 
-    const lineasCount = await this.db.collection('lineas').countDocuments();
+    const lineasCount = await this._db.collection('lineas').countDocuments();
     if (lineasCount === 0) {
-      await this.db.collection('lineas').insertMany([
+      await this._db.collection('lineas').insertMany([
         {
           id: '1',
           name: 'Bolsos y Cartuchera',
@@ -116,15 +120,15 @@ class Database {
   }
 
   getCollection<T extends Document>(name: string): Collection<T> {
-    if (!this.db) throw new Error('Base de datos no conectada');
-    return this.db.collection<T>(name);
+    if (!this._db) throw new Error('Base de datos no conectada');
+    return this._db.collection<T>(name);
   }
 
   async close(): Promise<void> {
     if (this.client) {
       await this.client.close();
       this.client = null;
-      this.db = null;
+      this._db = null;
     }
   }
 }

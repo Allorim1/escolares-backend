@@ -311,19 +311,24 @@ export class AuthController {
         return;
       }
 
-      let registrosCollection = database.getCollection('registros');
-      if (!registrosCollection) {
-        await database.db.createCollection('registros');
-        registrosCollection = database.getCollection('registros');
+      const db = database.db;
+      if (db) {
+        let registrosCollection = db.collection('registros');
+        const exists = await db.listCollections().toArray();
+        const names = exists.map((c: any) => c.name);
+        if (!names.includes('registros')) {
+          await db.createCollection('registros');
+          registrosCollection = db.collection('registros');
+        }
+        await registrosCollection.insertOne({
+          accion: 'Modificación',
+          modulo: 'Usuarios',
+          descripcion: `Rol de usuario modificado: ${usuarioActual?.username || targetUserId}`,
+          datos: { usuarioId: targetUserId, rolAnterior: usuarioActual?.rol, rolNuevo: rol },
+          usuario,
+          fecha: new Date(),
+        });
       }
-      await registrosCollection.insertOne({
-        accion: 'Modificación',
-        modulo: 'Usuarios',
-        descripcion: `Rol de usuario modificado: ${usuarioActual?.username || targetUserId}`,
-        datos: { usuarioId: targetUserId, rolAnterior: usuarioActual?.rol, rolNuevo: rol },
-        usuario,
-        fecha: new Date(),
-      });
 
       const { password: _, ...userWithoutPassword } = result;
       res.json(userWithoutPassword);
@@ -376,19 +381,24 @@ export class AuthController {
         { $set: { email } }
       );
 
-      let registrosCollection = database.getCollection('registros');
-      if (!registrosCollection) {
-        await database.db.createCollection('registros');
-        registrosCollection = database.getCollection('registros');
+      const db = database.db;
+      if (db) {
+        let registrosCollection = db.collection('registros');
+        const exists = await db.listCollections().toArray();
+        const names = exists.map((c: any) => c.name);
+        if (!names.includes('registros')) {
+          await db.createCollection('registros');
+          registrosCollection = db.collection('registros');
+        }
+        await registrosCollection.insertOne({
+          accion: 'Modificación',
+          modulo: 'Usuarios',
+          descripcion: `Email de usuario actualizado`,
+          datos: { usuarioId: userId, emailAnterior: user.email, emailNuevo: email },
+          usuario: user.username || user.email,
+          fecha: new Date(),
+        });
       }
-      await registrosCollection.insertOne({
-        accion: 'Modificación',
-        modulo: 'Usuarios',
-        descripcion: `Email de usuario actualizado`,
-        datos: { usuarioId: userId, emailAnterior: user.email, emailNuevo: email },
-        usuario: user.username || user.email,
-        fecha: new Date(),
-      });
 
       res.json({ message: 'Email actualizado correctamente' });
     } catch (error) {
@@ -441,19 +451,24 @@ export class AuthController {
         { $set: { password: hashedPassword } }
       );
 
-      let registrosCollection = database.getCollection('registros');
-      if (!registrosCollection) {
-        await database.db.createCollection('registros');
-        registrosCollection = database.getCollection('registros');
+      const db = database.db;
+      if (db) {
+        let registrosCollection = db.collection('registros');
+        const exists = await db.listCollections().toArray();
+        const names = exists.map((c: any) => c.name);
+        if (!names.includes('registros')) {
+          await db.createCollection('registros');
+          registrosCollection = db.collection('registros');
+        }
+        await registrosCollection.insertOne({
+          accion: 'Modificación',
+          modulo: 'Usuarios',
+          descripcion: `Contraseña de usuario actualizada`,
+          datos: { usuarioId: userId },
+          usuario: user.username || user.email,
+          fecha: new Date(),
+        });
       }
-      await registrosCollection.insertOne({
-        accion: 'Modificación',
-        modulo: 'Usuarios',
-        descripcion: `Contraseña de usuario actualizada`,
-        datos: { usuarioId: userId },
-        usuario: user.username || user.email,
-        fecha: new Date(),
-      });
 
       res.json({ message: 'Contraseña actualizada correctamente' });
     } catch (error) {
