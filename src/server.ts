@@ -499,7 +499,7 @@ app.post('/api/proveedores', authenticateToken, async (req: Request, res: Respon
 app.put('/api/proveedores/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
+    const { nombre, alias, rif, direccion, correo, telefono, vendedor, cuentasBancarias } = req.body;
     const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
@@ -509,7 +509,7 @@ app.put('/api/proveedores/:id', authenticateToken, async (req: Request, res: Res
     
     const modificaciones: { campo: string; valorAnterior: string; valorNuevo: string; fecha: Date; usuario: string }[] = [];
     
-    const campos = ['nombre', 'rif', 'direccion', 'correo', 'telefono', 'vendedor', 'cuentasBancarias'];
+    const campos = ['nombre', 'alias', 'rif', 'direccion', 'correo', 'telefono', 'vendedor', 'cuentasBancarias'];
     campos.forEach(campo => {
       const valorAnterior = JSON.stringify(proveedorActual?.[campo]);
       const valorNuevo = JSON.stringify(req.body[campo]);
@@ -524,7 +524,7 @@ app.put('/api/proveedores/:id', authenticateToken, async (req: Request, res: Res
       }
     });
     
-    const updateData: any = { nombre, rif, direccion, correo, telefono, vendedor, cuentasBancarias, modificadoPor: usuario, fechaModificacion: new Date() };
+    const updateData: any = { nombre, alias, rif, direccion, correo, telefono, vendedor, cuentasBancarias, modificadoPor: usuario, fechaModificacion: new Date() };
     
     const updateOperation: any = { $set: updateData };
     
