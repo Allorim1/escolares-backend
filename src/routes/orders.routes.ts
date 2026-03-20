@@ -5,6 +5,22 @@ import { Order, OrderStatus } from '../models';
 
 const router = Router();
 
+const crearRegistro = async (database: any, accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
+  let registrosCollection = database.getCollection('registros');
+  if (!registrosCollection) {
+    await database.db.createCollection('registros');
+    registrosCollection = database.getCollection('registros');
+  }
+  await registrosCollection.insertOne({
+    accion,
+    modulo,
+    descripcion,
+    datos,
+    usuario,
+    fecha: new Date(),
+  });
+};
+
 router.get('/admin/all', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
@@ -127,6 +143,7 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
   try {
     const { id } = req.params;
     const { status, observaciones } = req.body;
+    const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
 
     if (!status) {
       res.status(400).json({ error: 'Estado requerido' });
@@ -176,6 +193,8 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
       },
       { returnDocument: 'after' }
     );
+
+    await crearRegistro(database, 'Modificación', 'Pedidos', `Pedido #${id.slice(-8)} cambió a: ${statusLabels[validStatus]}`, { pedidoId: id, estadoAnterior: order.status, estadoNuevo: validStatus, observaciones }, usuario);
 
     res.json(result);
   } catch (error) {

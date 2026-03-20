@@ -2,6 +2,22 @@ import { Request, Response } from 'express';
 import { database } from '../config/database';
 import { Linea } from '../models';
 
+const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
+  let registrosCollection = database.getCollection('registros');
+  if (!registrosCollection) {
+    await database.db.createCollection('registros');
+    registrosCollection = database.getCollection('registros');
+  }
+  await registrosCollection.insertOne({
+    accion,
+    modulo,
+    descripcion,
+    datos,
+    usuario,
+    fecha: new Date(),
+  });
+};
+
 export class LineasController {
   async getAll(req: Request, res: Response): Promise<void> {
     try {
@@ -28,6 +44,7 @@ export class LineasController {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const userRol = (req as any).userRol;
+      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
       if (userRol !== 'owner') {
         res.status(403).json({ error: 'Solo el owner puede crear líneas' });
         return;
@@ -47,6 +64,9 @@ export class LineasController {
       };
 
       await database.getCollection<Linea>('lineas').insertOne(newLinea);
+
+      await crearRegistro('Creación', 'Líneas', `Línea creada: ${name}`, { linea: newLinea }, usuario);
+
       res.status(201).json(newLinea);
     } catch (error) {
       res.status(500).json({ error: 'Error al crear línea' });
@@ -56,11 +76,13 @@ export class LineasController {
   async update(req: Request, res: Response): Promise<void> {
     try {
       const userRol = (req as any).userRol;
+      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
       if (userRol !== 'owner') {
         res.status(403).json({ error: 'Solo el owner puede modificar líneas' });
         return;
       }
 
+      const lineaAnterior = await database.getCollection<Linea>('lineas').findOne({ id: req.params.id });
       const { name, image, productIds } = req.body;
       const result = await database
         .getCollection<Linea>('lineas')
@@ -74,6 +96,9 @@ export class LineasController {
         res.status(404).json({ error: 'Línea no encontrada' });
         return;
       }
+
+      await crearRegistro('Modificación', 'Líneas', `Línea modificada: ${name}`, { lineaAnterior, lineaNueva: result }, usuario);
+
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: 'Error al actualizar línea' });
@@ -83,16 +108,23 @@ export class LineasController {
   async delete(req: Request, res: Response): Promise<void> {
     try {
       const userRol = (req as any).userRol;
+      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
       if (userRol !== 'owner') {
         res.status(403).json({ error: 'Solo el owner puede eliminar líneas' });
         return;
       }
 
+      const lineaEliminada = await database.getCollection<Linea>('lineas').findOne({ id: req.params.id });
       const result = await database.getCollection<Linea>('lineas').deleteOne({ id: req.params.id });
       if (result.deletedCount === 0) {
         res.status(404).json({ error: 'Línea no encontrada' });
         return;
       }
+
+      if (lineaEliminada) {
+        await crearRegistro('Eliminación', 'Líneas', `Línea eliminada: ${lineaEliminada.name}`, { linea: lineaEliminada }, usuario);
+      }
+
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Error al eliminar línea' });

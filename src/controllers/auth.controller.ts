@@ -47,6 +47,8 @@ export class AuthController {
         userId: newUser.id,
         email: newUser.email,
         rol: newUser.rol || 'usuario',
+        username: newUser.username,
+        nombre: newUser.nombreCompleto || newUser.username,
       });
 
       res.cookie('accessToken', tokens.accessToken, {
@@ -111,6 +113,8 @@ export class AuthController {
         userId: user.id,
         email: user.email,
         rol: user.rol || 'usuario',
+        username: user.username,
+        nombre: user.nombreCompleto || user.username,
       });
 
       res.cookie('accessToken', tokens.accessToken, {
@@ -171,6 +175,8 @@ export class AuthController {
         userId: user.id,
         email: user.email,
         rol: user.rol || 'usuario',
+        username: user.username,
+        nombre: user.nombreCompleto || user.username,
       });
 
       res.cookie('accessToken', tokens.accessToken, {
@@ -263,6 +269,7 @@ export class AuthController {
     try {
       const { targetUserId, rol, rolId } = req.body;
       const solicitanteRol = (req as any).userRol;
+      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
 
       if (!targetUserId || (!rol && !rolId)) {
         res.status(400).json({ error: 'ID de usuario y rol requeridos' });
@@ -278,6 +285,8 @@ export class AuthController {
         res.status(403).json({ error: 'Solo el usuario root puede asignar rol de owner' });
         return;
       }
+
+      const usuarioActual = await database.getCollection<User>('users').findOne({ id: targetUserId });
 
       const updateData: Partial<User> = {};
       if (rol) {
@@ -301,6 +310,20 @@ export class AuthController {
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
       }
+
+      let registrosCollection = database.getCollection('registros');
+      if (!registrosCollection) {
+        await database.db.createCollection('registros');
+        registrosCollection = database.getCollection('registros');
+      }
+      await registrosCollection.insertOne({
+        accion: 'Modificación',
+        modulo: 'Usuarios',
+        descripcion: `Rol de usuario modificado: ${usuarioActual?.username || targetUserId}`,
+        datos: { usuarioId: targetUserId, rolAnterior: usuarioActual?.rol, rolNuevo: rol },
+        usuario,
+        fecha: new Date(),
+      });
 
       const { password: _, ...userWithoutPassword } = result;
       res.json(userWithoutPassword);
@@ -353,6 +376,20 @@ export class AuthController {
         { $set: { email } }
       );
 
+      let registrosCollection = database.getCollection('registros');
+      if (!registrosCollection) {
+        await database.db.createCollection('registros');
+        registrosCollection = database.getCollection('registros');
+      }
+      await registrosCollection.insertOne({
+        accion: 'Modificación',
+        modulo: 'Usuarios',
+        descripcion: `Email de usuario actualizado`,
+        datos: { usuarioId: userId, emailAnterior: user.email, emailNuevo: email },
+        usuario: user.username || user.email,
+        fecha: new Date(),
+      });
+
       res.json({ message: 'Email actualizado correctamente' });
     } catch (error) {
       res.status(500).json({ error: 'Error al actualizar email' });
@@ -403,6 +440,20 @@ export class AuthController {
         { id: userId },
         { $set: { password: hashedPassword } }
       );
+
+      let registrosCollection = database.getCollection('registros');
+      if (!registrosCollection) {
+        await database.db.createCollection('registros');
+        registrosCollection = database.getCollection('registros');
+      }
+      await registrosCollection.insertOne({
+        accion: 'Modificación',
+        modulo: 'Usuarios',
+        descripcion: `Contraseña de usuario actualizada`,
+        datos: { usuarioId: userId },
+        usuario: user.username || user.email,
+        fecha: new Date(),
+      });
 
       res.json({ message: 'Contraseña actualizada correctamente' });
     } catch (error) {

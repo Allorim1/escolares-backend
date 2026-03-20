@@ -5,6 +5,22 @@ import { Rol } from '../models';
 
 const router = Router();
 
+const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
+  let registrosCollection = database.getCollection('registros');
+  if (!registrosCollection) {
+    await database.db.createCollection('registros');
+    registrosCollection = database.getCollection('registros');
+  }
+  await registrosCollection.insertOne({
+    accion,
+    modulo,
+    descripcion,
+    datos,
+    usuario,
+    fecha: new Date(),
+  });
+};
+
 const isRoot = (req: Request): boolean => {
   const userRol = (req as any).userRol;
   return userRol === 'root';
@@ -84,6 +100,7 @@ router.get('/:id', authenticateToken, requireRoot, async (req: Request, res: Res
 router.post('/', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
     const { nombre, descripcion, permisos, esDefault, esVendedor, comision } = req.body;
+    const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
 
     if (!nombre) {
       res.status(400).json({ error: 'El nombre del rol es requerido' });
@@ -110,6 +127,8 @@ router.post('/', authenticateToken, requireRoot, async (req: Request, res: Respo
 
     await database.getCollection<Rol>('roles').insertOne(newRol);
 
+    await crearRegistro('Creación', 'Roles', `Rol creado: ${nombre}`, { rol: newRol }, usuario);
+
     res.status(201).json(newRol);
   } catch (error) {
     console.error('Error creating rol:', error);
@@ -120,6 +139,7 @@ router.post('/', authenticateToken, requireRoot, async (req: Request, res: Respo
 router.put('/:id', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
     const solicitanteRol = (req as any).userRol;
+    const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     if (solicitanteRol !== 'root') {
       res.status(403).json({ error: 'No tienes permisos para editar roles' });
@@ -154,6 +174,8 @@ router.put('/:id', authenticateToken, requireRoot, async (req: Request, res: Res
       { returnDocument: 'after' }
     );
 
+    await crearRegistro('Modificación', 'Roles', `Rol modificado: ${existingRolById.nombre}`, { rolAnterior: existingRolById, rolNuevo: result }, usuario);
+
     res.json(result);
   } catch (error) {
     console.error('Error updating rol:', error);
@@ -164,6 +186,7 @@ router.put('/:id', authenticateToken, requireRoot, async (req: Request, res: Res
 router.delete('/:id', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
     const solicitanteRol = (req as any).userRol;
+    const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     if (solicitanteRol !== 'root') {
       res.status(403).json({ error: 'Solo el usuario root puede eliminar roles' });
@@ -189,6 +212,8 @@ router.delete('/:id', authenticateToken, requireRoot, async (req: Request, res: 
     }
 
     await database.getCollection<Rol>('roles').deleteOne({ id });
+
+    await crearRegistro('Eliminación', 'Roles', `Rol eliminado: ${existingRol.nombre}`, { rol: existingRol }, usuario);
 
     res.json({ success: true, message: 'Rol eliminado correctamente' });
   } catch (error) {

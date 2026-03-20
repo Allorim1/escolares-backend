@@ -2,6 +2,22 @@ import { Request, Response } from 'express';
 import { database } from '../config/database';
 import { Oferta } from '../models';
 
+const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
+  let registrosCollection = database.getCollection('registros');
+  if (!registrosCollection) {
+    await database.db.createCollection('registros');
+    registrosCollection = database.getCollection('registros');
+  }
+  await registrosCollection.insertOne({
+    accion,
+    modulo,
+    descripcion,
+    datos,
+    usuario,
+    fecha: new Date(),
+  });
+};
+
 export class OfertasController {
   async getAll(req: Request, res: Response): Promise<void> {
     try {
@@ -24,6 +40,7 @@ export class OfertasController {
 
   async create(req: Request, res: Response): Promise<void> {
     try {
+      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
       const { productId, precioOferta } = req.body;
       if (!productId || !precioOferta) {
         res.status(400).json({ error: 'productId y precioOferta son requeridos' });
@@ -35,12 +52,18 @@ export class OfertasController {
         const result = await database
           .getCollection<Oferta>('ofertas')
           .findOneAndUpdate({ productId }, { $set: { precioOferta } }, { returnDocument: 'after' });
+
+        await crearRegistro('Modificación', 'Ofertas', `Oferta modificada para producto ${productId}`, { ofertaAnterior: existingOferta, ofertaNueva: result }, usuario);
+
         res.json(result);
         return;
       }
 
       const newOferta: Oferta = { productId, precioOferta };
       await database.getCollection<Oferta>('ofertas').insertOne(newOferta);
+
+      await crearRegistro('Creación', 'Ofertas', `Oferta creada para producto ${productId}`, { oferta: newOferta }, usuario);
+
       res.status(201).json(newOferta);
     } catch (error) {
       res.status(500).json({ error: 'Error al crear oferta' });
@@ -49,12 +72,19 @@ export class OfertasController {
 
   async delete(req: Request, res: Response): Promise<void> {
     try {
+      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
       const productId = parseInt(req.params.productId as string);
+      const ofertaEliminada = await database.getCollection<Oferta>('ofertas').findOne({ productId });
       const result = await database.getCollection<Oferta>('ofertas').deleteOne({ productId });
       if (result.deletedCount === 0) {
         res.status(404).json({ error: 'Oferta no encontrada' });
         return;
       }
+
+      if (ofertaEliminada) {
+        await crearRegistro('Eliminación', 'Ofertas', `Oferta eliminada para producto ${productId}`, { oferta: ofertaEliminada }, usuario);
+      }
+
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Error al eliminar oferta' });

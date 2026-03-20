@@ -1,8 +1,25 @@
 import { Router, Request, Response } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { authenticateToken } from '../middlewares/auth.middleware';
+import { database } from '../config/database';
 
 const router = Router();
+
+const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
+  let registrosCollection = database.getCollection('registros');
+  if (!registrosCollection) {
+    await database.db.createCollection('registros');
+    registrosCollection = database.getCollection('registros');
+  }
+  await registrosCollection.insertOne({
+    accion,
+    modulo,
+    descripcion,
+    datos,
+    usuario,
+    fecha: new Date(),
+  });
+};
 
 /**
  * @swagger

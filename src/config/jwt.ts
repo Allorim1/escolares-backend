@@ -8,6 +8,8 @@ export interface TokenPayload {
   userId: string;
   email: string;
   rol: string;
+  username?: string;
+  nombre?: string;
 }
 
 export const jwtConfig = {

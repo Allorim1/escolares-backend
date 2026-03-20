@@ -2,6 +2,22 @@ import { Request, Response } from 'express';
 import { database } from '../config/database';
 import { Marca } from '../models';
 
+const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
+  let registrosCollection = database.getCollection('registros');
+  if (!registrosCollection) {
+    await database.db.createCollection('registros');
+    registrosCollection = database.getCollection('registros');
+  }
+  await registrosCollection.insertOne({
+    accion,
+    modulo,
+    descripcion,
+    datos,
+    usuario,
+    fecha: new Date(),
+  });
+};
+
 export class MarcasController {
   async getAll(req: Request, res: Response): Promise<void> {
     try {
@@ -29,6 +45,7 @@ export class MarcasController {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const userRol = (req as any).userRol;
+      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
       if (userRol !== 'owner') {
         res.status(403).json({ error: 'Solo el owner puede crear marcas' });
         return;
@@ -47,6 +64,9 @@ export class MarcasController {
       };
 
       await database.getCollection<Marca>('marcas').insertOne(newMarca);
+
+      await crearRegistro('Creación', 'Marcas', `Marca creada: ${name}`, { marca: newMarca }, usuario);
+
       res.status(201).json(newMarca);
     } catch (error) {
       res.status(500).json({ error: 'Error al crear marca' });
@@ -56,11 +76,13 @@ export class MarcasController {
   async update(req: Request, res: Response): Promise<void> {
     try {
       const userRol = (req as any).userRol;
+      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
       if (userRol !== 'owner') {
         res.status(403).json({ error: 'Solo el owner puede modificar marcas' });
         return;
       }
 
+      const marcaAnterior = await database.getCollection<Marca>('marcas').findOne({ id: req.params.id });
       const { name, image } = req.body;
       const result = await database
         .getCollection<Marca>('marcas')
@@ -74,6 +96,9 @@ export class MarcasController {
         res.status(404).json({ error: 'Marca no encontrada' });
         return;
       }
+
+      await crearRegistro('Modificación', 'Marcas', `Marca modificada: ${name}`, { marcaAnterior, marcaNueva: result }, usuario);
+
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: 'Error al actualizar marca' });
@@ -83,16 +108,23 @@ export class MarcasController {
   async delete(req: Request, res: Response): Promise<void> {
     try {
       const userRol = (req as any).userRol;
+      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
       if (userRol !== 'owner') {
         res.status(403).json({ error: 'Solo el owner puede eliminar marcas' });
         return;
       }
 
+      const marcaEliminada = await database.getCollection<Marca>('marcas').findOne({ id: req.params.id });
       const result = await database.getCollection<Marca>('marcas').deleteOne({ id: req.params.id });
       if (result.deletedCount === 0) {
         res.status(404).json({ error: 'Marca no encontrada' });
         return;
       }
+
+      if (marcaEliminada) {
+        await crearRegistro('Eliminación', 'Marcas', `Marca eliminada: ${marcaEliminada.name}`, { marca: marcaEliminada }, usuario);
+      }
+
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: 'Error al eliminar marca' });
