@@ -168,4 +168,12 @@ router.put('/users/rol', authenticateToken, (req: Request, res: Response) =>
   authController.updateRol(req, res),
 );
 
+router.put('/users/update-email', authenticateToken, (req: Request, res: Response) =>
+  authController.updateEmail(req, res),
+);
+
+router.put('/users/update-password', authenticateToken, (req: Request, res: Response) =>
+  authController.updatePassword(req, res),
+);
+
 export default router;

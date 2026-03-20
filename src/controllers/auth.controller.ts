@@ -308,6 +308,107 @@ export class AuthController {
       res.status(500).json({ error: 'Error al actualizar rol' });
     }
   }
+
+  async updateEmail(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId;
+      const { email, password } = req.body;
+
+      if (!userId) {
+        res.status(401).json({ error: 'No autorizado' });
+        return;
+      }
+
+      if (!email || !password) {
+        res.status(400).json({ error: 'Email y contraseña son requeridos' });
+        return;
+      }
+
+      const user = await database.getCollection<User>('users').findOne({ id: userId });
+      if (!user || !user.password) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+
+      let validPassword = false;
+      if (user.password.startsWith('$argon2')) {
+        validPassword = await argon2.verify(user.password, password);
+      } else {
+        validPassword = user.password === password;
+      }
+
+      if (!validPassword) {
+        res.status(401).json({ error: 'Contraseña incorrecta' });
+        return;
+      }
+
+      const existingEmail = await database.getCollection<User>('users').findOne({ email, id: { $ne: userId } });
+      if (existingEmail) {
+        res.status(400).json({ error: 'El email ya está en uso' });
+        return;
+      }
+
+      await database.getCollection<User>('users').updateOne(
+        { id: userId },
+        { $set: { email } }
+      );
+
+      res.json({ message: 'Email actualizado correctamente' });
+    } catch (error) {
+      res.status(500).json({ error: 'Error al actualizar email' });
+    }
+  }
+
+  async updatePassword(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId;
+      const { currentPassword, newPassword } = req.body;
+
+      if (!userId) {
+        res.status(401).json({ error: 'No autorizado' });
+        return;
+      }
+
+      if (!currentPassword || !newPassword) {
+        res.status(400).json({ error: 'Contraseña actual y nueva contraseña son requeridas' });
+        return;
+      }
+
+      const user = await database.getCollection<User>('users').findOne({ id: userId });
+      if (!user || !user.password) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+
+      let validPassword = false;
+      if (user.password.startsWith('$argon2')) {
+        validPassword = await argon2.verify(user.password, currentPassword);
+      } else {
+        validPassword = user.password === currentPassword;
+      }
+
+      if (!validPassword) {
+        res.status(401).json({ error: 'Contraseña actual incorrecta' });
+        return;
+      }
+
+      const hashedPassword = await argon2.hash(newPassword, {
+        type: argon2.argon2id,
+        memoryCost: 65536,
+        timeCost: 3,
+        parallelism: 4,
+      });
+
+      await database.getCollection<User>('users').updateOne(
+        { id: userId },
+        { $set: { password: hashedPassword } }
+      );
+
+      res.json({ message: 'Contraseña actualizada correctamente' });
+    } catch (error) {
+      res.status(500).json({ error: 'Error al actualizar contraseña' });
+    }
+  }
 }
 
 export const authController = new AuthController();
