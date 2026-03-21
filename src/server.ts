@@ -873,6 +873,377 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva', async (req: Request,
   }
 });
 
+app.put('/api/proveedores/:id/facturas/:index/abonos/:abonoIndex', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    const abonoIndexParam = req.params.abonoIndex;
+    const abonoIndex = Array.isArray(abonoIndexParam) ? parseInt(abonoIndexParam[0]) : parseInt(abonoIndexParam);
+    
+    const { monto, fechaAbono } = req.body;
+    
+    const montoNum = parseFloat(monto);
+    if (isNaN(montoNum) || montoNum <= 0) {
+      res.status(400).json({ error: 'Monto de abono inválido' });
+      return;
+    }
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const factura = proveedor.facturas[index];
+    const abonosArray = factura.abonosArray || [];
+    
+    if (abonoIndex < 0 || abonoIndex >= abonosArray.length) {
+      res.status(404).json({ error: 'Abono no encontrado' });
+      return;
+    }
+    
+    const montoAnterior = abonosArray[abonoIndex].monto;
+    const diferencia = montoNum - montoAnterior;
+    
+    abonosArray[abonoIndex] = {
+      monto: montoNum,
+      fecha: fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date(),
+    };
+    
+    const nuevoAbono = (factura.abonos || 0) + diferencia;
+    const deudaActual = factura.totalPagar - nuevoAbono;
+    
+    proveedor.facturas[index] = {
+      ...factura,
+      abonos: nuevoAbono,
+      abonosArray: abonosArray,
+      deudaActual: deudaActual < 0 ? 0 : deudaActual,
+      pagada: deudaActual <= 0,
+    };
+    
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { facturas: proveedor.facturas } }
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error actualizando abono:', error);
+    res.status(500).json({ error: 'Error al actualizar abono', details: error.message });
+  }
+});
+
+app.delete('/api/proveedores/:id/facturas/:index/abonos/:abonoIndex', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    const abonoIndexParam = req.params.abonoIndex;
+    const abonoIndex = Array.isArray(abonoIndexParam) ? parseInt(abonoIndexParam[0]) : parseInt(abonoIndexParam);
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const factura = proveedor.facturas[index];
+    const abonosArray = factura.abonosArray || [];
+    
+    if (abonoIndex < 0 || abonoIndex >= abonosArray.length) {
+      res.status(404).json({ error: 'Abono no encontrado' });
+      return;
+    }
+    
+    const montoEliminado = abonosArray[abonoIndex].monto;
+    abonosArray.splice(abonoIndex, 1);
+    
+    const nuevoAbono = (factura.abonos || 0) - montoEliminado;
+    const deudaActual = factura.totalPagar - nuevoAbono;
+    
+    proveedor.facturas[index] = {
+      ...factura,
+      abonos: nuevoAbono,
+      abonosArray: abonosArray,
+      deudaActual: deudaActual < 0 ? 0 : deudaActual,
+      pagada: deudaActual <= 0,
+    };
+    
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { facturas: proveedor.facturas } }
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error eliminando abono:', error);
+    res.status(500).json({ error: 'Error al eliminar abono', details: error.message });
+  }
+});
+
+app.put('/api/proveedores/:id/facturas/:index/abonos-iva/:abonoIndex', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    const abonoIndexParam = req.params.abonoIndex;
+    const abonoIndex = Array.isArray(abonoIndexParam) ? parseInt(abonoIndexParam[0]) : parseInt(abonoIndexParam);
+    
+    const { monto, fechaAbono } = req.body;
+    
+    const montoNum = parseFloat(monto);
+    if (isNaN(montoNum) || montoNum <= 0) {
+      res.status(400).json({ error: 'Monto de abono IVA inválido' });
+      return;
+    }
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const factura = proveedor.facturas[index];
+    const abonosIvaArray = factura.abonosIvaArray || [];
+    
+    if (abonoIndex < 0 || abonoIndex >= abonosIvaArray.length) {
+      res.status(404).json({ error: 'Abono IVA no encontrado' });
+      return;
+    }
+    
+    const montoAnterior = abonosIvaArray[abonoIndex].monto;
+    const diferencia = montoNum - montoAnterior;
+    
+    abonosIvaArray[abonoIndex] = {
+      monto: montoNum,
+      fecha: fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date(),
+    };
+    
+    const nuevoAbonoIva = (factura.abonosIva || 0) + diferencia;
+    const deudaIva = (factura.iva75 || 0) - nuevoAbonoIva;
+    
+    proveedor.facturas[index] = {
+      ...factura,
+      abonosIva: nuevoAbonoIva,
+      abonosIvaArray: abonosIvaArray,
+      deudaIva: deudaIva < 0 ? 0 : deudaIva,
+    };
+    
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { facturas: proveedor.facturas } }
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error actualizando abono IVA:', error);
+    res.status(500).json({ error: 'Error al actualizar abono IVA', details: error.message });
+  }
+});
+
+app.delete('/api/proveedores/:id/facturas/:index/abonos-iva/:abonoIndex', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    const abonoIndexParam = req.params.abonoIndex;
+    const abonoIndex = Array.isArray(abonoIndexParam) ? parseInt(abonoIndexParam[0]) : parseInt(abonoIndexParam);
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const factura = proveedor.facturas[index];
+    const abonosIvaArray = factura.abonosIvaArray || [];
+    
+    if (abonoIndex < 0 || abonoIndex >= abonosIvaArray.length) {
+      res.status(404).json({ error: 'Abono IVA no encontrado' });
+      return;
+    }
+    
+    const montoEliminado = abonosIvaArray[abonoIndex].monto;
+    abonosIvaArray.splice(abonoIndex, 1);
+    
+    const nuevoAbonoIva = (factura.abonosIva || 0) - montoEliminado;
+    const deudaIva = (factura.iva75 || 0) - nuevoAbonoIva;
+    
+    proveedor.facturas[index] = {
+      ...factura,
+      abonosIva: nuevoAbonoIva,
+      abonosIvaArray: abonosIvaArray,
+      deudaIva: deudaIva < 0 ? 0 : deudaIva,
+    };
+    
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { facturas: proveedor.facturas } }
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error eliminando abono IVA:', error);
+    res.status(500).json({ error: 'Error al eliminar abono IVA', details: error.message });
+  }
+});
+
+app.put('/api/proveedores/:id/facturas/:index/abonos-iva25/:abonoIndex', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    const abonoIndexParam = req.params.abonoIndex;
+    const abonoIndex = Array.isArray(abonoIndexParam) ? parseInt(abonoIndexParam[0]) : parseInt(abonoIndexParam);
+    
+    const { monto, fechaAbono } = req.body;
+    
+    const montoNum = parseFloat(monto);
+    if (isNaN(montoNum) || montoNum <= 0) {
+      res.status(400).json({ error: 'Monto de abono IVA 25% inválido' });
+      return;
+    }
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const factura = proveedor.facturas[index];
+    const abonosIva25Array = factura.abonosIva25Array || [];
+    
+    if (abonoIndex < 0 || abonoIndex >= abonosIva25Array.length) {
+      res.status(404).json({ error: 'Abono IVA 25% no encontrado' });
+      return;
+    }
+    
+    const montoAnterior = abonosIva25Array[abonoIndex].monto;
+    const diferencia = montoNum - montoAnterior;
+    
+    abonosIva25Array[abonoIndex] = {
+      monto: montoNum,
+      fecha: fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date(),
+    };
+    
+    const nuevoAbonoIva25 = (factura.abonosIva25 || 0) + diferencia;
+    const deudaIva25 = (factura.iva25 || 0) - nuevoAbonoIva25;
+    
+    proveedor.facturas[index] = {
+      ...factura,
+      abonosIva25: nuevoAbonoIva25,
+      abonosIva25Array: abonosIva25Array,
+      deudaIva25: deudaIva25 < 0 ? 0 : deudaIva25,
+    };
+    
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { facturas: proveedor.facturas } }
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error actualizando abono IVA 25%:', error);
+    res.status(500).json({ error: 'Error al actualizar abono IVA 25%', details: error.message });
+  }
+});
+
+app.delete('/api/proveedores/:id/facturas/:index/abonos-iva25/:abonoIndex', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    const abonoIndexParam = req.params.abonoIndex;
+    const abonoIndex = Array.isArray(abonoIndexParam) ? parseInt(abonoIndexParam[0]) : parseInt(abonoIndexParam);
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const factura = proveedor.facturas[index];
+    const abonosIva25Array = factura.abonosIva25Array || [];
+    
+    if (abonoIndex < 0 || abonoIndex >= abonosIva25Array.length) {
+      res.status(404).json({ error: 'Abono IVA 25% no encontrado' });
+      return;
+    }
+    
+    const montoEliminado = abonosIva25Array[abonoIndex].monto;
+    abonosIva25Array.splice(abonoIndex, 1);
+    
+    const nuevoAbonoIva25 = (factura.abonosIva25 || 0) - montoEliminado;
+    const deudaIva25 = (factura.iva25 || 0) - nuevoAbonoIva25;
+    
+    proveedor.facturas[index] = {
+      ...factura,
+      abonosIva25: nuevoAbonoIva25,
+      abonosIva25Array: abonosIva25Array,
+      deudaIva25: deudaIva25 < 0 ? 0 : deudaIva25,
+    };
+    
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { facturas: proveedor.facturas } }
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error eliminando abono IVA 25%:', error);
+    res.status(500).json({ error: 'Error al eliminar abono IVA 25%', details: error.message });
+  }
+});
+
 app.delete('/api/proveedores/:id/facturas/:index', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
