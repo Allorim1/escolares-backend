@@ -197,4 +197,8 @@ router.put('/users/update-password', authenticateToken, (req: Request, res: Resp
   authController.updatePassword(req, res),
 );
 
+router.put('/users/:id', authenticateToken, (req: Request, res: Response) =>
+  authController.updateUserById(req, res),
+);
+
 export default router;

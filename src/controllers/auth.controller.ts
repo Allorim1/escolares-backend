@@ -475,6 +475,65 @@ export class AuthController {
       res.status(500).json({ error: 'Error al actualizar contraseña' });
     }
   }
+
+  async updateUserById(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.params.id;
+      const { username, email, nombreCompleto, telefono, direccion, cedula, tipoPersona, comentarios } = req.body;
+
+      const currentUser = req.user;
+      if (!currentUser || (currentUser.userId !== userId && currentUser.rol !== 'root')) {
+        res.status(403).json({ error: 'No autorizado para modificar este usuario' });
+        return;
+      }
+
+      const usersCollection = database.getCollection<User>('users');
+      const existingUser = await usersCollection.findOne({ id: userId });
+      
+      if (!existingUser) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+
+      const updateData: any = {};
+      if (username) updateData.username = username;
+      if (email) updateData.email = email;
+      if (nombreCompleto !== undefined) updateData.nombreCompleto = nombreCompleto;
+      if (telefono !== undefined) updateData.telefono = telefono;
+      if (direccion !== undefined) updateData.direccion = direccion;
+      if (cedula !== undefined) updateData.cedula = cedula;
+      if (tipoPersona !== undefined) updateData.tipoPersona = tipoPersona;
+      if (comentarios !== undefined) updateData.comentarios = comentarios;
+
+      await usersCollection.updateOne(
+        { id: userId },
+        { $set: updateData }
+      );
+
+      const db = database.db;
+      if (db) {
+        let registrosCollection = db.collection('registros');
+        const exists = await db.listCollections().toArray();
+        const names = exists.map((c: any) => c.name);
+        if (!names.includes('registros')) {
+          await db.createCollection('registros');
+          registrosCollection = db.collection('registros');
+        }
+        await registrosCollection.insertOne({
+          accion: 'Editar',
+          modulo: 'Usuarios',
+          descripcion: `Usuario ${username || email} actualizado`,
+          datos: { camposActualizados: Object.keys(updateData) },
+          usuario: currentUser.username || currentUser.email,
+          fecha: new Date(),
+        });
+      }
+
+      res.json({ message: 'Usuario actualizado correctamente' });
+    } catch (error) {
+      res.status(500).json({ error: 'Error al actualizar usuario' });
+    }
+  }
 }
 
 export const authController = new AuthController();
