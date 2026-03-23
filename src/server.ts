@@ -857,9 +857,18 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva', async (req: Request,
     const nuevoAbonoIva = abonoIvaActual + montoNum;
     const deudaIva = (factura.iva75 || 0) - nuevoAbonoIva;
     
+    const abonosIvaArray = factura.abonosIvaArray || [];
+    const fechaAbonoDate = fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date();
+    
+    abonosIvaArray.push({
+      monto: montoNum,
+      fecha: fechaAbonoDate,
+    });
+    
     proveedor.facturas[index] = {
       ...factura,
       abonosIva: nuevoAbonoIva,
+      abonosIvaArray: abonosIvaArray,
       deudaIva: deudaIva < 0 ? 0 : deudaIva,
     };
     
@@ -908,9 +917,18 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva25', async (req: Reques
     const nuevoAbonoIva25 = abonoIva25Actual + montoNum;
     const deudaIva25 = (factura.iva25 || 0) - nuevoAbonoIva25;
     
+    const abonosIva25Array = factura.abonosIva25Array || [];
+    const fechaAbonoDate = fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date();
+    
+    abonosIva25Array.push({
+      monto: montoNum,
+      fecha: fechaAbonoDate,
+    });
+    
     proveedor.facturas[index] = {
       ...factura,
       abonosIva25: nuevoAbonoIva25,
+      abonosIva25Array: abonosIva25Array,
       deudaIva25: deudaIva25 < 0 ? 0 : deudaIva25,
     };
     
