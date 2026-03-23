@@ -874,6 +874,57 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva', async (req: Request,
   }
 });
 
+app.post('/api/proveedores/:id/facturas/:index/abonos-iva25', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    
+    const { monto, fechaAbono } = req.body;
+    
+    const montoNum = parseFloat(monto);
+    if (isNaN(montoNum) || montoNum <= 0) {
+      res.status(400).json({ error: 'Monto de abono inválido' });
+      return;
+    }
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const factura = proveedor.facturas[index];
+    const abonoIva25Actual = factura.abonosIva25 || 0;
+    const nuevoAbonoIva25 = abonoIva25Actual + montoNum;
+    const deudaIva25 = (factura.iva25 || 0) - nuevoAbonoIva25;
+    
+    proveedor.facturas[index] = {
+      ...factura,
+      abonosIva25: nuevoAbonoIva25,
+      deudaIva25: deudaIva25 < 0 ? 0 : deudaIva25,
+    };
+    
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { facturas: proveedor.facturas } }
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Error agregando abono IVA 25%:', error);
+    res.status(500).json({ error: 'Error al agregar abono IVA 25%', details: error.message });
+  }
+});
+
 app.put('/api/proveedores/:id/facturas/:index/abonos/:abonoIndex', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
