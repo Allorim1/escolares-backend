@@ -15,7 +15,9 @@ export class AuthController {
         return;
       }
 
-      const existingUser = await database.getCollection<User>('users').findOne({ email });
+      const normalizedEmail = email.toLowerCase().trim();
+
+      const existingUser = await database.getCollection<User>('users').findOne({ email: normalizedEmail });
       if (existingUser) {
         res.status(400).json({ error: 'El email ya está registrado' });
         return;
@@ -30,8 +32,8 @@ export class AuthController {
 
       const newUser: User = {
         id: Date.now().toString(),
-        username,
-        email,
+        username: username.toLowerCase().trim(),
+        email: normalizedEmail,
         password: hashedPassword,
         isAdmin: false,
         rol: 'usuario',
@@ -76,8 +78,13 @@ export class AuthController {
         return;
       }
 
+      const normalizedIdentifier = identifier.toLowerCase().trim();
+
       const user = await database.getCollection<User>('users').findOne({
-        $or: [{ email: identifier }, { username: identifier }],
+        $or: [
+          { email: { $regex: new RegExp(`^${normalizedIdentifier}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${normalizedIdentifier}$`, 'i') } }
+        ],
       });
 
       if (!user || !user.password) {
