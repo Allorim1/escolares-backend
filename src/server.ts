@@ -50,20 +50,28 @@ const qrUploadTokens = new Map<string, { proveedorId: string; facturaIndex: numb
 
 app.get('/api/tasas', async (req: Request, res: Response) => {
   try {
+    const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
+    const apiKey = apiKeySettings?.value || DOLAR_API_KEY;
+
     const [bcvRes, usdtRes] = await Promise.all([
       fetch(DOLAR_API_URL, {
         headers: {
-          'x-dolarvzla-key': DOLAR_API_KEY,
+          'x-dolarvzla-key': apiKey,
         },
       }),
       fetch(USDT_API_URL, {
         headers: {
-          'x-dolarvzla-key': DOLAR_API_KEY,
+          'x-dolarvzla-key': apiKey,
         },
       }),
     ]);
 
-    const bcvData: any = bcvRes.ok ? await bcvRes.json() : null;
+    if (!bcvRes.ok || bcvRes.status === 401) {
+      res.status(401).json({ error: 'API key inválida o caducada' });
+      return;
+    }
+
+    const bcvData: any = await bcvRes.json();
     const usdtData: any = usdtRes.ok ? await usdtRes.json() : null;
 
     const result: any = {};
@@ -94,6 +102,49 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching tasas:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/settings/dolar-api-key', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede acceder a esta configuración' });
+      return;
+    }
+
+    const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
+    res.json({ hasApiKey: !!apiKeySettings?.value, apiKey: apiKeySettings?.value || '' });
+  } catch (error) {
+    console.error('Error getting dolar API key:', error);
+    res.status(500).json({ error: 'Error al obtener la API key' });
+  }
+});
+
+app.put('/api/settings/dolar-api-key', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede modificar esta configuración' });
+      return;
+    }
+
+    const { apiKey } = req.body;
+    if (!apiKey || typeof apiKey !== 'string') {
+      res.status(400).json({ error: 'Se requiere una API key válida' });
+      return;
+    }
+
+    await database.getCollection('settings').updateOne(
+      { key: 'dolarApiKey' },
+      { $set: { key: 'dolarApiKey', value: apiKey.trim(), updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, message: 'API key guardada correctamente' });
+  } catch (error) {
+    console.error('Error saving dolar API key:', error);
+    res.status(500).json({ error: 'Error al guardar la API key' });
   }
 });
 
