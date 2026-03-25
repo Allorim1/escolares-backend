@@ -30,10 +30,12 @@ export interface User {
   rol?: 'root' | 'owner' | 'usuario';
   rolId?: string;
   nombreCompleto?: string;
+  apellido?: string;
   direccion?: string;
   telefono?: string;
   cedula?: string;
   tipoPersona?: 'natural' | 'juridica';
+  comentarios?: string;
   direcciones?: Direccion[];
 }
 

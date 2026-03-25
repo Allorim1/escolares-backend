@@ -68,6 +68,54 @@ export class AuthController {
     }
   }
 
+  async registerSimple(req: Request, res: Response): Promise<void> {
+    try {
+      const { username, email, password, nombreCompleto, apellido, telefono, direccion, comentarios } = req.body;
+
+      if (!username || !email || !password) {
+        res.status(400).json({ error: 'Usuario, email y contraseña son requeridos' });
+        return;
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+
+      const existingUser = await database.getCollection<User>('users').findOne({ email: normalizedEmail });
+      if (existingUser) {
+        res.status(400).json({ error: 'El email ya está registrado' });
+        return;
+      }
+
+      const hashedPassword = await argon2.hash(password, {
+        type: argon2.argon2id,
+        memoryCost: 65536,
+        timeCost: 3,
+        parallelism: 4,
+      });
+
+      const newUser: User = {
+        id: Date.now().toString(),
+        username: username.toLowerCase().trim(),
+        email: normalizedEmail,
+        password: hashedPassword,
+        isAdmin: false,
+        rol: 'usuario',
+        nombreCompleto: nombreCompleto || '',
+        apellido: apellido || '',
+        telefono: telefono || '',
+        direccion: direccion || '',
+        comentarios: comentarios || '',
+      };
+
+      await database.getCollection<User>('users').insertOne(newUser);
+
+      const { password: _, ...userWithoutPassword } = newUser;
+      res.status(201).json(userWithoutPassword);
+    } catch (error) {
+      console.error('Error en registro simple:', error);
+      res.status(500).json({ error: 'Error al registrar usuario' });
+    }
+  }
+
   async login(req: Request, res: Response): Promise<void> {
     try {
       const { email, username, password } = req.body;
@@ -539,6 +587,74 @@ export class AuthController {
       res.json({ message: 'Usuario actualizado correctamente' });
     } catch (error) {
       res.status(500).json({ error: 'Error al actualizar usuario' });
+    }
+  }
+
+  async deleteUser(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.params.id;
+      const currentUser = req.user;
+
+      if (!currentUser || currentUser.rol !== 'root') {
+        res.status(403).json({ error: 'Solo el usuario root puede eliminar usuarios' });
+        return;
+      }
+
+      const userToDelete = await database.getCollection<User>('users').findOne({ id: userId });
+      if (!userToDelete) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+
+      if (userToDelete.rol === 'root') {
+        res.status(400).json({ error: 'No se puede eliminar al usuario root' });
+        return;
+      }
+
+      await database.getCollection<User>('users').deleteOne({ id: userId });
+      res.json({ message: 'Usuario eliminado correctamente' });
+    } catch (error) {
+      res.status(500).json({ error: 'Error al eliminar usuario' });
+    }
+  }
+
+  async updateUserPassword(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.params.id;
+      const currentUser = req.user;
+      const { newPassword } = req.body;
+
+      if (!currentUser || currentUser.rol !== 'root') {
+        res.status(403).json({ error: 'Solo el usuario root puede cambiar contraseñas' });
+        return;
+      }
+
+      if (!newPassword) {
+        res.status(400).json({ error: 'La nueva contraseña es requerida' });
+        return;
+      }
+
+      const user = await database.getCollection<User>('users').findOne({ id: userId });
+      if (!user) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+
+      const hashedPassword = await argon2.hash(newPassword, {
+        type: argon2.argon2id,
+        memoryCost: 65536,
+        timeCost: 3,
+        parallelism: 4,
+      });
+
+      await database.getCollection<User>('users').updateOne(
+        { id: userId },
+        { $set: { password: hashedPassword } }
+      );
+
+      res.json({ message: 'Contraseña actualizada correctamente' });
+    } catch (error) {
+      res.status(500).json({ error: 'Error al actualizar contraseña' });
     }
   }
 }

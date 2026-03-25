@@ -68,6 +68,8 @@ const crearRegistro = async (accion: string, modulo: string, descripcion: string
  */
 router.post('/register', authLimiter, (req: Request, res: Response) => authController.register(req, res));
 
+router.post('/register-simple', authenticateToken, (req: Request, res: Response) => authController.registerSimple(req, res));
+
 /**
  * @swagger
  * /api/auth/login:
@@ -209,6 +211,14 @@ router.put('/users/update-password', authenticateToken, (req: Request, res: Resp
 
 router.put('/users/:id', authenticateToken, (req: Request, res: Response) =>
   authController.updateUserById(req, res),
+);
+
+router.delete('/users/:id', authenticateToken, (req: Request, res: Response) =>
+  authController.deleteUser(req, res),
+);
+
+router.put('/users/:id/password', authenticateToken, (req: Request, res: Response) =>
+  authController.updateUserPassword(req, res),
 );
 
 export default router;
