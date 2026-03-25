@@ -1,6 +1,11 @@
 import { MongoClient, Db, Collection, Document } from 'mongodb';
 
-const MONGODB_URL = process.env["DB_URL"] || 'mongodb+srv://escolares_test:u0k8aKhXvjG0IzLD@escolares.p5nmwji.mongodb.net/?appName=escolares';
+const mongoUrl: string = process.env.DB_URL as string;
+
+if (!mongoUrl) {
+  throw new Error('DB_URL no configurada en variables de entorno');
+}
+
 const DB_NAME = process.env['mongodb_dbname'] || 'main';
 
 let dbInstance: Db | null = null;
@@ -17,7 +22,7 @@ class Database {
     if (this._db) return true;
 
     try {
-      this.client = new MongoClient(MONGODB_URL, { family: 4, connectTimeoutMS: 10000 });
+      this.client = new MongoClient(mongoUrl, { family: 4, connectTimeoutMS: 10000 });
       await this.client.connect();
       this._db = this.client.db(DB_NAME);
       dbInstance = this._db;

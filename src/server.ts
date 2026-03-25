@@ -1,8 +1,10 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
 import { database } from './config/database';
 import { swaggerConfig } from './config/swagger';
 import { authenticateToken } from './middlewares/auth.middleware';
@@ -10,6 +12,7 @@ import QRCode from 'qrcode';
 import { randomBytes } from 'crypto';
 import multer from 'multer';
 import Tesseract from 'tesseract.js';
+import Redis from 'ioredis';
 
 import marcasRoutes from './routes/marcas.routes';
 import lineasRoutes from './routes/lineas.routes';
@@ -25,12 +28,142 @@ const PORT = process.env.PORT || 3000;
 
 const swaggerSpec = swaggerJsdoc(swaggerConfig);
 
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+let redis: Redis | null = null;
+
+try {
+  redis = new Redis(redisUrl, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 3,
+    retryStrategy: (times) => {
+      if (times > 3) return null;
+      return Math.min(times * 200, 2000);
+    }
+  });
+  
+  redis.on('error', (err) => {
+    console.log('Redis connection error (non-blocking):', err.message);
+  });
+  
+  redis.on('connect', () => {
+    console.log('Connected to Redis');
+  });
+} catch (error) {
+  console.log('Redis initialization failed, continuing without cache');
+}
+
+const CACHE_TTL = 300;
+
+const cacheGet = async (key: string): Promise<string | null> => {
+  if (!redis) return null;
+  try {
+    return await redis.get(key);
+  } catch (e) {
+    return null;
+  }
+};
+
+const cacheSet = async (key: string, value: string, ttl: number = CACHE_TTL): Promise<void> => {
+  if (!redis) return;
+  try {
+    await redis.setex(key, ttl, value);
+  } catch (e) {
+    console.log('Cache set error:', e);
+  }
+};
+
+const cacheDelete = async (key: string): Promise<void> => {
+  if (!redis) return;
+  try {
+    await redis.del(key);
+  } catch (e) {}
+};
+
+const cacheDeletePattern = async (pattern: string): Promise<void> => {
+  if (!redis) return;
+  try {
+    const keys = await redis.keys(pattern);
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+  } catch (e) {}
+};
+
+const withCache = (ttl: number = CACHE_TTL) => {
+  return async (req: Request, res: Response, next: () => void) => {
+    if (req.method !== 'GET') return next();
+    
+    const path = req.path;
+    if (path.includes('/users') || path.includes('/profile')) return next();
+    
+    const cacheKey = `req:${req.originalUrl}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      res.header('X-Cache', 'HIT');
+      res.json(JSON.parse(cached));
+      return;
+    }
+    
+    const originalJson = res.json.bind(res);
+    res.json = (body: any) => {
+      cacheSet(cacheKey, JSON.stringify(body), ttl).catch(() => {});
+      res.header('X-Cache', 'MISS');
+      return originalJson(body);
+    };
+    
+    next();
+  };
+};
+
+const invalidateCache = (req: Request, res: Response, next: () => void) => {
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    const path = req.path;
+    
+    if (path.includes('/products')) {
+      cacheDeletePattern('req:/api/products*');
+    } else if (path.includes('/marcas')) {
+      cacheDeletePattern('req:/api/marcas*');
+    } else if (path.includes('/lineas')) {
+      cacheDeletePattern('req:/api/lineas*');
+    } else if (path.includes('/ofertas')) {
+      cacheDeletePattern('req:/api/ofertas*');
+    } else if (path.includes('/home')) {
+      cacheDeletePattern('req:/api/home*');
+    } else if (path.includes('/roles')) {
+      cacheDeletePattern('req:/api/roles*');
+    }
+  }
+  next();
+};
+
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  message: { error: 'Demasiadas solicitudes, intente más tarde' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  message: { error: 'Demasiados intentos de login, intente en 15 minutos' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:4200', 'http://localhost:3000', 'https://escolares.vercel.app', 'https://escolares-ng.vercel.app'];
+
 const corsOptions = {
-  origin: function (
-    origin: string | undefined,
-    callback: (err: Error | null, allow?: boolean) => void,
-  ) {
-    callback(null, true);
+  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'), false);
+    }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -38,6 +171,11 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+app.use(generalLimiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cookieParser());
@@ -49,6 +187,14 @@ const USDT_API_URL = 'https://api.dolarvzla.com/public/usdt/exchange-rate';
 const qrUploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; timestamp: number }>();
 
 app.get('/api/tasas', async (req: Request, res: Response) => {
+  const cacheKey = 'tasas:current';
+  const cached = await cacheGet(cacheKey);
+  if (cached) {
+    res.header('X-Cache', 'HIT');
+    res.json(JSON.parse(cached));
+    return;
+  }
+
   try {
     const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
     const apiKey = apiKeySettings?.value || DOLAR_API_KEY;
@@ -95,6 +241,8 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
       result.current.binance = binanceValue;
     }
 
+    await cacheSet(cacheKey, JSON.stringify(result), 60);
+    res.header('X-Cache', 'MISS');
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
@@ -1392,6 +1540,9 @@ app.delete('/api/proveedores/:id/facturas/:index', async (req: Request, res: Res
     res.status(500).json({ error: 'Error al eliminar factura' });
   }
 })
+
+app.use(invalidateCache);
+app.use(withCache(300));
 
 app.use('/api/marcas', marcasRoutes);
 app.use('/api/lineas', lineasRoutes);
