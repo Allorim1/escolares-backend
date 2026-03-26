@@ -825,7 +825,7 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       iva = montoIva !== undefined ? montoIva : (baseImpo * (ivaPorcentaje / 100));
       iva75 = iva * 0.75;
       iva25 = iva * 0.25;
-      totalPagar = monto + baseEx + iva;
+      totalPagar = monto + baseEx;
       deudaActual = monto + baseEx;
       deudaIva = iva75;
       deudaIva25 = iva25;
@@ -923,7 +923,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
       nuevoIva75 = montoIvaFact * 0.75;
       nuevoIva25 = montoIvaFact * 0.25;
       deudaActual = montoFact + baseExentaFact - nuevosAbonos;
-      nuevoTotalPagar = montoFact + baseExentaFact + montoIvaFact;
+      nuevoTotalPagar = montoFact + baseExentaFact;
       deudaIva = nuevoIva75;
       deudaIva25 = nuevoIva25;
     }
@@ -993,15 +993,8 @@ app.post('/api/proveedores/:id/facturas/:index/abonos', async (req: Request, res
     const factura = proveedor.facturas[index];
     const abonoActual = factura.abonos || 0;
     const nuevoAbono = abonoActual + montoNum;
-    const deudaActual = factura.totalPagar - nuevoAbono;
-    
-    const abonosArray = factura.abonosArray || [];
-    const fechaAbonoDate = fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date();
-    
-    abonosArray.push({
-      monto: montoNum,
-      fecha: fechaAbonoDate,
-    });
+    const montoBase = (factura.monto || 0) + (factura.baseExenta || 0);
+    const deudaActual = montoBase - nuevoAbono;
     
     proveedor.facturas[index] = {
       ...factura,
@@ -1017,8 +1010,8 @@ app.post('/api/proveedores/:id/facturas/:index/abonos', async (req: Request, res
     );
     res.json({ success: true });
   } catch (error: any) {
-    console.error('Error agregando abono:', error);
-    res.status(500).json({ error: 'Error al agregar abono', details: error.message });
+    console.error('Error actualizando abono:', error);
+    res.status(500).json({ error: 'Error al actualizar abono', details: error.message });
   }
 });
 
@@ -1034,7 +1027,7 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva', async (req: Request,
     
     const montoNum = parseFloat(monto);
     if (isNaN(montoNum) || montoNum <= 0) {
-      res.status(400).json({ error: 'Monto de abono inválido' });
+      res.status(400).json({ error: 'Monto de abono IVA inválido', received: monto });
       return;
     }
     
@@ -1047,22 +1040,19 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva', async (req: Request,
     }
     
     if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
-      res.status(404).json({ error: 'Factura no encontrada' });
+      res.status(404).json({ error: 'Factura no encontrada', index, facturasLength: proveedor.facturas?.length });
       return;
     }
     
     const factura = proveedor.facturas[index];
-    const abonoIvaActual = factura.abonosIva || 0;
-    const nuevoAbonoIva = abonoIvaActual + montoNum;
-    const deudaIva = (factura.iva75 || 0) - nuevoAbonoIva;
-    
     const abonosIvaArray = factura.abonosIvaArray || [];
-    const fechaAbonoDate = fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date();
-    
     abonosIvaArray.push({
       monto: montoNum,
-      fecha: fechaAbonoDate,
+      fecha: fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date(),
     });
+    
+    const nuevoAbonoIva = (factura.abonosIva || 0) + montoNum;
+    const deudaIva = (factura.iva75 || 0) - nuevoAbonoIva;
     
     proveedor.facturas[index] = {
       ...factura,
@@ -1094,7 +1084,7 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva25', async (req: Reques
     
     const montoNum = parseFloat(monto);
     if (isNaN(montoNum) || montoNum <= 0) {
-      res.status(400).json({ error: 'Monto de abono inválido' });
+      res.status(400).json({ error: 'Monto de abono IVA 25% inválido', received: monto });
       return;
     }
     
@@ -1107,22 +1097,19 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva25', async (req: Reques
     }
     
     if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
-      res.status(404).json({ error: 'Factura no encontrada' });
+      res.status(404).json({ error: 'Factura no encontrada', index, facturasLength: proveedor.facturas?.length });
       return;
     }
     
     const factura = proveedor.facturas[index];
-    const abonoIva25Actual = factura.abonosIva25 || 0;
-    const nuevoAbonoIva25 = abonoIva25Actual + montoNum;
-    const deudaIva25 = (factura.iva25 || 0) - nuevoAbonoIva25;
-    
     const abonosIva25Array = factura.abonosIva25Array || [];
-    const fechaAbonoDate = fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date();
-    
     abonosIva25Array.push({
       monto: montoNum,
-      fecha: fechaAbonoDate,
+      fecha: fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date(),
     });
+    
+    const nuevoAbonoIva25 = (factura.abonosIva25 || 0) + montoNum;
+    const deudaIva25 = (factura.iva25 || 0) - nuevoAbonoIva25;
     
     proveedor.facturas[index] = {
       ...factura,
@@ -1139,75 +1126,6 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva25', async (req: Reques
   } catch (error: any) {
     console.error('Error agregando abono IVA 25%:', error);
     res.status(500).json({ error: 'Error al agregar abono IVA 25%', details: error.message });
-  }
-});
-
-app.put('/api/proveedores/:id/facturas/:index/abonos/:abonoIndex', async (req: Request, res: Response) => {
-  try {
-    const { ObjectId } = await import('mongodb');
-    const idParam = req.params.id;
-    const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const indexParam = req.params.index;
-    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
-    const abonoIndexParam = req.params.abonoIndex;
-    const abonoIndex = Array.isArray(abonoIndexParam) ? parseInt(abonoIndexParam[0]) : parseInt(abonoIndexParam);
-    
-    const { monto, fechaAbono } = req.body;
-    
-    const montoNum = parseFloat(monto);
-    if (isNaN(montoNum) || montoNum <= 0) {
-      res.status(400).json({ error: 'Monto de abono inválido' });
-      return;
-    }
-    
-    const collection = (database as any).getCollection('proveedores');
-    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
-    
-    if (!proveedor) {
-      res.status(404).json({ error: 'Proveedor no encontrado' });
-      return;
-    }
-    
-    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
-      res.status(404).json({ error: 'Factura no encontrada' });
-      return;
-    }
-    
-    const factura = proveedor.facturas[index];
-    const abonosArray = factura.abonosArray || [];
-    
-    if (abonoIndex < 0 || abonoIndex >= abonosArray.length) {
-      res.status(404).json({ error: 'Abono no encontrado' });
-      return;
-    }
-    
-    const montoAnterior = abonosArray[abonoIndex].monto;
-    const diferencia = montoNum - montoAnterior;
-    
-    abonosArray[abonoIndex] = {
-      monto: montoNum,
-      fecha: fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date(),
-    };
-    
-    const nuevoAbono = (factura.abonos || 0) + diferencia;
-    const deudaActual = factura.totalPagar - nuevoAbono;
-    
-    proveedor.facturas[index] = {
-      ...factura,
-      abonos: nuevoAbono,
-      abonosArray: abonosArray,
-      deudaActual: deudaActual < 0 ? 0 : deudaActual,
-      pagada: deudaActual <= 0,
-    };
-    
-    await collection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: { facturas: proveedor.facturas } }
-    );
-    res.json({ success: true });
-  } catch (error: any) {
-    console.error('Error actualizando abono:', error);
-    res.status(500).json({ error: 'Error al actualizar abono', details: error.message });
   }
 });
 
@@ -1246,7 +1164,8 @@ app.delete('/api/proveedores/:id/facturas/:index/abonos/:abonoIndex', async (req
     abonosArray.splice(abonoIndex, 1);
     
     const nuevoAbono = (factura.abonos || 0) - montoEliminado;
-    const deudaActual = factura.totalPagar - nuevoAbono;
+    const montoBase = (factura.monto || 0) + (factura.baseExenta || 0);
+    const deudaActual = montoBase - nuevoAbono;
     
     proveedor.facturas[index] = {
       ...factura,
