@@ -1478,6 +1478,137 @@ app.use('/api/home', homeRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/roles', rolesRoutes);
 
+// Documentos Temporales
+app.get('/api/documentos-temporales', async (_req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('documentos-temporales');
+    const docs = await collection.find({}).sort({ fechaSubida: -1 }).toArray();
+    res.json(docs);
+  } catch (error) {
+    console.error('Error obteniendo documentos temporales:', error);
+    res.status(500).json({ error: 'Error al obtener documentos' });
+  }
+});
+
+app.post('/api/documentos-temporales', async (req: Request, res: Response) => {
+  try {
+    const { nombre, descripcion, fechaVencimiento, tipo } = req.body;
+    if (!nombre) {
+      res.status(400).json({ error: 'El nombre es requerido' });
+      return;
+    }
+    const collection = (database as any).getCollection('documentos-temporales');
+    const doc = {
+      nombre,
+      descripcion: descripcion || '',
+      tipo: tipo || 'pdf',
+      archivo: '',
+      fechaSubida: new Date(),
+      fechaVencimiento: fechaVencimiento ? new Date(fechaVencimiento + 'T00:00:00') : null,
+    };
+    const result = await collection.insertOne(doc);
+    res.json({ ...doc, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando documento temporal:', error);
+    res.status(500).json({ error: 'Error al crear documento' });
+  }
+});
+
+app.put('/api/documentos-temporales/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { nombre, descripcion, fechaVencimiento, tipo } = req.body;
+    const collection = (database as any).getCollection('documentos-temporales');
+    const updateData: any = { nombre, descripcion, tipo };
+    if (fechaVencimiento) updateData.fechaVencimiento = new Date(fechaVencimiento + 'T00:00:00');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando documento temporal:', error);
+    res.status(500).json({ error: 'Error al actualizar documento' });
+  }
+});
+
+app.delete('/api/documentos-temporales/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('documentos-temporales');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando documento temporal:', error);
+    res.status(500).json({ error: 'Error al eliminar documento' });
+  }
+});
+
+// Documentos Legales
+app.get('/api/documentos-legales', async (_req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('documentos-legales');
+    const docs = await collection.find({}).sort({ fechaSubida: -1 }).toArray();
+    res.json(docs);
+  } catch (error) {
+    console.error('Error obteniendo documentos legales:', error);
+    res.status(500).json({ error: 'Error al obtener documentos' });
+  }
+});
+
+app.post('/api/documentos-legales', async (req: Request, res: Response) => {
+  try {
+    const { nombre, descripcion, categoria } = req.body;
+    if (!nombre) {
+      res.status(400).json({ error: 'El nombre es requerido' });
+      return;
+    }
+    const collection = (database as any).getCollection('documentos-legales');
+    const doc = {
+      nombre,
+      descripcion: descripcion || '',
+      categoria: categoria || 'otro',
+      archivo: '',
+      fechaSubida: new Date(),
+    };
+    const result = await collection.insertOne(doc);
+    res.json({ ...doc, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando documento legal:', error);
+    res.status(500).json({ error: 'Error al crear documento' });
+  }
+});
+
+app.put('/api/documentos-legales/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { nombre, descripcion, categoria } = req.body;
+    const collection = (database as any).getCollection('documentos-legales');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: { nombre, descripcion, categoria } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando documento legal:', error);
+    res.status(500).json({ error: 'Error al actualizar documento' });
+  }
+});
+
+app.delete('/api/documentos-legales/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('documentos-legales');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando documento legal:', error);
+    res.status(500).json({ error: 'Error al eliminar documento' });
+  }
+});
+
 const uploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; expiresAt: Date }>();
 
 app.get('/api/pago/debug/:token', async (req: Request, res: Response) => {
