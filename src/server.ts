@@ -1498,7 +1498,7 @@ app.post('/api/galeria/:tipo', async (req: Request, res: Response) => {
     const tipoParam = req.params.tipo;
     const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
     const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
-    const { nombre, descripcion, categoria } = req.body;
+    const { nombre, descripcion } = req.body;
     if (!nombre) {
       res.status(400).json({ error: 'El nombre es requerido' });
       return;
@@ -1510,9 +1510,6 @@ app.post('/api/galeria/:tipo', async (req: Request, res: Response) => {
       imagenes: [],
       fechaSubida: new Date(),
     };
-    if (tipo === 'legales') {
-      doc.categoria = categoria || 'otro';
-    }
     const result = await collection.insertOne(doc);
     res.json({ ...doc, _id: result.insertedId });
   } catch (error) {
@@ -1529,12 +1526,9 @@ app.put('/api/galeria/:tipo/:id', async (req: Request, res: Response) => {
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
-    const { nombre, descripcion, categoria } = req.body;
+    const { nombre, descripcion } = req.body;
     const collection = (database as any).getCollection(collectionName);
     const updateData: any = { nombre, descripcion };
-    if (tipo === 'legales' && categoria) {
-      updateData.categoria = categoria;
-    }
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
     res.json({ success: true });
   } catch (error) {
