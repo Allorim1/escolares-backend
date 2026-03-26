@@ -996,6 +996,12 @@ app.post('/api/proveedores/:id/facturas/:index/abonos', async (req: Request, res
     const montoBase = (factura.monto || 0) + (factura.baseExenta || 0);
     const deudaActual = montoBase - nuevoAbono;
     
+    const abonosArray = factura.abonosArray || [];
+    abonosArray.push({
+      monto: montoNum,
+      fecha: fechaAbono ? new Date(fechaAbono + 'T00:00:00') : new Date(),
+    });
+    
     proveedor.facturas[index] = {
       ...factura,
       abonos: nuevoAbono,
