@@ -1478,135 +1478,256 @@ app.use('/api/home', homeRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/roles', rolesRoutes);
 
-// Documentos Temporales
-app.get('/api/documentos-temporales', async (_req: Request, res: Response) => {
+// Galería - Documentos Temporales y Legales
+app.get('/api/galeria/:tipo', async (req: Request, res: Response) => {
   try {
-    const collection = (database as any).getCollection('documentos-temporales');
+    const tipoParam = req.params.tipo;
+    const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
+    const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
+    const collection = (database as any).getCollection(collectionName);
     const docs = await collection.find({}).sort({ fechaSubida: -1 }).toArray();
     res.json(docs);
   } catch (error) {
-    console.error('Error obteniendo documentos temporales:', error);
+    console.error('Error obteniendo documentos galería:', error);
     res.status(500).json({ error: 'Error al obtener documentos' });
   }
 });
 
-app.post('/api/documentos-temporales', async (req: Request, res: Response) => {
+app.post('/api/galeria/:tipo', async (req: Request, res: Response) => {
   try {
-    const { nombre, descripcion, fechaVencimiento, tipo } = req.body;
+    const tipoParam = req.params.tipo;
+    const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
+    const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
+    const { nombre, descripcion, fechaVencimiento, categoria } = req.body;
     if (!nombre) {
       res.status(400).json({ error: 'El nombre es requerido' });
       return;
     }
-    const collection = (database as any).getCollection('documentos-temporales');
-    const doc = {
+    const collection = (database as any).getCollection(collectionName);
+    const doc: any = {
       nombre,
       descripcion: descripcion || '',
-      tipo: tipo || 'pdf',
-      archivo: '',
+      imagenes: [],
       fechaSubida: new Date(),
-      fechaVencimiento: fechaVencimiento ? new Date(fechaVencimiento + 'T00:00:00') : null,
     };
+    if (tipo === 'temporales') {
+      doc.fechaVencimiento = fechaVencimiento ? new Date(fechaVencimiento + 'T00:00:00') : null;
+    } else {
+      doc.categoria = categoria || 'otro';
+    }
     const result = await collection.insertOne(doc);
     res.json({ ...doc, _id: result.insertedId });
   } catch (error) {
-    console.error('Error creando documento temporal:', error);
+    console.error('Error creando documento galería:', error);
     res.status(500).json({ error: 'Error al crear documento' });
   }
 });
 
-app.put('/api/documentos-temporales/:id', async (req: Request, res: Response) => {
+app.put('/api/galeria/:tipo/:id', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
+    const tipoParam = req.params.tipo;
+    const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const { nombre, descripcion, fechaVencimiento, tipo } = req.body;
-    const collection = (database as any).getCollection('documentos-temporales');
-    const updateData: any = { nombre, descripcion, tipo };
-    if (fechaVencimiento) updateData.fechaVencimiento = new Date(fechaVencimiento + 'T00:00:00');
+    const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
+    const { nombre, descripcion, fechaVencimiento, categoria } = req.body;
+    const collection = (database as any).getCollection(collectionName);
+    const updateData: any = { nombre, descripcion };
+    if (tipo === 'temporales' && fechaVencimiento) {
+      updateData.fechaVencimiento = new Date(fechaVencimiento + 'T00:00:00');
+    }
+    if (tipo === 'legales' && categoria) {
+      updateData.categoria = categoria;
+    }
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
     res.json({ success: true });
   } catch (error) {
-    console.error('Error actualizando documento temporal:', error);
+    console.error('Error actualizando documento galería:', error);
     res.status(500).json({ error: 'Error al actualizar documento' });
   }
 });
 
-app.delete('/api/documentos-temporales/:id', async (req: Request, res: Response) => {
+app.delete('/api/galeria/:tipo/:id', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
+    const tipoParam = req.params.tipo;
+    const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const collection = (database as any).getCollection('documentos-temporales');
+    const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
+    const collection = (database as any).getCollection(collectionName);
     await collection.deleteOne({ _id: new ObjectId(id) });
     res.json({ success: true });
   } catch (error) {
-    console.error('Error eliminando documento temporal:', error);
+    console.error('Error eliminando documento galería:', error);
     res.status(500).json({ error: 'Error al eliminar documento' });
   }
 });
 
-// Documentos Legales
-app.get('/api/documentos-legales', async (_req: Request, res: Response) => {
+const galeriaTokens = new Map<string, { tipo: string; docId: string; expiresAt: Date }>();
+
+app.post('/api/galeria/:tipo/generate-qr', async (req: Request, res: Response) => {
   try {
-    const collection = (database as any).getCollection('documentos-legales');
-    const docs = await collection.find({}).sort({ fechaSubida: -1 }).toArray();
-    res.json(docs);
+    const tipoParam = req.params.tipo;
+    const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
+    const { docId } = req.body;
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    galeriaTokens.set(token, { tipo, docId, expiresAt });
+
+    const host = req.get('host');
+    const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1');
+    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
+    const uploadUrl = `${baseUrl}/upload-galeria/${token}`;
+
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
+
+    try {
+      const response = await fetch(qrApiUrl);
+      const buffer = await response.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      const dataUrl = `data:image/png;base64,${base64}`;
+      res.json({ qrCode: dataUrl, uploadUrl, expiresAt: expiresAt.toISOString() });
+    } catch (fetchError) {
+      console.error('Error fetching QR galería:', fetchError);
+      res.json({ qrCode: qrApiUrl, uploadUrl, expiresAt: expiresAt.toISOString() });
+    }
   } catch (error) {
-    console.error('Error obteniendo documentos legales:', error);
-    res.status(500).json({ error: 'Error al obtener documentos' });
+    console.error('Error generating QR galería:', error);
+    res.status(500).json({ error: 'Error al generar código QR' });
   }
 });
 
-app.post('/api/documentos-legales', async (req: Request, res: Response) => {
+app.post('/api/galeria/:tipo/:docId/upload', async (req: Request, res: Response) => {
   try {
-    const { nombre, descripcion, categoria } = req.body;
-    if (!nombre) {
-      res.status(400).json({ error: 'El nombre es requerido' });
+    const { ObjectId } = await import('mongodb');
+    const tipoParam = req.params.tipo;
+    const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
+    const docIdParam = req.params.docId;
+    const docId = Array.isArray(docIdParam) ? docIdParam[0] : docIdParam;
+    const { imagen, token } = req.body;
+    const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
+    const collection = (database as any).getCollection(collectionName);
+    await collection.updateOne(
+      { _id: new ObjectId(docId) },
+      { $push: { imagenes: imagen } }
+    );
+    if (token) galeriaTokens.delete(token);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error subiendo imagen galería:', error);
+    res.status(500).json({ error: 'Error al subir imagen' });
+  }
+});
+
+app.get('/api/galeria/:tipo/imagenes/:docId', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const tipoParam = req.params.tipo;
+    const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
+    const docIdParam = req.params.docId;
+    const docId = Array.isArray(docIdParam) ? docIdParam[0] : docIdParam;
+    const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
+    const collection = (database as any).getCollection(collectionName);
+    const doc = await collection.findOne({ _id: new ObjectId(docId) });
+    if (!doc) {
+      res.status(404).json({ error: 'Documento no encontrado' });
       return;
     }
-    const collection = (database as any).getCollection('documentos-legales');
-    const doc = {
-      nombre,
-      descripcion: descripcion || '',
-      categoria: categoria || 'otro',
-      archivo: '',
-      fechaSubida: new Date(),
-    };
-    const result = await collection.insertOne(doc);
-    res.json({ ...doc, _id: result.insertedId });
+    res.json({ imagenes: doc.imagenes || [] });
   } catch (error) {
-    console.error('Error creando documento legal:', error);
-    res.status(500).json({ error: 'Error al crear documento' });
+    console.error('Error obteniendo imágenes galería:', error);
+    res.status(500).json({ error: 'Error al obtener imágenes' });
   }
 });
 
-app.put('/api/documentos-legales/:id', async (req: Request, res: Response) => {
+app.delete('/api/galeria/:tipo/imagenes/:docId/:imagenIndex', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const idParam = req.params.id;
-    const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const { nombre, descripcion, categoria } = req.body;
-    const collection = (database as any).getCollection('documentos-legales');
-    await collection.updateOne({ _id: new ObjectId(id) }, { $set: { nombre, descripcion, categoria } });
+    const tipoParam = req.params.tipo;
+    const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
+    const docIdParam = req.params.docId;
+    const docId = Array.isArray(docIdParam) ? docIdParam[0] : docIdParam;
+    const imagenIndexParam = req.params.imagenIndex;
+    const imagenIndex = Array.isArray(imagenIndexParam) ? parseInt(imagenIndexParam[0]) : parseInt(imagenIndexParam);
+    const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
+    const collection = (database as any).getCollection(collectionName);
+    const doc = await collection.findOne({ _id: new ObjectId(docId) });
+    if (!doc) {
+      res.status(404).json({ error: 'Documento no encontrado' });
+      return;
+    }
+    const imagenes = doc.imagenes || [];
+    if (imagenIndex >= 0 && imagenIndex < imagenes.length) {
+      imagenes.splice(imagenIndex, 1);
+      await collection.updateOne({ _id: new ObjectId(docId) }, { $set: { imagenes } });
+    }
     res.json({ success: true });
   } catch (error) {
-    console.error('Error actualizando documento legal:', error);
-    res.status(500).json({ error: 'Error al actualizar documento' });
+    console.error('Error eliminando imagen galería:', error);
+    res.status(500).json({ error: 'Error al eliminar imagen' });
   }
 });
 
-app.delete('/api/documentos-legales/:id', async (req: Request, res: Response) => {
-  try {
-    const { ObjectId } = await import('mongodb');
-    const idParam = req.params.id;
-    const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const collection = (database as any).getCollection('documentos-legales');
-    await collection.deleteOne({ _id: new ObjectId(id) });
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error eliminando documento legal:', error);
-    res.status(500).json({ error: 'Error al eliminar documento' });
+app.get('/upload-galeria/:token', async (req: Request, res: Response) => {
+  const tokenParam = req.params.token;
+  const token = Array.isArray(tokenParam) ? tokenParam[0] : tokenParam;
+  const uploadData = galeriaTokens.get(token);
+
+  if (!uploadData || new Date() > uploadData.expiresAt) {
+    galeriaTokens.delete(token);
+    res.send(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Enlace expirado</title><style>body{font-family:Arial;padding:20px;text-align:center}.error{color:red}</style></head><body><h1 class="error">Enlace expirado o inválido</h1><p>Genera un nuevo código QR desde la aplicación.</p></body></html>`);
+    return;
   }
+
+  res.send(`<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Subir Imagen</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:Arial,sans-serif;padding:20px;max-width:500px;margin:0 auto}
+h1{text-align:center;color:#333;font-size:1.3rem}
+.upload-area{border:2px dashed #ccc;border-radius:10px;padding:30px;text-align:center;margin:20px 0;cursor:pointer}
+.upload-area:hover{border-color:#1976d2;background:#f8f9fa}
+input[type=file]{display:none}
+.btn-camera{background:#25D366;color:white;padding:15px 30px;border:none;border-radius:8px;font-size:16px;cursor:pointer;display:block;width:100%;margin:10px 0}
+.btn-camera:hover{background:#20BD5A}
+.btn-gallery{background:#1976d2;color:white;padding:15px 30px;border:none;border-radius:8px;font-size:16px;cursor:pointer;display:block;width:100%;margin:10px 0}
+.btn-gallery:hover{background:#1565c0}
+.preview{margin-top:20px;text-align:center}
+.preview img{max-width:100%;border-radius:8px}
+.btn-upload{background:#4CAF50;color:white;padding:15px 30px;border:none;border-radius:8px;font-size:16px;cursor:pointer;width:100%;margin-top:10px}
+.btn-upload:hover{background:#45a049}
+.btn-upload:disabled{background:#ccc;cursor:not-allowed}
+.success{text-align:center;padding:40px 20px}
+.success h2{color:#4CAF50}
+.progress{text-align:center;color:#666}
+</style></head>
+<body>
+<h1>Subir Imagen</h1>
+<div class="upload-area" onclick="document.getElementById('cameraInput').click()">
+<p>Toca para tomar foto</p>
+</div>
+<input type="file" id="cameraInput" accept="image/*" capture="environment">
+<div class="upload-area" onclick="document.getElementById('galleryInput').click()">
+<p>Toca para seleccionar de galería</p>
+</div>
+<input type="file" id="galleryInput" accept="image/*">
+<div id="previewArea" class="preview" style="display:none">
+<img id="previewImg" src="">
+<button id="uploadBtn" class="btn-upload" onclick="uploadImage()">📤 Subir Imagen</button>
+</div>
+<div id="progress" class="progress" style="display:none"><p>Subiendo...</p></div>
+<div id="success" class="success" style="display:none"><h2>✓ Imagen subida</h2><p>Puedes subir otra o cerrar esta página.</p></div>
+<script>
+let selectedFile=null;
+function handleFile(e){const file=e.target.files[0];if(!file)return;selectedFile=file;const reader=new FileReader();reader.onload=function(ev){document.getElementById('previewImg').src=ev.target.result;document.getElementById('previewArea').style.display='block';document.getElementById('success').style.display='none';};reader.readAsDataURL(file);}
+document.getElementById('cameraInput').addEventListener('change',handleFile);
+document.getElementById('galleryInput').addEventListener('change',handleFile);
+function resizeImage(base64,maxWidth){return new Promise(resolve=>{const img=new Image();img.onload=function(){const canvas=document.createElement('canvas');let w=img.width,h=img.height;if(w>maxWidth){h=Math.round(h*maxWidth/w);w=maxWidth;}canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d');ctx.drawImage(img,0,0,w,h);resolve(canvas.toDataURL('image/jpeg',0.8));};img.src=base64;});}
+async function uploadImage(){if(!selectedFile)return;document.getElementById('uploadBtn').disabled=true;document.getElementById('progress').style.display='block';const reader=new FileReader();reader.onload=async function(ev){const resized=await resizeImage(ev.target.result,1200);try{await fetch('/api/galeria/${uploadData.tipo}/${uploadData.docId}/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({imagen:resized,token:'${token}'}),});document.getElementById('progress').style.display='none';document.getElementById('success').style.display='block';document.getElementById('previewArea').style.display='none';selectedFile=null;document.getElementById('uploadBtn').disabled=false;}catch(err){alert('Error al subir');document.getElementById('uploadBtn').disabled=false;document.getElementById('progress').style.display='none';}};reader.readAsDataURL(selectedFile);}
+</script></body></html>`);
 });
 
 const uploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; expiresAt: Date }>();
