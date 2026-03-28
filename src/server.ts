@@ -795,7 +795,7 @@ app.delete('/api/proveedores/:id', authenticateToken, async (req: Request, res: 
 app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, porcentajeIva, imagenes } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, porcentajeIva, imagenes, montoBsf } = req.body;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     
@@ -850,6 +850,7 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       deudaActual: deudaActual,
       deudaIva: deudaIva,
       deudaIva25: deudaIva25 || 0,
+      montoBsf: montoBsf || 0,
     };
     
     if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
@@ -880,7 +881,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
     const indexParam = req.params.index;
     const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
     
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, abonos, totalPagar, imagenes } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, abonos, totalPagar, imagenes, montoBsf } = req.body;
     
     const collection = (database as any).getCollection('proveedores');
     const proveedor = await collection.findOne({ _id: new ObjectId(id) });
@@ -946,6 +947,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
       deudaIva,
       deudaIva25,
       imagenes: imagenes !== undefined ? imagenes : imagenesActuales,
+      montoBsf: montoBsf !== undefined ? montoBsf : (factura.montoBsf || 0),
     };
     
     await collection.updateOne(
