@@ -2648,6 +2648,10 @@ if (!existsSync('uploads/manuales')) {
   mkdirSync('uploads/manuales', { recursive: true });
 }
 
+const getManualId = (idParam: string | string[]): string => {
+  return Array.isArray(idParam) ? idParam[0] : idParam;
+};
+
 // GET all manuales
 app.get('/api/manuales', async (req: Request, res: Response) => {
   try {
@@ -2656,6 +2660,7 @@ app.get('/api/manuales', async (req: Request, res: Response) => {
     
     const manualesWithUrls = manuales.map((m: any) => ({
       ...m,
+      id: m._id.toString(),
       url: `/api/manuales/${m._id}/descargar`
     }));
     
@@ -2671,7 +2676,8 @@ app.get('/api/manuales/:id', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
     const collection = database.getCollection('manuales');
-    const manual = await collection.findOne({ _id: new ObjectId(req.params.id) });
+    const id = getManualId(req.params.id);
+    const manual = await collection.findOne({ _id: new ObjectId(id) });
     
     if (!manual) {
       return res.status(404).json({ error: 'Manual no encontrado' });
@@ -2679,6 +2685,7 @@ app.get('/api/manuales/:id', async (req: Request, res: Response) => {
     
     res.json({
       ...manual,
+      id: manual._id.toString(),
       url: `/api/manuales/${manual._id}/descargar`
     });
   } catch (error) {
@@ -2718,7 +2725,7 @@ app.post('/api/manuales', authenticateToken, uploadManual.single('archivo'), asy
     
     res.json({ 
       success: true, 
-      id: result.insertedId,
+      id: result.insertedId.toString(),
       url: `/api/manuales/${result.insertedId}/descargar`
     });
   } catch (error) {
@@ -2737,6 +2744,7 @@ app.put('/api/manuales/:id', authenticateToken, uploadManual.single('archivo'), 
     
     const { ObjectId } = await import('mongodb');
     const collection = database.getCollection('manuales');
+    const id = getManualId(req.params.id);
     
     const updateData: any = {
       nombre: req.body.nombre,
@@ -2753,7 +2761,7 @@ app.put('/api/manuales/:id', authenticateToken, uploadManual.single('archivo'), 
     }
     
     await collection.updateOne(
-      { _id: new ObjectId(req.params.id) },
+      { _id: new ObjectId(id) },
       { $set: updateData }
     );
     
@@ -2775,8 +2783,9 @@ app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Res
     const { ObjectId } = await import('mongodb');
     const { unlinkSync } = await import('fs');
     const collection = database.getCollection('manuales');
+    const id = getManualId(req.params.id);
     
-    const manual = await collection.findOne({ _id: new ObjectId(req.params.id) });
+    const manual = await collection.findOne({ _id: new ObjectId(id) });
     if (manual && manual.nombreArchivo) {
       try {
         unlinkSync(`uploads/manuales/${manual.nombreArchivo}`);
@@ -2785,7 +2794,7 @@ app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Res
       }
     }
     
-    await collection.deleteOne({ _id: new ObjectId(req.params.id) });
+    await collection.deleteOne({ _id: new ObjectId(id) });
     
     res.json({ success: true });
   } catch (error) {
@@ -2800,8 +2809,9 @@ app.get('/api/manuales/:id/descargar', async (req: Request, res: Response) => {
     const { ObjectId } = await import('mongodb');
     const { createReadStream, existsSync } = await import('fs');
     const collection = database.getCollection('manuales');
+    const id = getManualId(req.params.id);
     
-    const manual = await collection.findOne({ _id: new ObjectId(req.params.id) });
+    const manual = await collection.findOne({ _id: new ObjectId(id) });
     
     if (!manual || !manual.nombreArchivo) {
       return res.status(404).json({ error: 'Manual no encontrado' });
