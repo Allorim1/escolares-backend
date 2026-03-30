@@ -2625,6 +2625,204 @@ app.post('/api/facturas/save-temp-image', async (req: Request, res: Response) =>
   }
 });
 
+// ============ MANUALES API ============
+
+const manualesStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/manuales/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = file.originalname.split('.').pop();
+    cb(null, `manual-${uniqueSuffix}.${ext}`);
+  }
+});
+
+const uploadManual = multer({ 
+  storage: manualesStorage,
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
+});
+
+import { existsSync, mkdirSync } from 'fs';
+if (!existsSync('uploads/manuales')) {
+  mkdirSync('uploads/manuales', { recursive: true });
+}
+
+// GET all manuales
+app.get('/api/manuales', async (req: Request, res: Response) => {
+  try {
+    const collection = database.getCollection('manuales');
+    const manuales = await collection.find().sort({ fechaSubida: -1 }).toArray();
+    
+    const manualesWithUrls = manuales.map((m: any) => ({
+      ...m,
+      url: `/api/manuales/${m._id}/descargar`
+    }));
+    
+    res.json(manualesWithUrls);
+  } catch (error) {
+    console.error('Error getting manuales:', error);
+    res.status(500).json({ error: 'Error al obtener manuales' });
+  }
+});
+
+// GET single manual (info only)
+app.get('/api/manuales/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const collection = database.getCollection('manuales');
+    const manual = await collection.findOne({ _id: new ObjectId(req.params.id) });
+    
+    if (!manual) {
+      return res.status(404).json({ error: 'Manual no encontrado' });
+    }
+    
+    res.json({
+      ...manual,
+      url: `/api/manuales/${manual._id}/descargar`
+    });
+  } catch (error) {
+    console.error('Error getting manual:', error);
+    res.status(500).json({ error: 'Error al obtener manual' });
+  }
+});
+
+// POST create manual
+app.post('/api/manuales', authenticateToken, uploadManual.single('archivo'), async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      return res.status(403).json({ error: 'Solo el usuario root puede subir manuales' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'Archivo requerido' });
+    }
+    
+    const { nombre, descripcion, tipo } = req.body;
+    
+    const manual = {
+      nombre: nombre || req.file.originalname,
+      descripcion: descripcion || '',
+      tipo: tipo || 'manual',
+      nombreArchivo: req.file.filename,
+      nombreOriginal: req.file.originalname,
+      tamano: req.file.size,
+      mimeType: req.file.mimetype,
+      fechaSubida: new Date(),
+      subidoPor: user.username
+    };
+    
+    const collection = database.getCollection('manuales');
+    const result = await collection.insertOne(manual);
+    
+    res.json({ 
+      success: true, 
+      id: result.insertedId,
+      url: `/api/manuales/${result.insertedId}/descargar`
+    });
+  } catch (error) {
+    console.error('Error creating manual:', error);
+    res.status(500).json({ error: 'Error al crear manual' });
+  }
+});
+
+// PUT update manual
+app.put('/api/manuales/:id', authenticateToken, uploadManual.single('archivo'), async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      return res.status(403).json({ error: 'Solo el usuario root puede editar manuales' });
+    }
+    
+    const { ObjectId } = await import('mongodb');
+    const collection = database.getCollection('manuales');
+    
+    const updateData: any = {
+      nombre: req.body.nombre,
+      descripcion: req.body.descripcion,
+      tipo: req.body.tipo,
+      fechaActualizacion: new Date()
+    };
+    
+    if (req.file) {
+      updateData.nombreArchivo = req.file.filename;
+      updateData.nombreOriginal = req.file.originalname;
+      updateData.tamano = req.file.size;
+      updateData.mimeType = req.file.mimetype;
+    }
+    
+    await collection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: updateData }
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating manual:', error);
+    res.status(500).json({ error: 'Error al actualizar manual' });
+  }
+});
+
+// DELETE manual
+app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      return res.status(403).json({ error: 'Solo el usuario root puede eliminar manuales' });
+    }
+    
+    const { ObjectId } = await import('mongodb');
+    const { unlinkSync } = await import('fs');
+    const collection = database.getCollection('manuales');
+    
+    const manual = await collection.findOne({ _id: new ObjectId(req.params.id) });
+    if (manual && manual.nombreArchivo) {
+      try {
+        unlinkSync(`uploads/manuales/${manual.nombreArchivo}`);
+      } catch (e) {
+        console.log('File not found, continuing...');
+      }
+    }
+    
+    await collection.deleteOne({ _id: new ObjectId(req.params.id) });
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting manual:', error);
+    res.status(500).json({ error: 'Error al eliminar manual' });
+  }
+});
+
+// GET download manual
+app.get('/api/manuales/:id/descargar', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const { createReadStream, existsSync } = await import('fs');
+    const collection = database.getCollection('manuales');
+    
+    const manual = await collection.findOne({ _id: new ObjectId(req.params.id) });
+    
+    if (!manual || !manual.nombreArchivo) {
+      return res.status(404).json({ error: 'Manual no encontrado' });
+    }
+    
+    const filePath = `uploads/manuales/${manual.nombreArchivo}`;
+    
+    if (!existsSync(filePath)) {
+      return res.status(404).json({ error: 'Archivo no encontrado en el servidor' });
+    }
+    
+    res.setHeader('Content-Type', manual.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${manual.nombreOriginal || 'manual'}"`);
+    
+    createReadStream(filePath).pipe(res);
+  } catch (error) {
+    console.error('Error downloading manual:', error);
+    res.status(500).json({ error: 'Error al descargar manual' });
+  }
+});
+
 app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
