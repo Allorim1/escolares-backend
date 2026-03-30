@@ -2625,28 +2625,7 @@ app.post('/api/facturas/save-temp-image', async (req: Request, res: Response) =>
   }
 });
 
-// ============ MANUALES API ============
-
-const manualesStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/manuales/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = file.originalname.split('.').pop();
-    cb(null, `manual-${uniqueSuffix}.${ext}`);
-  }
-});
-
-const uploadManual = multer({ 
-  storage: manualesStorage,
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
-});
-
-import { existsSync, mkdirSync } from 'fs';
-if (!existsSync('uploads/manuales')) {
-  mkdirSync('uploads/manuales', { recursive: true });
-}
+// ============ MANUALES API (Paso a Paso) ============
 
 const getManualId = (idParam: string | string[]): string => {
   return Array.isArray(idParam) ? idParam[0] : idParam;
@@ -2656,22 +2635,26 @@ const getManualId = (idParam: string | string[]): string => {
 app.get('/api/manuales', async (req: Request, res: Response) => {
   try {
     const collection = database.getCollection('manuales');
-    const manuales = await collection.find().sort({ fechaSubida: -1 }).toArray();
+    const manuales = await collection.find().sort({ fechaCreacion: -1 }).toArray();
     
-    const manualesWithUrls = manuales.map((m: any) => ({
-      ...m,
+    const manualesFormatted = manuales.map((m: any) => ({
       id: m._id.toString(),
-      url: `/api/manuales/${m._id}/descargar`
+      titulo: m.titulo,
+      descripcion: m.descripcion,
+      categoria: m.categoria,
+      pasos: m.pasos || [],
+      fechaCreacion: m.fechaCreacion,
+      fechaActualizacion: m.fechaActualizacion
     }));
     
-    res.json(manualesWithUrls);
+    res.json(manualesFormatted);
   } catch (error) {
     console.error('Error getting manuales:', error);
     res.status(500).json({ error: 'Error al obtener manuales' });
   }
 });
 
-// GET single manual (info only)
+// GET single manual
 app.get('/api/manuales/:id', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
@@ -2684,9 +2667,13 @@ app.get('/api/manuales/:id', async (req: Request, res: Response) => {
     }
     
     res.json({
-      ...manual,
       id: manual._id.toString(),
-      url: `/api/manuales/${manual._id}/descargar`
+      titulo: manual.titulo,
+      descripcion: manual.descripcion,
+      categoria: manual.categoria,
+      pasos: manual.pasos || [],
+      fechaCreacion: manual.fechaCreacion,
+      fechaActualizacion: manual.fechaActualizacion
     });
   } catch (error) {
     console.error('Error getting manual:', error);
@@ -2695,29 +2682,46 @@ app.get('/api/manuales/:id', async (req: Request, res: Response) => {
 });
 
 // POST create manual
-app.post('/api/manuales', authenticateToken, uploadManual.single('archivo'), async (req: Request, res: Response) => {
+app.post('/api/manuales', authenticateToken, async (req: Request, res: Response) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
-      return res.status(403).json({ error: 'Solo el usuario root puede subir manuales' });
+      return res.status(403).json({ error: 'Solo el usuario root puede crear manuales' });
     }
     
-    if (!req.file) {
-      return res.status(400).json({ error: 'Archivo requerido' });
+    const { titulo, descripcion, categoria, pasos } = req.body;
+    
+    if (!titulo || !titulo.trim()) {
+      return res.status(400).json({ error: 'El título es requerido' });
     }
     
-    const { nombre, descripcion, tipo } = req.body;
+    if (!pasos || !Array.isArray(pasos) || pasos.length === 0) {
+      return res.status(400).json({ error: 'Debe agregar al menos un paso' });
+    }
+    
+    // Validate steps
+    for (let i = 0; i < pasos.length; i++) {
+      if (!pasos[i].titulo || !pasos[i].titulo.trim()) {
+        return res.status(400).json({ error: `El paso ${i + 1} debe tener un título` });
+      }
+      if (!pasos[i].descripcion || !pasos[i].descripcion.trim()) {
+        return res.status(400).json({ error: `El paso ${i + 1} debe tener una descripción` });
+      }
+    }
     
     const manual = {
-      nombre: nombre || req.file.originalname,
-      descripcion: descripcion || '',
-      tipo: tipo || 'manual',
-      nombreArchivo: req.file.filename,
-      nombreOriginal: req.file.originalname,
-      tamano: req.file.size,
-      mimeType: req.file.mimetype,
-      fechaSubida: new Date(),
-      subidoPor: user.username
+      titulo: titulo.trim(),
+      descripcion: descripcion?.trim() || '',
+      categoria: categoria || 'general',
+      pasos: pasos.map((p: any, index: number) => ({
+        id: p.id || `${Date.now()}-${index}`,
+        numero: index + 1,
+        titulo: p.titulo.trim(),
+        descripcion: p.descripcion.trim(),
+        imagen: p.imagen || ''
+      })),
+      fechaCreacion: new Date(),
+      creadoPor: user.username
     };
     
     const collection = database.getCollection('manuales');
@@ -2725,8 +2729,7 @@ app.post('/api/manuales', authenticateToken, uploadManual.single('archivo'), asy
     
     res.json({ 
       success: true, 
-      id: result.insertedId.toString(),
-      url: `/api/manuales/${result.insertedId}/descargar`
+      id: result.insertedId.toString()
     });
   } catch (error) {
     console.error('Error creating manual:', error);
@@ -2735,7 +2738,7 @@ app.post('/api/manuales', authenticateToken, uploadManual.single('archivo'), asy
 });
 
 // PUT update manual
-app.put('/api/manuales/:id', authenticateToken, uploadManual.single('archivo'), async (req: Request, res: Response) => {
+app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -2746,19 +2749,29 @@ app.put('/api/manuales/:id', authenticateToken, uploadManual.single('archivo'), 
     const collection = database.getCollection('manuales');
     const id = getManualId(req.params.id);
     
-    const updateData: any = {
-      nombre: req.body.nombre,
-      descripcion: req.body.descripcion,
-      tipo: req.body.tipo,
+    const { titulo, descripcion, categoria, pasos } = req.body;
+    
+    if (!titulo || !titulo.trim()) {
+      return res.status(400).json({ error: 'El título es requerido' });
+    }
+    
+    if (!pasos || !Array.isArray(pasos) || pasos.length === 0) {
+      return res.status(400).json({ error: 'Debe agregar al menos un paso' });
+    }
+    
+    const updateData = {
+      titulo: titulo.trim(),
+      descripcion: descripcion?.trim() || '',
+      categoria: categoria || 'general',
+      pasos: pasos.map((p: any, index: number) => ({
+        id: p.id || `${Date.now()}-${index}`,
+        numero: index + 1,
+        titulo: p.titulo.trim(),
+        descripcion: p.descripcion.trim(),
+        imagen: p.imagen || ''
+      })),
       fechaActualizacion: new Date()
     };
-    
-    if (req.file) {
-      updateData.nombreArchivo = req.file.filename;
-      updateData.nombreOriginal = req.file.originalname;
-      updateData.tamano = req.file.size;
-      updateData.mimeType = req.file.mimetype;
-    }
     
     await collection.updateOne(
       { _id: new ObjectId(id) },
@@ -2781,18 +2794,8 @@ app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Res
     }
     
     const { ObjectId } = await import('mongodb');
-    const { unlinkSync } = await import('fs');
     const collection = database.getCollection('manuales');
     const id = getManualId(req.params.id);
-    
-    const manual = await collection.findOne({ _id: new ObjectId(id) });
-    if (manual && manual.nombreArchivo) {
-      try {
-        unlinkSync(`uploads/manuales/${manual.nombreArchivo}`);
-      } catch (e) {
-        console.log('File not found, continuing...');
-      }
-    }
     
     await collection.deleteOne({ _id: new ObjectId(id) });
     
@@ -2800,36 +2803,6 @@ app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Res
   } catch (error) {
     console.error('Error deleting manual:', error);
     res.status(500).json({ error: 'Error al eliminar manual' });
-  }
-});
-
-// GET download manual
-app.get('/api/manuales/:id/descargar', async (req: Request, res: Response) => {
-  try {
-    const { ObjectId } = await import('mongodb');
-    const { createReadStream, existsSync } = await import('fs');
-    const collection = database.getCollection('manuales');
-    const id = getManualId(req.params.id);
-    
-    const manual = await collection.findOne({ _id: new ObjectId(id) });
-    
-    if (!manual || !manual.nombreArchivo) {
-      return res.status(404).json({ error: 'Manual no encontrado' });
-    }
-    
-    const filePath = `uploads/manuales/${manual.nombreArchivo}`;
-    
-    if (!existsSync(filePath)) {
-      return res.status(404).json({ error: 'Archivo no encontrado en el servidor' });
-    }
-    
-    res.setHeader('Content-Type', manual.mimeType || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${manual.nombreOriginal || 'manual'}"`);
-    
-    createReadStream(filePath).pipe(res);
-  } catch (error) {
-    console.error('Error downloading manual:', error);
-    res.status(500).json({ error: 'Error al descargar manual' });
   }
 });
 
