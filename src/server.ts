@@ -26,6 +26,9 @@ import rolesRoutes from './routes/roles.routes';
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy for proper IP detection behind Nginx reverse proxy
+app.set('trust proxy', 1);
+
 const swaggerSpec = swaggerJsdoc(swaggerConfig);
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
