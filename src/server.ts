@@ -299,6 +299,48 @@ app.put('/api/settings/dolar-api-key', authenticateToken, async (req: Request, r
   }
 });
 
+// Currency Display Settings - Global for all users
+app.get('/api/settings/currency-display', async (req: Request, res: Response) => {
+  try {
+    const settings = await database.getCollection('settings').findOne({ key: 'currencyDisplay' });
+    res.json({ display: settings?.value || 'USD' });
+  } catch (error) {
+    console.error('Error getting currency display:', error);
+    res.status(500).json({ error: 'Error al obtener la configuración de moneda' });
+  }
+});
+
+app.put('/api/settings/currency-display', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede modificar esta configuración' });
+      return;
+    }
+
+    const { display } = req.body;
+    if (!display || (display !== 'USD' && display !== 'BS')) {
+      res.status(400).json({ error: 'Se requiere un valor válido: USD o BS' });
+      return;
+    }
+
+    await database.getCollection('settings').updateOne(
+      { key: 'currencyDisplay' },
+      { $set: { key: 'currencyDisplay', value: display, updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    // Invalidate cache for all product-related endpoints
+    cacheDeletePattern('req:/api/products*');
+    cacheDeletePattern('req:/api/home*');
+
+    res.json({ success: true, display });
+  } catch (error) {
+    console.error('Error saving currency display:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración de moneda' });
+  }
+});
+
 app.use(
   '/api-docs',
   swaggerUi.serve,
