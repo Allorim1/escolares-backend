@@ -319,8 +319,9 @@ app.put('/api/settings/currency-display', authenticateToken, async (req: Request
     }
 
     const { display } = req.body;
-    if (!display || (display !== 'USD' && display !== 'BS')) {
-      res.status(400).json({ error: 'Se requiere un valor válido: USD o BS' });
+    const validDisplays = ['USD', 'BS', 'BOTH'];
+    if (!display || !validDisplays.includes(display)) {
+      res.status(400).json({ error: 'Se requiere un valor válido: USD, BS o BOTH' });
       return;
     }
 
