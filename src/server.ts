@@ -342,6 +342,44 @@ app.put('/api/settings/currency-display', authenticateToken, async (req: Request
   }
 });
 
+// Compras Deshabilitadas Settings - Global for all users
+app.get('/api/settings/compras-deshabilitadas', async (req: Request, res: Response) => {
+  try {
+    const settings = await database.getCollection('settings').findOne({ key: 'comprasDeshabilitadas' });
+    res.json({ disabled: settings?.value === true });
+  } catch (error) {
+    console.error('Error getting compras setting:', error);
+    res.status(500).json({ error: 'Error al obtener la configuración de compras' });
+  }
+});
+
+app.put('/api/settings/compras-deshabilitadas', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede modificar esta configuración' });
+      return;
+    }
+
+    const { disabled } = req.body;
+    if (typeof disabled !== 'boolean') {
+      res.status(400).json({ error: 'Se requiere un valor booleano' });
+      return;
+    }
+
+    await database.getCollection('settings').updateOne(
+      { key: 'comprasDeshabilitadas' },
+      { $set: { key: 'comprasDeshabilitadas', value: disabled, updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, disabled });
+  } catch (error) {
+    console.error('Error saving compras setting:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración de compras' });
+  }
+});
+
 app.use(
   '/api-docs',
   swaggerUi.serve,
