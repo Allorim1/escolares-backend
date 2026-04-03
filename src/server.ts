@@ -2425,13 +2425,14 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
           console.log('Uploading with token:', token);
           
           try {
-            const baseApiUrl = window.location.origin;
-            const uploadUrl = baseApiUrl + '/api/facturas/upload-photo';
-            alert('Voy a hacer fetch a: ' + uploadUrl);
+            alert('1. Iniciando upload');
+            const uploadUrl = '/api/facturas/upload-photo';
+            alert('2. URL: ' + uploadUrl);
             console.log('Fetching:', uploadUrl, 'token:', token);
             
             document.getElementById('debugDiv').textContent = 'Debug: Subiendo a ' + uploadUrl + ' token=' + token;
-            document.getElementById('statusText').textContent = 'Intentando subir a: ' + uploadUrl;
+            document.getElementById('statusText').textContent = 'Intentando subir...';
+            alert('3. Antes del fetch');
             
             const response = await fetch(uploadUrl, {
               method: 'POST',
@@ -2607,6 +2608,7 @@ function extraerDatosFactura(texto: string): any {
 }
 
 app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: Response) => {
+  console.log('>>> /api/facturas/upload-photo called', req.body?.token);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
