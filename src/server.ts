@@ -2381,7 +2381,11 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
       <div class="preview" id="preview"></div>
       <div class="loading" id="loading" style="display:none;">Procesando imagen y extrayendo datos...</div>
       <div id="datosExtraidos"></div>
+      <div style="background:#ff0; padding:10px; margin:10px; font-size:12px;" id="debugDiv">
+        Debug: Cargando... origin=<span id="debugOrigin"></span>
+      </div>
       <script>
+        document.getElementById('debugOrigin').textContent = window.location.origin;
         let selectedFile = null;
         const token = window.location.pathname.split('/upload-factura/')[1] || '';
         console.log('Token from URL:', token);
@@ -2423,6 +2427,7 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
             const uploadUrl = baseApiUrl + '/api/facturas/upload-photo';
             console.log('Fetching:', uploadUrl, 'token:', token);
             
+            document.getElementById('debugDiv').textContent = 'Debug: Subiendo a ' + uploadUrl + ' token=' + token;
             document.getElementById('statusText').textContent = 'Intentando subir a: ' + uploadUrl;
             
             const controller = new AbortController();
