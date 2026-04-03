@@ -2422,11 +2422,29 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
             const baseApiUrl = window.location.origin;
             const uploadUrl = baseApiUrl + '/api/facturas/upload-photo';
             console.log('Fetching:', uploadUrl, 'token:', token);
-            const response = await fetch(uploadUrl, {
-              method: 'POST',
-              body: formData,
-              credentials: 'include'
-            });
+            
+            document.getElementById('statusText').textContent = 'Intentando subir a: ' + uploadUrl;
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            let response;
+            try {
+              response = await fetch(uploadUrl, {
+                method: 'POST',
+                body: formData,
+                credentials: 'include',
+                signal: controller.signal
+              });
+            } catch (fetchErr) {
+              console.log('Fetch error, trying relative URL');
+              response = await fetch('/api/facturas/upload-photo', {
+                method: 'POST',
+                body: formData,
+                credentials: 'include'
+              });
+            }
+            clearTimeout(timeoutId);
             
             const data = await response.json();
             
