@@ -2392,10 +2392,12 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
         
         function handleFileSelect(event) {
           selectedFile = event.target.files[0];
+          alert('handleFileSelect iniciado. Archivo: ' + (selectedFile ? selectedFile.name : 'null'));
           if (selectedFile) {
             const reader = new FileReader();
             reader.onload = function(e) {
               document.getElementById('preview').innerHTML = '<img src="' + e.target.result + '" alt="Preview">';
+              alert('Reader cargado, llamando uploadFile');
               uploadFile();
             };
             reader.readAsDataURL(selectedFile);
@@ -2425,31 +2427,16 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
           try {
             const baseApiUrl = window.location.origin;
             const uploadUrl = baseApiUrl + '/api/facturas/upload-photo';
+            alert('Voy a hacer fetch a: ' + uploadUrl);
             console.log('Fetching:', uploadUrl, 'token:', token);
             
             document.getElementById('debugDiv').textContent = 'Debug: Subiendo a ' + uploadUrl + ' token=' + token;
             document.getElementById('statusText').textContent = 'Intentando subir a: ' + uploadUrl;
             
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000);
-            
-            let response;
-            try {
-              response = await fetch(uploadUrl, {
-                method: 'POST',
-                body: formData,
-                credentials: 'include',
-                signal: controller.signal
-              });
-            } catch (fetchErr) {
-              console.log('Fetch error, trying relative URL');
-              response = await fetch('/api/facturas/upload-photo', {
-                method: 'POST',
-                body: formData,
-                credentials: 'include'
-              });
-            }
-            clearTimeout(timeoutId);
+            const response = await fetch(uploadUrl, {
+              method: 'POST',
+              body: formData
+            });
             
             const data = await response.json();
             
