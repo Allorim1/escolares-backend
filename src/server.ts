@@ -2408,7 +2408,10 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
           console.log('Uploading with token:', token);
           
           try {
-            const response = await fetch('/api/facturas/upload-photo', {
+            const baseApiUrl = window.location.origin;
+            const uploadUrl = baseApiUrl + '/api/facturas/upload-photo';
+            console.log('Fetching:', uploadUrl, 'token:', token);
+            const response = await fetch(uploadUrl, {
               method: 'POST',
               body: formData,
               credentials: 'include'
@@ -2476,7 +2479,8 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
             }
           } catch (error) {
             console.error('Upload error:', error);
-            document.getElementById('statusText').textContent = '❌ Error de conexión: ' + error.message;
+            const errorMsg = error instanceof Error ? error.message : JSON.stringify(error);
+            document.getElementById('statusText').textContent = '❌ Error de conexión: ' + errorMsg;
             document.getElementById('statusText').className = 'status error';
           }
           
