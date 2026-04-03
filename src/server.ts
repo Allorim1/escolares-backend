@@ -215,8 +215,15 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
       }),
     ]);
 
-    if (!bcvRes.ok || bcvRes.status === 401) {
-      res.status(401).json({ error: 'API key inválida o caducada' });
+    if (bcvRes.status === 401) {
+      await cacheSet(cacheKey, JSON.stringify({ apiKeyExpired: true }), 60);
+      res.header('X-Cache', 'MISS');
+      res.json({ apiKeyExpired: true, error: 'API key inválida o caducada' });
+      return;
+    }
+    
+    if (!bcvRes.ok) {
+      res.status(500).json({ error: 'Error al obtener tasas' });
       return;
     }
 
@@ -253,6 +260,36 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching tasas:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/settings/tasas-status', async (req: Request, res: Response) => {
+  try {
+    const cacheKey = 'tasas:current';
+    const cached = await cacheGet(cacheKey);
+    
+    if (cached) {
+      const cachedData = JSON.parse(cached);
+      if (cachedData.apiKeyExpired) {
+        res.json({ apiKeyExpired: true });
+        return;
+      }
+    }
+    
+    const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
+    const apiKey = apiKeySettings?.value || DOLAR_API_KEY;
+    
+    const bcvRes = await fetch(DOLAR_API_URL, {
+      headers: { 'x-dolarvzla-key': apiKey },
+    });
+    
+    if (bcvRes.status === 401) {
+      res.json({ apiKeyExpired: true });
+    } else {
+      res.json({ apiKeyExpired: false });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Error al verificar estado de tasas' });
   }
 });
 
