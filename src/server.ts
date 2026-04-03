@@ -2354,10 +2354,21 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
         .btn-cerrar:hover {
           background: #218838;
         }
+        .debug-info {
+          background: #f0f0f0;
+          padding: 10px;
+          margin: 10px 0;
+          font-size: 12px;
+          word-break: break-all;
+        }
       </style>
     </head>
     <body>
       <h1>📷 Subir Foto de Factura</h1>
+      <div class="debug-info" id="debugInfo"></div>
+      <script>
+        document.getElementById('debugInfo').textContent = 'URL: ' + window.location.href + ' | Token: ' + (window.location.pathname.split('/upload-factura/')[1] || 'NO ENCONTRADO');
+      </script>
       <div class="checkbox-container">
         <input type="checkbox" id="extraerDatos">
         <label for="extraerDatos">🤖 Extraer datos automáticamente (IA)</label>
@@ -2480,7 +2491,7 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
           } catch (error) {
             console.error('Upload error:', error);
             const errorMsg = error instanceof Error ? error.message : JSON.stringify(error);
-            document.getElementById('statusText').textContent = '❌ Error de conexión: ' + errorMsg;
+            document.getElementById('statusText').textContent = '❌ Error: ' + errorMsg + ' (url: ' + uploadUrl + ')';
             document.getElementById('statusText').className = 'status error';
           }
           
@@ -2586,6 +2597,10 @@ function extraerDatosFactura(texto: string): any {
 }
 
 app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
   try {
     const token = req.body?.token as string;
     const files = req.files as any[];
