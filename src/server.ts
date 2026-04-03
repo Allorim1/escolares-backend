@@ -2372,6 +2372,8 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
       <div id="datosExtraidos"></div>
       <script>
         let selectedFile = null;
+        const token = window.location.pathname.split('/upload-factura/')[1] || '';
+        console.log('Token from URL:', token);
         
         function handleFileSelect(event) {
           selectedFile = event.target.files[0];
@@ -2387,6 +2389,10 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
         
         async function uploadFile() {
           if (!selectedFile) return;
+          if (!token) {
+            document.getElementById('statusText').textContent = 'Error: Token no encontrado';
+            return;
+          }
           
           const extraerDatos = document.getElementById('extraerDatos').checked;
           
@@ -2396,8 +2402,10 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
           
           const formData = new FormData();
           formData.append('imagen', selectedFile);
-          formData.append('token', '${token}');
+          formData.append('token', token);
           formData.append('extraerDatos', extraerDatos.toString());
+          
+          console.log('Uploading with token:', token);
           
           try {
             const response = await fetch('/api/facturas/upload-photo', {
