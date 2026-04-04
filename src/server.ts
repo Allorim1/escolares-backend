@@ -2162,7 +2162,9 @@ app.post('/api/pago/upload-photo', multer({ limits: { fileSize: 10 * 1024 * 1024
 
 app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, res: Response) => {
   try {
+    console.log('>>> generate-qr called');
     const { proveedorId, facturaIndex } = req.body;
+    console.log('>>> proveedorId:', proveedorId, 'facturaIndex:', facturaIndex);
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
     
@@ -2173,7 +2175,10 @@ app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, re
     const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
     const uploadUrl = `${baseUrl}/upload-factura/${token}`;
     
+    console.log('>>> uploadUrl:', uploadUrl);
+    
     const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
+    console.log('>>> qrApiUrl:', qrApiUrl);
     
     try {
       const response = await fetch(qrApiUrl);
@@ -2181,9 +2186,11 @@ app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, re
       const base64 = Buffer.from(buffer).toString('base64');
       const dataUrl = `data:image/png;base64,${base64}`;
       
+      console.log('>>> QR generated successfully');
       res.json({ qrCode: dataUrl, uploadUrl, expiresAt: expiresAt.toISOString() });
     } catch (fetchError) {
       console.error('Error fetching QR:', fetchError);
+      console.log('>>> Using fallback QR URL');
       res.json({ qrCode: qrApiUrl, uploadUrl, expiresAt: expiresAt.toISOString() });
     }
   } catch (error) {
