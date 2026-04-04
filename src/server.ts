@@ -1587,6 +1587,38 @@ app.delete('/api/proveedores/:id/facturas/:index', async (req: Request, res: Res
     console.error('Error eliminando factura:', error);
     res.status(500).json({ error: 'Error al eliminar factura' });
   }
+});
+
+app.put('/api/proveedores/:id/factura/:index/comentario', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    
+    const { comentario } = req.body;
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor || !proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const updateKey = `facturas.${index}.comentario`;
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { [updateKey]: comentario } }
+    );
+    
+    res.json({ success: true, comentario });
+  } catch (error) {
+    console.error('Error actualizando comentario:', error);
+    res.status(500).json({ error: 'Error al actualizar comentario' });
+  }
+});
 })
 
 app.use(invalidateCache);
