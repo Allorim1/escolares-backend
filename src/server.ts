@@ -215,8 +215,15 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
       }),
     ]);
 
-    if (!bcvRes.ok || bcvRes.status === 401) {
-      res.status(401).json({ error: 'API key inválida o caducada' });
+    if (bcvRes.status === 401) {
+      await cacheSet(cacheKey, JSON.stringify({ apiKeyExpired: true }), 60);
+      res.header('X-Cache', 'MISS');
+      res.json({ apiKeyExpired: true, error: 'API key inválida o caducada' });
+      return;
+    }
+    
+    if (!bcvRes.ok) {
+      res.status(500).json({ error: 'Error al obtener tasas' });
       return;
     }
 
@@ -253,6 +260,36 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching tasas:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/settings/tasas-status', async (req: Request, res: Response) => {
+  try {
+    const cacheKey = 'tasas:current';
+    const cached = await cacheGet(cacheKey);
+    
+    if (cached) {
+      const cachedData = JSON.parse(cached);
+      if (cachedData.apiKeyExpired) {
+        res.json({ apiKeyExpired: true });
+        return;
+      }
+    }
+    
+    const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
+    const apiKey = apiKeySettings?.value || DOLAR_API_KEY;
+    
+    const bcvRes = await fetch(DOLAR_API_URL, {
+      headers: { 'x-dolarvzla-key': apiKey },
+    });
+    
+    if (bcvRes.status === 401) {
+      res.json({ apiKeyExpired: true });
+    } else {
+      res.json({ apiKeyExpired: false });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Error al verificar estado de tasas' });
   }
 });
 
@@ -1550,7 +1587,38 @@ app.delete('/api/proveedores/:id/facturas/:index', async (req: Request, res: Res
     console.error('Error eliminando factura:', error);
     res.status(500).json({ error: 'Error al eliminar factura' });
   }
-})
+});
+
+app.put('/api/proveedores/:id/factura/:index/comentario', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    
+    const { comentario } = req.body;
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor || !proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    const updateKey = `facturas.${index}.comentario`;
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { [updateKey]: comentario } }
+    );
+    
+    res.json({ success: true, comentario });
+  } catch (error) {
+    console.error('Error actualizando comentario:', error);
+    res.status(500).json({ error: 'Error al actualizar comentario' });
+  }
+});
 
 app.use(invalidateCache);
 app.use(withCache(300));
@@ -2354,10 +2422,21 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
         .btn-cerrar:hover {
           background: #218838;
         }
+        .debug-info {
+          background: #f0f0f0;
+          padding: 10px;
+          margin: 10px 0;
+          font-size: 12px;
+          word-break: break-all;
+        }
       </style>
     </head>
     <body>
       <h1>📷 Subir Foto de Factura</h1>
+      <div class="debug-info" id="debugInfo"></div>
+      <script>
+        document.getElementById('debugInfo').textContent = 'URL: ' + window.location.href + ' | Token: ' + (window.location.pathname.split('/upload-factura/')[1] || 'NO ENCONTRADO');
+      </script>
       <div class="checkbox-container">
         <input type="checkbox" id="extraerDatos">
         <label for="extraerDatos">🤖 Extraer datos automáticamente (IA)</label>
@@ -2370,15 +2449,23 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
       <div class="preview" id="preview"></div>
       <div class="loading" id="loading" style="display:none;">Procesando imagen y extrayendo datos...</div>
       <div id="datosExtraidos"></div>
+      <div style="background:#ff0; padding:10px; margin:10px; font-size:12px;" id="debugDiv">
+        Debug: Cargando... origin=<span id="debugOrigin"></span>
+      </div>
       <script>
+        document.getElementById('debugOrigin').textContent = window.location.origin;
         let selectedFile = null;
+        const token = window.location.pathname.split('/upload-factura/')[1] || '';
+        console.log('Token from URL:', token);
         
         function handleFileSelect(event) {
           selectedFile = event.target.files[0];
+          console.log('Archivo seleccionado:', selectedFile?.name);
           if (selectedFile) {
             const reader = new FileReader();
             reader.onload = function(e) {
               document.getElementById('preview').innerHTML = '<img src="' + e.target.result + '" alt="Preview">';
+              console.log('Reader cargado, subiendo archivo');
               uploadFile();
             };
             reader.readAsDataURL(selectedFile);
@@ -2387,6 +2474,10 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
         
         async function uploadFile() {
           if (!selectedFile) return;
+          if (!token) {
+            document.getElementById('statusText').textContent = 'Error: Token no encontrado';
+            return;
+          }
           
           const extraerDatos = document.getElementById('extraerDatos').checked;
           
@@ -2396,18 +2487,36 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
           
           const formData = new FormData();
           formData.append('imagen', selectedFile);
-          formData.append('token', '${token}');
+          formData.append('token', token);
           formData.append('extraerDatos', extraerDatos.toString());
           
+          console.log('Uploading with token:', token);
+          
           try {
-            const response = await fetch('/api/facturas/upload-photo', {
-              method: 'POST',
-              body: formData
-            });
+            const uploadUrl = '/api/facturas/upload-photo';
+            console.log('Fetching:', uploadUrl, 'token:', token);
             
-            const data = await response.json();
+            document.getElementById('debugDiv').textContent = 'Debug: Subiendo a ' + uploadUrl + ' token=' + token;
+            document.getElementById('statusText').textContent = 'Intentando subir...';
             
-            if (response.ok) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
+            
+            try {
+              const response = await fetch(uploadUrl, {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+              });
+              
+              clearTimeout(timeoutId);
+              console.log('Response status:', response.status);
+              console.log('Response ok:', response.ok);
+              
+              const data = await response.json();
+              console.log('Response data:', data);
+            
+              if (response.ok) {
               document.getElementById('statusText').textContent = '✅ ¡Foto subida exitosamente!';
               document.getElementById('statusText').className = 'status success';
               
@@ -2465,9 +2574,12 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
               document.getElementById('statusText').textContent = '❌ Error: ' + (data.error || 'Error al subir');
               document.getElementById('statusText').className = 'status error';
             }
-          } catch (error) {
-            document.getElementById('statusText').textContent = '❌ Error de conexión';
-            document.getElementById('statusText').className = 'status error';
+            } catch (error) {
+              console.error('Upload error:', error);
+              const errorMsg = error instanceof Error ? error.message : JSON.stringify(error);
+              document.getElementById('statusText').textContent = '❌ Error: ' + errorMsg + ' (url: ' + uploadUrl + ')';
+              document.getElementById('statusText').className = 'status error';
+            }
           }
           
           document.getElementById('loading').style.display = 'none';
@@ -2572,6 +2684,10 @@ function extraerDatosFactura(texto: string): any {
 }
 
 app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
   try {
     const token = req.body?.token as string;
     const files = req.files as any[];
