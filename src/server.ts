@@ -2460,12 +2460,12 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
         
         function handleFileSelect(event) {
           selectedFile = event.target.files[0];
-          alert('handleFileSelect iniciado. Archivo: ' + (selectedFile ? selectedFile.name : 'null'));
+          console.log('Archivo seleccionado:', selectedFile?.name);
           if (selectedFile) {
             const reader = new FileReader();
             reader.onload = function(e) {
               document.getElementById('preview').innerHTML = '<img src="' + e.target.result + '" alt="Preview">';
-              alert('Reader cargado, llamando uploadFile');
+              console.log('Reader cargado, subiendo archivo');
               uploadFile();
             };
             reader.readAsDataURL(selectedFile);
@@ -2493,23 +2493,30 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
           console.log('Uploading with token:', token);
           
           try {
-            alert('1. Iniciando upload');
             const uploadUrl = '/api/facturas/upload-photo';
-            alert('2. URL: ' + uploadUrl);
             console.log('Fetching:', uploadUrl, 'token:', token);
             
             document.getElementById('debugDiv').textContent = 'Debug: Subiendo a ' + uploadUrl + ' token=' + token;
             document.getElementById('statusText').textContent = 'Intentando subir...';
-            alert('3. Antes del fetch');
             
-            const response = await fetch(uploadUrl, {
-              method: 'POST',
-              body: formData
-            });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
             
-            const data = await response.json();
+            try {
+              const response = await fetch(uploadUrl, {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+              });
+              
+              clearTimeout(timeoutId);
+              console.log('Response status:', response.status);
+              console.log('Response ok:', response.ok);
+              
+              const data = await response.json();
+              console.log('Response data:', data);
             
-            if (response.ok) {
+              if (response.ok) {
               document.getElementById('statusText').textContent = '✅ ¡Foto subida exitosamente!';
               document.getElementById('statusText').className = 'status success';
               
@@ -2567,11 +2574,12 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
               document.getElementById('statusText').textContent = '❌ Error: ' + (data.error || 'Error al subir');
               document.getElementById('statusText').className = 'status error';
             }
-          } catch (error) {
-            console.error('Upload error:', error);
-            const errorMsg = error instanceof Error ? error.message : JSON.stringify(error);
-            document.getElementById('statusText').textContent = '❌ Error: ' + errorMsg + ' (url: ' + uploadUrl + ')';
-            document.getElementById('statusText').className = 'status error';
+            } catch (error) {
+              console.error('Upload error:', error);
+              const errorMsg = error instanceof Error ? error.message : JSON.stringify(error);
+              document.getElementById('statusText').textContent = '❌ Error: ' + errorMsg + ' (url: ' + uploadUrl + ')';
+              document.getElementById('statusText').className = 'status error';
+            }
           }
           
           document.getElementById('loading').style.display = 'none';
@@ -2676,13 +2684,16 @@ function extraerDatosFactura(texto: string): any {
 }
 
 app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: Response) => {
-  console.log('>>> /api/facturas/upload-photo called', req.body?.token);
+  console.log('>>> /api/facturas/upload-photo called');
+  console.log('>>> Body:', req.body);
+  console.log('>>> Files:', req.files);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   try {
     const token = req.body?.token as string;
+    console.log('>>> Token:', token);
     const files = req.files as any[];
     const file = files?.[0];
     const imagen = req.body?.imagen;
