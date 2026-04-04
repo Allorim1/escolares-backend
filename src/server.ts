@@ -1943,7 +1943,11 @@ app.get('/facturas-qr/upload/:token', async (req: Request, res: Response) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const tokenData = facturasQrTokens.get(token);
   
-  console.log('Facturas QR upload page - token:', token, 'found:', !!tokenData);
+  console.log('=== FACTURAS QR UPLOAD PAGE ===');
+  console.log('Full URL:', req.protocol + '://' + req.get('host') + req.originalUrl);
+  console.log('Token:', token);
+  console.log('Token exists:', !!tokenData);
+  console.log('All tokens in map:', Array.from(facturasQrTokens.keys()));
   
   if (!tokenData) {
     return res.send(`
