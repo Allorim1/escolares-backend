@@ -1901,7 +1901,7 @@ app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
       createdAt: new Date()
     });
     
-    const baseUrl = process.env.BASE_URL || 'https://escolares-backend.onrender.com';
+    const baseUrl = process.env.BASE_URL || `http://${req.get('host')}`;
     const uploadUrl = `${baseUrl}/upload-pago/${token}`;
     
     const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
@@ -2170,7 +2170,7 @@ app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, re
     
     const host = req.get('host');
     const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1');
-    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
+    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `http://${host}`);
     const uploadUrl = `${baseUrl}/upload-factura/${token}`;
     
     const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
