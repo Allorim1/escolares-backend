@@ -2300,6 +2300,11 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
   const token = req.params.token as string;
   const uploadData = uploadTokens.get(token);
   
+  console.log('=== UPLOAD PAGE ACCESS ===');
+  console.log('Token:', token);
+  console.log('Token exists:', !!uploadData);
+  console.log('Expired:', uploadData ? new Date() > uploadData.expiresAt : 'N/A');
+  
   if (!uploadData) {
     res.send(`
       <!DOCTYPE html>
@@ -2683,10 +2688,28 @@ function extraerDatosFactura(texto: string): any {
   return datos;
 }
 
+app.get('/api/facturas/debug-upload-tokens', (req, res) => {
+  const tokens: any[] = [];
+  uploadTokens.forEach((value, key) => {
+    tokens.push({ token: key, expiresAt: value.expiresAt, proveedorId: value.proveedorId, facturaIndex: value.facturaIndex });
+  });
+  res.json({ count: tokens.length, tokens });
+});
+
 app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: Response) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  console.log('=== UPLOAD PHOTO DEBUG ===');
+  console.log('Body keys:', Object.keys(req.body || {}));
+  console.log('Body:', JSON.stringify(req.body).substring(0, 500));
+  console.log('Files:', req.files);
+  console.log('Headers:', req.headers['content-type']);
+  
+  if (!req.body || Object.keys(req.body).length === 0) {
+    console.log('WARNING: Empty body - checking if form-data parsing failed');
+  }
   
   try {
     const token = req.body?.token as string;
