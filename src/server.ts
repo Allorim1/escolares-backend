@@ -1876,6 +1876,328 @@ async function uploadImage(){if(!selectedFile)return;document.getElementById('up
 
 const uploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; expiresAt: Date }>();
 
+// ============ SISTEMA QR PARA FACTURAS (NUEVO) ============
+
+const facturasQrTokens = new Map<string, { 
+  proveedorId: string; 
+  facturaIndex: number; 
+  expiresAt: Date;
+  imagen?: string;
+  datosExtraidos?: any;
+}>();
+
+app.post('/api/facturas-qr/generate-qr', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { proveedorId, facturaIndex } = req.body;
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    
+    facturasQrTokens.set(token, { proveedorId, facturaIndex, expiresAt });
+    
+    const baseUrl = process.env.BASE_URL || `http://${req.get('host')}`;
+    const uploadUrl = `${baseUrl}/facturas-qr/upload/${token}`;
+    
+    const qrCodeDataUrl = await QRCode.toDataURL(uploadUrl, { width: 250, margin: 1 });
+    
+    res.json({ 
+      qrCode: qrCodeDataUrl, 
+      token,
+      uploadUrl, 
+      expiresAt: expiresAt.toISOString() 
+    });
+  } catch (error) {
+    console.error('Error generating QR:', error);
+    res.status(500).json({ error: 'Error al generar código QR' });
+  }
+});
+
+app.get('/api/facturas-qr/check/:token', async (req: Request, res: Response) => {
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+  const tokenData = facturasQrTokens.get(token);
+  
+  console.log('Facturas QR check - token:', token, 'found:', !!tokenData, 'hasImage:', !!tokenData?.imagen);
+  
+  if (!tokenData) {
+    return res.json({ success: false, error: 'Token no válido' });
+  }
+  
+  if (new Date() > tokenData.expiresAt) {
+    facturasQrTokens.delete(token);
+    return res.json({ success: false, error: 'Token expirado' });
+  }
+  
+  if (tokenData.imagen) {
+    console.log('Facturas QR - Retornando imagen de', tokenData.imagen.length, 'bytes');
+    facturasQrTokens.delete(token);
+    return res.json({ 
+      success: true, 
+      imagen: tokenData.imagen,
+      datosExtraidos: tokenData.datosExtraidos
+    });
+  }
+  
+  res.json({ success: false });
+});
+
+app.get('/facturas-qr/upload/:token', async (req: Request, res: Response) => {
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+  const tokenData = facturasQrTokens.get(token);
+  
+  console.log('Facturas QR upload page - token:', token, 'found:', !!tokenData);
+  
+  if (!tokenData) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Enlace expirado</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; background: #f5f5f5; }
+          .error { color: red; background: white; padding: 20px; border-radius: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="error">
+          <h1>⚠️ Enlace expirado o inválido</h1>
+          <p>Por favor genera un nuevo código QR desde la aplicación.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+  
+  if (new Date() > tokenData.expiresAt) {
+    facturasQrTokens.delete(token);
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Enlace expirado</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; background: #f5f5f5; }
+          .error { color: red; background: white; padding: 20px; border-radius: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="error">
+          <h1>⏰ El enlace ha expirado</h1>
+          <p>Por favor genera un nuevo código QR desde la aplicación.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+  
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Subir foto de factura</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; background: #f0f2f5; margin: 0; }
+        .container { max-width: 500px; margin: 0 auto; }
+        h1 { text-align: center; color: #1a1a1a; margin-bottom: 20px; }
+        .upload-card { background: white; border-radius: 15px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .upload-area {
+          border: 2px dashed #ddd;
+          border-radius: 12px;
+          padding: 40px 20px;
+          text-align: center;
+          cursor: pointer;
+          transition: all 0.3s;
+        }
+        .upload-area:hover { border-color: #007bff; background: #f8f9ff; }
+        .upload-area.uploading { border-color: #28a745; background: #f0fff4; }
+        input[type="file"] { display: none; }
+        .btn-camera {
+          background: linear-gradient(135deg, #007bff, #0056b3);
+          color: white;
+          padding: 16px 32px;
+          border: none;
+          border-radius: 8px;
+          font-size: 16px;
+          cursor: pointer;
+          width: 100%;
+          font-weight: 600;
+        }
+        .btn-camera:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,123,255,0.3); }
+        .preview { margin-top: 20px; text-align: center; }
+        .preview img { max-width: 100%; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .status { padding: 15px; margin: 15px 0; border-radius: 8px; text-align: center; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.loading { background: #fff3cd; color: #856404; }
+        .success-icon { font-size: 48px; margin-bottom: 10px; }
+        .checkbox-container { margin: 20px 0; display: flex; align-items: center; justify-content: center; }
+        .checkbox-container input { width: auto; margin-right: 8px; }
+        .checkbox-container label { color: #555; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>📷 Subir Foto de Factura</h1>
+        <div class="upload-card">
+          <div class="checkbox-container">
+            <input type="checkbox" id="extraerDatos">
+            <label for="extraerDatos">🤖 Extraer datos automáticamente</label>
+          </div>
+          <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+            <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFileSelect(event)">
+            <button class="btn-camera">📸 Tomar foto o seleccionar</button>
+            <p id="statusText" style="margin-top: 10px; color: #666;">Haz clic para seleccionar una imagen</p>
+          </div>
+          <div class="preview" id="preview"></div>
+          <div id="loadingStatus" class="status loading" style="display:none;">
+            ⏳ Subiendo imagen...
+          </div>
+        </div>
+      </div>
+      <script>
+        const token = window.location.pathname.split('/facturas-qr/upload/')[1] || '';
+        console.log('Token:', token);
+        
+        function handleFileSelect(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+          
+          console.log('Archivo seleccionado:', file.name, file.size);
+          
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const base64 = e.target.result;
+            document.getElementById('preview').innerHTML = '<img src="' + base64 + '" alt="Preview">';
+            uploadImage(base64);
+          };
+          reader.readAsDataURL(file);
+        }
+        
+        async function uploadImage(base64) {
+          const extraerDatos = document.getElementById('extraerDatos').checked;
+          const uploadArea = document.getElementById('uploadArea');
+          const statusText = document.getElementById('statusText');
+          const loadingStatus = document.getElementById('loadingStatus');
+          
+          uploadArea.classList.add('uploading');
+          loadingStatus.style.display = 'block';
+          loadingStatus.textContent = extraerDatos ? '🤖 Procesando imagen y extrayendo datos...' : '⏳ Subiendo imagen...';
+          
+          try {
+            const response = await fetch('/api/facturas-qr/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token, imagen: base64, extraerDatos })
+            });
+            
+            const data = await response.json();
+            console.log('Response:', data);
+            
+            if (response.ok && data.success) {
+              loadingStatus.className = 'status success';
+              loadingStatus.innerHTML = '✅ ¡Foto subida exitosamente!<br><small>Cerrando en 3 segundos...</small>';
+              setTimeout(() => window.close(), 3000);
+            } else {
+              loadingStatus.className = 'status error';
+              loadingStatus.textContent = '❌ Error: ' + (data.error || 'Error al subir');
+            }
+          } catch (err) {
+            loadingStatus.className = 'status error';
+            loadingStatus.textContent = '❌ Error de conexión: ' + err.message;
+          }
+          
+          uploadArea.classList.remove('uploading');
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+app.post('/api/facturas-qr/upload', async (req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).send();
+  }
+  
+  try {
+    const { token, imagen, extraerDatos } = req.body;
+    const tokenData = facturasQrTokens.get(token);
+    
+    console.log('Facturas QR upload - token:', token, 'found:', !!tokenData);
+    
+    if (!tokenData) {
+      return res.status(400).json({ success: false, error: 'Token inválido' });
+    }
+    
+    if (new Date() > tokenData.expiresAt) {
+      facturasQrTokens.delete(token);
+      return res.status(400).json({ success: false, error: 'Token expirado' });
+    }
+    
+    tokenData.imagen = imagen;
+    
+    let datosExtraidos = null;
+    if (extraerDatos && imagen) {
+      try {
+        const result = await Tesseract.recognize(imagen, 'spa+eng', { logger: m => console.log('OCR:', m) });
+        datosExtraidos = extraerDatosFactura(result.data.text);
+        tokenData.datosExtraidos = datosExtraidos;
+        console.log('Datos extraídos:', datosExtraidos);
+      } catch (ocrError) {
+        console.error('Error en OCR:', ocrError);
+      }
+    }
+    
+    res.json({ success: true, datosExtraidos });
+  } catch (error) {
+    console.error('Error uploading photo:', error);
+    res.status(500).json({ success: false, error: 'Error al guardar la foto' });
+  }
+});
+
+app.post('/api/proveedores/:id/facturas/:index/imagen', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    const { imagen } = req.body;
+    
+    if (!imagen) {
+      return res.status(400).json({ error: 'Imagen requerida' });
+    }
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor) {
+      return res.status(404).json({ error: 'Proveedor no encontrado' });
+    }
+    
+    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      return res.status(404).json({ error: 'Factura no encontrada' });
+    }
+    
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $push: { [`facturas.${index}.imagenes`]: imagen } }
+    );
+    
+    console.log('Imagen agregada a factura', index, 'del proveedor', id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error adding image to factura:', error);
+    res.status(500).json({ error: 'Error al agregar imagen' });
+  }
+});
+
 app.get('/api/pago/debug/:token', async (req: Request, res: Response) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const collection = (database as any).getCollection('pagos');
