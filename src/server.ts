@@ -1619,7 +1619,6 @@ app.put('/api/proveedores/:id/factura/:index/comentario', async (req: Request, r
     res.status(500).json({ error: 'Error al actualizar comentario' });
   }
 });
-})
 
 app.use(invalidateCache);
 app.use(withCache(300));
