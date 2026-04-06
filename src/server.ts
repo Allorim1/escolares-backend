@@ -2179,7 +2179,7 @@ app.post('/api/facturas-qr/upload', async (req: Request, res: Response) => {
     
     await proveedorCollection.updateOne(
       { _id: new ObjectId(proveedorId) },
-      { $push: { [`facturas.${facturaIndex}.imagen`]: imagen } }
+      { $push: { [`facturas.${facturaIndex}.imagenes`]: imagen } }
     );
     
     console.log('Imagen guardada directamente en factura', proveedorId, facturaIndex);
