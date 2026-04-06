@@ -1918,12 +1918,12 @@ app.get('/api/facturas-qr/check/:token', async (req: Request, res: Response) => 
   console.log('Facturas QR check - token:', token, 'found:', !!tokenData, 'hasImage:', !!tokenData?.imagen);
   
   if (!tokenData) {
-    return res.json({ success: false, error: 'Token no válido' });
+    return res.status(404).json({ success: false, error: 'Token no válido' });
   }
   
   if (new Date() > tokenData.expiresAt) {
     facturasQrTokens.delete(token);
-    return res.json({ success: false, error: 'Token expirado' });
+    return res.status(410).json({ success: false, error: 'Token expirado' });
   }
   
   if (tokenData.imagen) {
