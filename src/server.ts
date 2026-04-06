@@ -179,8 +179,8 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 app.use(generalLimiter);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
 
 const DOLAR_API_KEY = '29b324b9a34615a7e8f1d945ea95bb22e621cfe3ae2d6b36e957bb08d1fa7fa7'
