@@ -1886,7 +1886,7 @@ const facturasQrTokens = new Map<string, {
   datosExtraidos?: any;
 }>();
 
-app.post('/api/facturas-qr/generate-qr', authenticateToken, async (req: Request, res: Response) => {
+app.post('/api/facturas-qr/generate-qr', async (req: Request, res: Response) => {
   try {
     const { proveedorId, facturaIndex } = req.body;
     const token = randomBytes(32).toString('hex');
@@ -1937,6 +1937,34 @@ app.get('/api/facturas-qr/check/:token', async (req: Request, res: Response) => 
   }
   
   res.json({ success: false });
+});
+
+app.get('/api/facturas-qr/imagenes/:proveedorId/:facturaIndex', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const proveedorIdParam = req.params.proveedorId;
+    const proveedorId = Array.isArray(proveedorIdParam) ? proveedorIdParam[0] : proveedorIdParam;
+    const facturaIndexParam = req.params.facturaIndex;
+    const facturaIndex = Array.isArray(facturaIndexParam) ? parseInt(facturaIndexParam[0]) : parseInt(facturaIndexParam);
+    
+    const proveedor = await (database as any).getCollection('proveedores').findOne({ _id: new ObjectId(proveedorId) });
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    const facturas = proveedor.facturas || [];
+    const factura = facturas[facturaIndex];
+    if (!factura) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    res.json({ imagenes: factura.imagenes || [] });
+  } catch (error) {
+    console.error('Error obteniendo imágenes de factura:', error);
+    res.status(500).json({ error: 'Error al obtener imágenes' });
+  }
 });
 
 app.get('/facturas-qr/upload/:token', async (req: Request, res: Response) => {
@@ -2144,14 +2172,23 @@ app.post('/api/facturas-qr/upload', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Token expirado' });
     }
     
-    tokenData.imagen = imagen;
+    const { proveedorId, facturaIndex } = tokenData;
+    
+    const { ObjectId } = await import('mongodb');
+    const proveedorCollection = (database as any).getCollection('proveedores');
+    
+    await proveedorCollection.updateOne(
+      { _id: new ObjectId(proveedorId) },
+      { $push: { [`facturas.${facturaIndex}.imagen`]: imagen } }
+    );
+    
+    console.log('Imagen guardada directamente en factura', proveedorId, facturaIndex);
     
     let datosExtraidos = null;
     if (extraerDatos && imagen) {
       try {
         const result = await Tesseract.recognize(imagen, 'spa+eng', { logger: m => console.log('OCR:', m) });
         datosExtraidos = extraerDatosFactura(result.data.text);
-        tokenData.datosExtraidos = datosExtraidos;
         console.log('Datos extraídos:', datosExtraidos);
       } catch (ocrError) {
         console.error('Error en OCR:', ocrError);
