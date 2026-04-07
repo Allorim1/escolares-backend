@@ -748,7 +748,29 @@ app.get('/api/proveedores', async (req: Request, res: Response) => {
       await db.createCollection('proveedores');
     }
     const collection = (database as any).getCollection('proveedores');
-    const proveedores = await collection.find().sort({ nombre: 1 }).toArray();
+    let proveedores = await collection.find().sort({ nombre: 1 }).toArray();
+    
+    for (const proveedor of proveedores) {
+      if (proveedor.cuentasBancarias && proveedor.cuentasBancarias.length > 0) {
+        const bancosUnicos = new Set<string>();
+        for (const cuenta of proveedor.cuentasBancarias) {
+          if (cuenta.bancosAfiliados && cuenta.bancosAfiliados.length > 0) {
+            cuenta.bancosAfiliados.forEach((b: string) => bancosUnicos.add(b));
+          }
+        }
+        if (bancosUnicos.size > 0) {
+          const bancosAfiliadosArray = Array.from(bancosUnicos);
+          if (!proveedor.bancosAfiliados || proveedor.bancosAfiliados.length === 0) {
+            await collection.updateOne(
+              { _id: proveedor._id },
+              { $set: { bancosAfiliados: bancosAfiliadosArray } }
+            );
+            proveedor.bancosAfiliados = bancosAfiliadosArray;
+          }
+        }
+      }
+    }
+    
     res.json(proveedores);
   } catch (error: any) {
     console.error('Error obteniendo proveedores:', error);
