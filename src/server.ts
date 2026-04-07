@@ -28,6 +28,8 @@ const PORT = process.env.PORT || 3000;
 
 // Trust proxy for proper IP detection behind Nginx reverse proxy
 app.set('trust proxy', 1);
+app.use(express.json({ limit: '50mb' })); 
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const swaggerSpec = swaggerJsdoc(swaggerConfig);
 
