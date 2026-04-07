@@ -1894,17 +1894,28 @@ app.post('/api/facturas-qr/generate-qr', async (req: Request, res: Response) => 
     
     facturasQrTokens.set(token, { proveedorId, facturaIndex, expiresAt });
     
-    const baseUrl = process.env.BASE_URL || `http://${req.get('host')}`;
+    const host = req.get('host');
+    const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1');
+    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
     const uploadUrl = `${baseUrl}/facturas-qr/upload/${token}`;
     
-    const qrCodeDataUrl = await QRCode.toDataURL(uploadUrl, { width: 250, margin: 1 });
-    
-    res.json({ 
-      qrCode: qrCodeDataUrl, 
-      token,
-      uploadUrl, 
-      expiresAt: expiresAt.toISOString() 
-    });
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
+
+    try {
+      const response = await fetch(qrApiUrl);
+      const buffer = await response.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      const qrCodeDataUrl = `data:image/png;base64,${base64}`;
+      res.json({ 
+        qrCode: qrCodeDataUrl, 
+        token,
+        uploadUrl, 
+        expiresAt: expiresAt.toISOString() 
+      });
+    } catch (fetchError) {
+      console.error('Error fetching QR:', fetchError);
+      res.json({ qrCode: qrApiUrl, token, uploadUrl, expiresAt: expiresAt.toISOString() });
+    }
   } catch (error) {
     console.error('Error generating QR:', error);
     res.status(500).json({ error: 'Error al generar código QR' });
