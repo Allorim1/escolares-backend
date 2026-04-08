@@ -2219,6 +2219,9 @@ app.post('/api/facturas-qr/upload', async (req: Request, res: Response) => {
     
     console.log('Imagen guardada directamente en factura', proveedorId, facturaIndex);
     
+    // Guardamos la imagen en el token para que el polling del frontend la detecte
+    tokenData.imagen = imagen;
+    
     let datosExtraidos = null;
     if (extraerDatos && imagen) {
       try {
