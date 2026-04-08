@@ -940,7 +940,7 @@ app.delete('/api/proveedores/:id', authenticateToken, async (req: Request, res: 
 app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, porcentajeIva, imagenes, montoBsf } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, porcentajeIva, imagenes, montoBsf, numeroControl } = req.body;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     
@@ -998,6 +998,10 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       montoBsf: montoBsf || 0,
     };
     
+    if (tipoDoc === 'factura' && numeroControl) {
+      factura.numeroControl = numeroControl;
+    }
+    
     if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
       factura.imagenes = imagenes;
     }
@@ -1026,7 +1030,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
     const indexParam = req.params.index;
     const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
     
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, abonos, totalPagar, imagenes, montoBsf } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, abonos, totalPagar, imagenes, montoBsf, numeroControl } = req.body;
     
     const collection = (database as any).getCollection('proveedores');
     const proveedor = await collection.findOne({ _id: new ObjectId(id) });
@@ -1093,6 +1097,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
       deudaIva25,
       imagenes: imagenes !== undefined ? imagenes : imagenesActuales,
       montoBsf: montoBsf !== undefined ? montoBsf : (factura.montoBsf || 0),
+      numeroControl: tipoDoc === 'factura' && numeroControl !== undefined ? numeroControl : factura.numeroControl,
     };
     
     await collection.updateOne(
@@ -3427,6 +3432,70 @@ app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Res
   } catch (error) {
     console.error('Error deleting manual:', error);
     res.status(500).json({ error: 'Error al eliminar manual' });
+  }
+});
+
+// ============ API RETENCIONES ============
+
+const retencionesSettings = {
+  ultimoNumero: 0
+};
+
+app.get('/api/retenciones', async (req: Request, res: Response) => {
+  try {
+    const collection = database.getCollection('retenciones');
+    const resultados = await collection.find().sort({ numero: -1 }).toArray();
+    res.json(resultados);
+  } catch (error) {
+    console.error('Error obteniendo retenciones:', error);
+    res.status(500).json({ error: 'Error al obtener retenciones' });
+  }
+});
+
+app.post('/api/retenciones', async (req: Request, res: Response) => {
+  try {
+    const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, totalCompras, baseImponible, exento, porcentajeIva, iva, retenido } = req.body;
+    
+    const retencion = {
+      numero,
+      proveedorRif,
+      proveedorNombre,
+      facturaNumero,
+      facturaFecha: new Date(facturaFecha),
+      totalCompras,
+      baseImponible,
+      exento,
+      porcentajeIva,
+      iva,
+      retenido,
+      creadoEn: new Date()
+    };
+    
+    const collection = database.getCollection('retenciones');
+    const result = await collection.insertOne(retencion);
+    
+    if (parseInt(numero) > retencionesSettings.ultimoNumero) {
+      retencionesSettings.ultimoNumero = parseInt(numero);
+    }
+    
+    res.json({ success: true, _id: result.insertedId, retencion });
+  } catch (error) {
+    console.error('Error guardando retencion:', error);
+    res.status(500).json({ error: 'Error al guardar retencion' });
+  }
+});
+
+app.get('/api/retenciones/ultimo', (req: Request, res: Response) => {
+  res.json({ ultimoNumero: retencionesSettings.ultimoNumero });
+});
+
+app.put('/api/retenciones/ultimo', (req: Request, res: Response) => {
+  const { ultimoNumero } = req.body;
+  if (typeof ultimoNumero === 'number' && ultimoNumero >= 0) {
+    retencionesSettings.ultimoNumero = ultimoNumero;
+    res.json({ success: true, ultimoNumero: retencionesSettings.ultimoNumero });
+  } else {
+    res.status(400).json({ error: 'Número inválido' });
   }
 });
 
