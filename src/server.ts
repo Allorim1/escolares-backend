@@ -3454,7 +3454,7 @@ app.get('/api/retenciones', async (req: Request, res: Response) => {
 
 app.post('/api/retenciones', async (req: Request, res: Response) => {
   try {
-    const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, totalCompras, baseImponible, exento, porcentajeIva, iva, retenido } = req.body;
+    const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, fechaPagada, totalCompras, baseImponible, exento, porcentajeIva, iva, retenido } = req.body;
     
     const retencion = {
       numero,
@@ -3462,6 +3462,7 @@ app.post('/api/retenciones', async (req: Request, res: Response) => {
       proveedorNombre,
       facturaNumero,
       facturaFecha: new Date(facturaFecha),
+      fechaPagada: fechaPagada ? new Date(fechaPagada) : new Date(),
       totalCompras,
       baseImponible,
       exento,
@@ -3475,7 +3476,8 @@ app.post('/api/retenciones', async (req: Request, res: Response) => {
     const result = await collection.insertOne(retencion);
     
     if (parseInt(numero) > retencionesSettings.ultimoNumero) {
-      retencionesSettings.ultimoNumero = parseInt(numero);
+      const secuencia = parseInt(numero.slice(-8));
+      retencionesSettings.ultimoNumero = secuencia;
     }
     
     res.json({ success: true, _id: result.insertedId, retencion });
@@ -3496,6 +3498,27 @@ app.put('/api/retenciones/ultimo', (req: Request, res: Response) => {
     res.json({ success: true, ultimoNumero: retencionesSettings.ultimoNumero });
   } else {
     res.status(400).json({ error: 'Número inválido' });
+  }
+});
+
+app.delete('/api/retenciones/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    
+    const collection = database.getCollection('retenciones');
+    const result = await collection.deleteOne({ _id: new ObjectId(id) });
+    
+    if (result.deletedCount === 0) {
+      res.status(404).json({ error: 'Retención no encontrada' });
+      return;
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando retención:', error);
+    res.status(500).json({ error: 'Error al eliminar retención' });
   }
 });
 
