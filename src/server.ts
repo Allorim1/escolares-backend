@@ -1031,7 +1031,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
     const indexParam = req.params.index;
     const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
     
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, abonos, totalPagar, imagenes, montoBsf, numeroControl } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, exentoBsf, abonos, totalPagar, imagenes, montoBsf, numeroControl } = req.body;
     
     const collection = (database as any).getCollection('proveedores');
     const proveedor = await collection.findOne({ _id: new ObjectId(id) });
@@ -1098,6 +1098,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
       deudaIva25,
       imagenes: imagenes !== undefined ? imagenes : imagenesActuales,
       montoBsf: montoBsf !== undefined ? montoBsf : (factura.montoBsf || 0),
+      exentoBsf: exentoBsf !== undefined ? exentoBsf : (factura.exentoBsf || 0),
       numeroControl: tipoDoc === 'factura' && numeroControl !== undefined ? numeroControl : factura.numeroControl,
     };
     
