@@ -3454,7 +3454,7 @@ app.get('/api/retenciones', async (req: Request, res: Response) => {
 
 app.post('/api/retenciones', async (req: Request, res: Response) => {
   try {
-    const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, fechaPagada, totalCompras, baseImponible, exento, porcentajeIva, iva, retenido } = req.body;
+    const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, fechaPagada, numeroControl, totalCompras, baseImponible, exento, porcentajeIva, iva, retenido } = req.body;
     
     const collection = database.getCollection('retenciones');
     
@@ -3471,6 +3471,7 @@ app.post('/api/retenciones', async (req: Request, res: Response) => {
       facturaNumero,
       facturaFecha: new Date(facturaFecha),
       fechaPagada: fechaPagada ? new Date(fechaPagada) : new Date(),
+      numeroControl: numeroControl || '',
       totalCompras,
       baseImponible,
       exento,
