@@ -940,7 +940,7 @@ app.delete('/api/proveedores/:id', authenticateToken, async (req: Request, res: 
 app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, porcentajeIva, imagenes, montoBsf, numeroControl } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, exentoBsf, porcentajeIva, imagenes, montoBsf, numeroControl } = req.body;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     
@@ -984,6 +984,7 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       fecha: fecha ? new Date(fecha) : new Date(),
       baseImponible: baseImpo,
       baseExenta: baseEx,
+      exentoBsf: exentoBsf || 0,
       porcentajeIva: porcentajeIva || 0,
       iva: iva,
       iva75: iva75,
@@ -3454,7 +3455,7 @@ app.get('/api/retenciones', async (req: Request, res: Response) => {
 
 app.post('/api/retenciones', async (req: Request, res: Response) => {
   try {
-    const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, fechaPagada, numeroControl, totalCompras, baseImponible, exento, porcentajeIva, iva, retenido } = req.body;
+    const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, fechaPagada, numeroControl, totalCompras, baseImponible, exento, exentoBsf, porcentajeIva, iva, retenido } = req.body;
     
     const collection = database.getCollection('retenciones');
     
@@ -3475,6 +3476,7 @@ app.post('/api/retenciones', async (req: Request, res: Response) => {
       totalCompras,
       baseImponible,
       exento,
+      exentoBsf: exentoBsf || 0,
       porcentajeIva,
       iva,
       retenido,
