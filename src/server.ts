@@ -3456,6 +3456,14 @@ app.post('/api/retenciones', async (req: Request, res: Response) => {
   try {
     const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, fechaPagada, totalCompras, baseImponible, exento, porcentajeIva, iva, retenido } = req.body;
     
+    const collection = database.getCollection('retenciones');
+    
+    const existente = await collection.findOne({ facturaNumero: facturaNumero, proveedorRif: proveedorRif });
+    if (existente) {
+      res.status(400).json({ error: 'Ya existe una retención para esta factura' });
+      return;
+    }
+    
     const retencion = {
       numero,
       proveedorRif,
@@ -3472,7 +3480,6 @@ app.post('/api/retenciones', async (req: Request, res: Response) => {
       creadoEn: new Date()
     };
     
-    const collection = database.getCollection('retenciones');
     const result = await collection.insertOne(retencion);
     
     if (parseInt(numero) > retencionesSettings.ultimoNumero) {
