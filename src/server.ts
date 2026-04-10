@@ -28,6 +28,8 @@ const PORT = process.env.PORT || 3000;
 
 // Trust proxy for proper IP detection behind Nginx reverse proxy
 app.set('trust proxy', 1);
+app.use(express.json({ limit: '50mb' })); 
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const swaggerSpec = swaggerJsdoc(swaggerConfig);
 
@@ -179,8 +181,8 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 app.use(generalLimiter);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
 
 const DOLAR_API_KEY = '29b324b9a34615a7e8f1d945ea95bb22e621cfe3ae2d6b36e957bb08d1fa7fa7'
@@ -748,7 +750,29 @@ app.get('/api/proveedores', async (req: Request, res: Response) => {
       await db.createCollection('proveedores');
     }
     const collection = (database as any).getCollection('proveedores');
-    const proveedores = await collection.find().sort({ nombre: 1 }).toArray();
+    let proveedores = await collection.find().sort({ nombre: 1 }).toArray();
+    
+    for (const proveedor of proveedores) {
+      if (proveedor.cuentasBancarias && proveedor.cuentasBancarias.length > 0) {
+        const bancosUnicos = new Set<string>();
+        for (const cuenta of proveedor.cuentasBancarias) {
+          if (cuenta.bancosAfiliados && cuenta.bancosAfiliados.length > 0) {
+            cuenta.bancosAfiliados.forEach((b: string) => bancosUnicos.add(b));
+          }
+        }
+        if (bancosUnicos.size > 0) {
+          const bancosAfiliadosArray = Array.from(bancosUnicos);
+          if (!proveedor.bancosAfiliados || proveedor.bancosAfiliados.length === 0) {
+            await collection.updateOne(
+              { _id: proveedor._id },
+              { $set: { bancosAfiliados: bancosAfiliadosArray } }
+            );
+            proveedor.bancosAfiliados = bancosAfiliadosArray;
+          }
+        }
+      }
+    }
+    
     res.json(proveedores);
   } catch (error: any) {
     console.error('Error obteniendo proveedores:', error);
@@ -916,7 +940,7 @@ app.delete('/api/proveedores/:id', authenticateToken, async (req: Request, res: 
 app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, porcentajeIva, imagenes, montoBsf } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, exentoBsf, porcentajeIva, imagenes, montoBsf, numeroControl } = req.body;
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     
@@ -960,6 +984,7 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       fecha: fecha ? new Date(fecha) : new Date(),
       baseImponible: baseImpo,
       baseExenta: baseEx,
+      exentoBsf: exentoBsf || 0,
       porcentajeIva: porcentajeIva || 0,
       iva: iva,
       iva75: iva75,
@@ -973,6 +998,10 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
       deudaIva25: deudaIva25 || 0,
       montoBsf: montoBsf || 0,
     };
+    
+    if (tipoDoc === 'factura' && numeroControl) {
+      factura.numeroControl = numeroControl;
+    }
     
     if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
       factura.imagenes = imagenes;
@@ -1002,7 +1031,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
     const indexParam = req.params.index;
     const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
     
-    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, abonos, totalPagar, imagenes, montoBsf } = req.body;
+    const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, exentoBsf, abonos, totalPagar, imagenes, montoBsf, numeroControl } = req.body;
     
     const collection = (database as any).getCollection('proveedores');
     const proveedor = await collection.findOne({ _id: new ObjectId(id) });
@@ -1069,6 +1098,8 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
       deudaIva25,
       imagenes: imagenes !== undefined ? imagenes : imagenesActuales,
       montoBsf: montoBsf !== undefined ? montoBsf : (factura.montoBsf || 0),
+      exentoBsf: exentoBsf !== undefined ? exentoBsf : (factura.exentoBsf || 0),
+      numeroControl: tipoDoc === 'factura' && numeroControl !== undefined ? numeroControl : factura.numeroControl,
     };
     
     await collection.updateOne(
@@ -1876,6 +1907,383 @@ async function uploadImage(){if(!selectedFile)return;document.getElementById('up
 
 const uploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; expiresAt: Date }>();
 
+// ============ SISTEMA QR PARA FACTURAS (NUEVO) ============
+
+const facturasQrTokens = new Map<string, { 
+  proveedorId: string; 
+  facturaIndex: number; 
+  expiresAt: Date;
+  imagen?: string;
+  datosExtraidos?: any;
+}>();
+
+app.post('/api/facturas-qr/generate-qr', async (req: Request, res: Response) => {
+  try {
+    const { proveedorId, facturaIndex } = req.body;
+    const token = randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    
+    facturasQrTokens.set(token, { proveedorId, facturaIndex, expiresAt });
+    
+    const host = req.get('host');
+    const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1');
+    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
+    const uploadUrl = `${baseUrl}/facturas-qr/upload/${token}`;
+    
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
+
+    try {
+      const response = await fetch(qrApiUrl);
+      const buffer = await response.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      const qrCodeDataUrl = `data:image/png;base64,${base64}`;
+      res.json({ 
+        qrCode: qrCodeDataUrl, 
+        token,
+        uploadUrl, 
+        expiresAt: expiresAt.toISOString() 
+      });
+    } catch (fetchError) {
+      console.error('Error fetching QR:', fetchError);
+      res.json({ qrCode: qrApiUrl, token, uploadUrl, expiresAt: expiresAt.toISOString() });
+    }
+  } catch (error) {
+    console.error('Error generating QR:', error);
+    res.status(500).json({ error: 'Error al generar código QR' });
+  }
+});
+
+app.get('/api/facturas-qr/check/:token', async (req: Request, res: Response) => {
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+  const tokenData = facturasQrTokens.get(token);
+  
+  console.log('Facturas QR check - token:', token, 'found:', !!tokenData, 'hasImage:', !!tokenData?.imagen);
+  
+  if (!tokenData) {
+    return res.status(404).json({ success: false, error: 'Token no válido' });
+  }
+  
+  if (new Date() > tokenData.expiresAt) {
+    facturasQrTokens.delete(token);
+    return res.status(410).json({ success: false, error: 'Token expirado' });
+  }
+  
+  if (tokenData.imagen) {
+    console.log('Facturas QR - Retornando imagen de', tokenData.imagen.length, 'bytes');
+    facturasQrTokens.delete(token);
+    return res.json({ 
+      success: true, 
+      imagen: tokenData.imagen,
+      datosExtraidos: tokenData.datosExtraidos
+    });
+  }
+  
+  res.json({ success: false });
+});
+
+app.get('/api/facturas-qr/imagenes/:proveedorId/:facturaIndex', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const proveedorIdParam = req.params.proveedorId;
+    const proveedorId = Array.isArray(proveedorIdParam) ? proveedorIdParam[0] : proveedorIdParam;
+    const facturaIndexParam = req.params.facturaIndex;
+    const facturaIndex = Array.isArray(facturaIndexParam) ? parseInt(facturaIndexParam[0]) : parseInt(facturaIndexParam);
+    
+    const proveedor = await (database as any).getCollection('proveedores').findOne({ _id: new ObjectId(proveedorId) });
+    if (!proveedor) {
+      res.status(404).json({ error: 'Proveedor no encontrado' });
+      return;
+    }
+    
+    const facturas = proveedor.facturas || [];
+    const factura = facturas[facturaIndex];
+    if (!factura) {
+      res.status(404).json({ error: 'Factura no encontrada' });
+      return;
+    }
+    
+    res.json({ imagenes: factura.imagenes || [] });
+  } catch (error) {
+    console.error('Error obteniendo imágenes de factura:', error);
+    res.status(500).json({ error: 'Error al obtener imágenes' });
+  }
+});
+
+app.get('/facturas-qr/upload/:token', async (req: Request, res: Response) => {
+  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
+  const tokenData = facturasQrTokens.get(token);
+  
+  console.log('=== FACTURAS QR UPLOAD PAGE ===');
+  console.log('Full URL:', req.protocol + '://' + req.get('host') + req.originalUrl);
+  console.log('Token:', token);
+  console.log('Token exists:', !!tokenData);
+  console.log('All tokens in map:', Array.from(facturasQrTokens.keys()));
+  
+  if (!tokenData) {
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Enlace expirado</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; background: #f5f5f5; }
+          .error { color: red; background: white; padding: 20px; border-radius: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="error">
+          <h1>⚠️ Enlace expirado o inválido</h1>
+          <p>Por favor genera un nuevo código QR desde la aplicación.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+  
+  if (new Date() > tokenData.expiresAt) {
+    facturasQrTokens.delete(token);
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Enlace expirado</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; text-align: center; background: #f5f5f5; }
+          .error { color: red; background: white; padding: 20px; border-radius: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="error">
+          <h1>⏰ El enlace ha expirado</h1>
+          <p>Por favor genera un nuevo código QR desde la aplicación.</p>
+        </div>
+      </body>
+      </html>
+    `);
+  }
+  
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Subir foto de factura</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; background: #f0f2f5; margin: 0; }
+        .container { max-width: 500px; margin: 0 auto; }
+        h1 { text-align: center; color: #1a1a1a; margin-bottom: 20px; }
+        .upload-card { background: white; border-radius: 15px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .upload-area {
+          border: 2px dashed #ddd;
+          border-radius: 12px;
+          padding: 40px 20px;
+          text-align: center;
+          cursor: pointer;
+          transition: all 0.3s;
+        }
+        .upload-area:hover { border-color: #007bff; background: #f8f9ff; }
+        .upload-area.uploading { border-color: #28a745; background: #f0fff4; }
+        input[type="file"] { display: none; }
+        .btn-camera {
+          background: linear-gradient(135deg, #007bff, #0056b3);
+          color: white;
+          padding: 16px 32px;
+          border: none;
+          border-radius: 8px;
+          font-size: 16px;
+          cursor: pointer;
+          width: 100%;
+          font-weight: 600;
+        }
+        .btn-camera:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,123,255,0.3); }
+        .preview { margin-top: 20px; text-align: center; }
+        .preview img { max-width: 100%; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .status { padding: 15px; margin: 15px 0; border-radius: 8px; text-align: center; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.loading { background: #fff3cd; color: #856404; }
+        .success-icon { font-size: 48px; margin-bottom: 10px; }
+        .checkbox-container { margin: 20px 0; display: flex; align-items: center; justify-content: center; }
+        .checkbox-container input { width: auto; margin-right: 8px; }
+        .checkbox-container label { color: #555; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>📷 Subir Foto de Factura</h1>
+        <div class="upload-card">
+          <div class="checkbox-container">
+            <input type="checkbox" id="extraerDatos">
+            <label for="extraerDatos">🤖 Extraer datos automáticamente</label>
+          </div>
+          <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+            <input type="file" id="fileInput" accept="image/*" capture="environment" onchange="handleFileSelect(event)">
+            <button class="btn-camera">📸 Tomar foto o seleccionar</button>
+            <p id="statusText" style="margin-top: 10px; color: #666;">Haz clic para seleccionar una imagen</p>
+          </div>
+          <div class="preview" id="preview"></div>
+          <div id="loadingStatus" class="status loading" style="display:none;">
+            ⏳ Subiendo imagen...
+          </div>
+        </div>
+      </div>
+      <script>
+        const token = window.location.pathname.split('/facturas-qr/upload/')[1] || '';
+        console.log('Token:', token);
+        
+        function handleFileSelect(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+          
+          console.log('Archivo seleccionado:', file.name, file.size);
+          
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const base64 = e.target.result;
+            document.getElementById('preview').innerHTML = '<img src="' + base64 + '" alt="Preview">';
+            uploadImage(base64);
+          };
+          reader.readAsDataURL(file);
+        }
+        
+        async function uploadImage(base64) {
+          const extraerDatos = document.getElementById('extraerDatos').checked;
+          const uploadArea = document.getElementById('uploadArea');
+          const statusText = document.getElementById('statusText');
+          const loadingStatus = document.getElementById('loadingStatus');
+          
+          uploadArea.classList.add('uploading');
+          loadingStatus.style.display = 'block';
+          loadingStatus.textContent = extraerDatos ? '🤖 Procesando imagen y extrayendo datos...' : '⏳ Subiendo imagen...';
+          
+          try {
+            const response = await fetch('/api/facturas-qr/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token, imagen: base64, extraerDatos })
+            });
+            
+            const data = await response.json();
+            console.log('Response:', data);
+            
+            if (response.ok && data.success) {
+              loadingStatus.className = 'status success';
+              loadingStatus.innerHTML = '✅ ¡Foto subida exitosamente!<br><small>Cerrando en 3 segundos...</small>';
+              setTimeout(() => window.close(), 3000);
+            } else {
+              loadingStatus.className = 'status error';
+              loadingStatus.textContent = '❌ Error: ' + (data.error || 'Error al subir');
+            }
+          } catch (err) {
+            loadingStatus.className = 'status error';
+            loadingStatus.textContent = '❌ Error de conexión: ' + err.message;
+          }
+          
+          uploadArea.classList.remove('uploading');
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+app.post('/api/facturas-qr/upload', async (req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).send();
+  }
+  
+  try {
+    const { token, imagen, extraerDatos } = req.body;
+    const tokenData = facturasQrTokens.get(token);
+    
+    console.log('Facturas QR upload - token:', token, 'found:', !!tokenData);
+    
+    if (!tokenData) {
+      return res.status(400).json({ success: false, error: 'Token inválido' });
+    }
+    
+    if (new Date() > tokenData.expiresAt) {
+      facturasQrTokens.delete(token);
+      return res.status(400).json({ success: false, error: 'Token expirado' });
+    }
+    
+    const { proveedorId, facturaIndex } = tokenData;
+    
+    const { ObjectId } = await import('mongodb');
+    const proveedorCollection = (database as any).getCollection('proveedores');
+    
+    await proveedorCollection.updateOne(
+      { _id: new ObjectId(proveedorId) },
+      { $push: { [`facturas.${facturaIndex}.imagenes`]: imagen } }
+    );
+    
+    console.log('Imagen guardada directamente en factura', proveedorId, facturaIndex);
+    
+    // Guardamos la imagen en el token para que el polling del frontend la detecte
+    tokenData.imagen = imagen;
+    
+    let datosExtraidos = null;
+    if (extraerDatos && imagen) {
+      try {
+        const result = await Tesseract.recognize(imagen, 'spa+eng', { logger: m => console.log('OCR:', m) });
+        datosExtraidos = extraerDatosFactura(result.data.text);
+        console.log('Datos extraídos:', datosExtraidos);
+      } catch (ocrError) {
+        console.error('Error en OCR:', ocrError);
+      }
+    }
+    
+    res.json({ success: true, datosExtraidos });
+  } catch (error) {
+    console.error('Error uploading photo:', error);
+    res.status(500).json({ success: false, error: 'Error al guardar la foto' });
+  }
+});
+
+app.post('/api/proveedores/:id/facturas/:index/imagen', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const indexParam = req.params.index;
+    const index = Array.isArray(indexParam) ? parseInt(indexParam[0]) : parseInt(indexParam);
+    const { imagen } = req.body;
+    
+    if (!imagen) {
+      return res.status(400).json({ error: 'Imagen requerida' });
+    }
+    
+    const collection = (database as any).getCollection('proveedores');
+    const proveedor = await collection.findOne({ _id: new ObjectId(id) });
+    
+    if (!proveedor) {
+      return res.status(404).json({ error: 'Proveedor no encontrado' });
+    }
+    
+    if (!proveedor.facturas || index < 0 || index >= proveedor.facturas.length) {
+      return res.status(404).json({ error: 'Factura no encontrada' });
+    }
+    
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $push: { [`facturas.${index}.imagenes`]: imagen } }
+    );
+    
+    console.log('Imagen agregada a factura', index, 'del proveedor', id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error adding image to factura:', error);
+    res.status(500).json({ error: 'Error al agregar imagen' });
+  }
+});
+
 app.get('/api/pago/debug/:token', async (req: Request, res: Response) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const collection = (database as any).getCollection('pagos');
@@ -1901,7 +2309,7 @@ app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
       createdAt: new Date()
     });
     
-    const baseUrl = process.env.BASE_URL || 'https://escolares-backend.onrender.com';
+    const baseUrl = process.env.BASE_URL || `http://${req.get('host')}`;
     const uploadUrl = `${baseUrl}/upload-pago/${token}`;
     
     const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
@@ -2170,7 +2578,7 @@ app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, re
     
     const host = req.get('host');
     const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1');
-    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `https://${host}`);
+    const baseUrl = process.env.BASE_URL || (isLocalhost ? `http://${host}` : `http://${host}`);
     const uploadUrl = `${baseUrl}/upload-factura/${token}`;
     
     const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=1&data=${encodeURIComponent(uploadUrl)}`;
@@ -2299,6 +2707,11 @@ app.put('/api/facturas/imagenes/:proveedorId/:facturaIndex/:imagenIndex', async 
 app.get('/upload-factura/:token', async (req: Request, res: Response) => {
   const token = req.params.token as string;
   const uploadData = uploadTokens.get(token);
+  
+  console.log('=== UPLOAD PAGE ACCESS ===');
+  console.log('Token:', token);
+  console.log('Token exists:', !!uploadData);
+  console.log('Expired:', uploadData ? new Date() > uploadData.expiresAt : 'N/A');
   
   if (!uploadData) {
     res.send(`
@@ -2683,10 +3096,28 @@ function extraerDatosFactura(texto: string): any {
   return datos;
 }
 
+app.get('/api/facturas/debug-upload-tokens', (req, res) => {
+  const tokens: any[] = [];
+  uploadTokens.forEach((value, key) => {
+    tokens.push({ token: key, expiresAt: value.expiresAt, proveedorId: value.proveedorId, facturaIndex: value.facturaIndex });
+  });
+  res.json({ count: tokens.length, tokens });
+});
+
 app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: Response) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  console.log('=== UPLOAD PHOTO DEBUG ===');
+  console.log('Body keys:', Object.keys(req.body || {}));
+  console.log('Body:', JSON.stringify(req.body).substring(0, 500));
+  console.log('Files:', req.files);
+  console.log('Headers:', req.headers['content-type']);
+  
+  if (!req.body || Object.keys(req.body).length === 0) {
+    console.log('WARNING: Empty body - checking if form-data parsing failed');
+  }
   
   try {
     const token = req.body?.token as string;
@@ -3003,6 +3434,103 @@ app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Res
   } catch (error) {
     console.error('Error deleting manual:', error);
     res.status(500).json({ error: 'Error al eliminar manual' });
+  }
+});
+
+// ============ API RETENCIONES ============
+
+const retencionesSettings = {
+  ultimoNumero: 0
+};
+
+app.get('/api/retenciones', async (req: Request, res: Response) => {
+  try {
+    const collection = database.getCollection('retenciones');
+    const resultados = await collection.find().sort({ numero: -1 }).toArray();
+    res.json(resultados);
+  } catch (error) {
+    console.error('Error obteniendo retenciones:', error);
+    res.status(500).json({ error: 'Error al obtener retenciones' });
+  }
+});
+
+app.post('/api/retenciones', async (req: Request, res: Response) => {
+  try {
+    const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, fechaPagada, numeroControl, totalCompras, baseImponible, montoBsf, exento, exentoBsf, porcentajeIva, iva, retenido } = req.body;
+    
+    const collection = database.getCollection('retenciones');
+    
+    const existente = await collection.findOne({ facturaNumero: facturaNumero, proveedorRif: proveedorRif });
+    if (existente) {
+      res.status(400).json({ error: 'Ya existe una retención para esta factura' });
+      return;
+    }
+    
+    const retencion = {
+      numero,
+      proveedorRif,
+      proveedorNombre,
+      facturaNumero,
+      facturaFecha: new Date(facturaFecha),
+      fechaPagada: fechaPagada ? new Date(fechaPagada) : new Date(),
+      numeroControl: numeroControl || '',
+      totalCompras,
+      baseImponible,
+      montoBsf: montoBsf || totalCompras,
+      exento,
+      exentoBsf: exentoBsf || 0,
+      porcentajeIva,
+      iva,
+      retenido,
+      creadoEn: new Date()
+    };
+    
+    const result = await collection.insertOne(retencion);
+    
+    if (parseInt(numero) > retencionesSettings.ultimoNumero) {
+      const secuencia = parseInt(numero.slice(-8));
+      retencionesSettings.ultimoNumero = secuencia;
+    }
+    
+    res.json({ success: true, _id: result.insertedId, retencion });
+  } catch (error) {
+    console.error('Error guardando retencion:', error);
+    res.status(500).json({ error: 'Error al guardar retencion' });
+  }
+});
+
+app.get('/api/retenciones/ultimo', (req: Request, res: Response) => {
+  res.json({ ultimoNumero: retencionesSettings.ultimoNumero });
+});
+
+app.put('/api/retenciones/ultimo', (req: Request, res: Response) => {
+  const { ultimoNumero } = req.body;
+  if (typeof ultimoNumero === 'number' && ultimoNumero >= 0) {
+    retencionesSettings.ultimoNumero = ultimoNumero;
+    res.json({ success: true, ultimoNumero: retencionesSettings.ultimoNumero });
+  } else {
+    res.status(400).json({ error: 'Número inválido' });
+  }
+});
+
+app.delete('/api/retenciones/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    
+    const collection = database.getCollection('retenciones');
+    const result = await collection.deleteOne({ _id: new ObjectId(id) });
+    
+    if (result.deletedCount === 0) {
+      res.status(404).json({ error: 'Retención no encontrada' });
+      return;
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando retención:', error);
+    res.status(500).json({ error: 'Error al eliminar retención' });
   }
 });
 
