@@ -22,7 +22,7 @@ router.post('/mensaje', authenticateToken, async (req: Request, res: Response) =
     const emisorId = req.user?.userId;
     const emisorNombre = req.user?.username || req.user?.nombre || 'Usuario';
 
-    if (!receptorId || !mensaje) {
+    if (!receptorId || !mensaje || !emisorId) {
       res.status(400).json({ error: 'Faltan datos requeridos' });
       return;
     }
