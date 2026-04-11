@@ -202,4 +202,79 @@ router.get('/admin/usuarios', authenticateToken, async (req: Request, res: Respo
   }
 });
 
+router.post('/publico', async (req: Request, res: Response) => {
+  try {
+    const { emisorNombre, mensaje } = req.body;
+
+    if (!mensaje || !emisorNombre) {
+      res.status(400).json({ error: 'Faltan datos requeridos' });
+      return;
+    }
+
+    const db = database.db;
+    if (!db) {
+      res.status(500).json({ error: 'Error de conexión' });
+      return;
+    }
+
+    const chatPublicoCollection = db.collection('chat_publico');
+    await chatPublicoCollection.insertOne({
+      emisorNombre,
+      mensaje,
+      fecha: new Date(),
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error en chat público:', error);
+    res.status(500).json({ error: 'Error enviando mensaje' });
+  }
+});
+
+router.get('/publico', async (req: Request, res: Response) => {
+  try {
+    const db = database.db;
+    if (!db) {
+      res.status(500).json({ error: 'Error de conexión' });
+      return;
+    }
+
+    const chatPublicoCollection = db.collection('chat_publico');
+    const mensajes = await chatPublicoCollection
+      .find({})
+      .sort({ fecha: -1 })
+      .limit(100)
+      .toArray();
+
+    res.json(mensajes.reverse());
+  } catch (error) {
+    console.error('Error obteniendo chat público:', error);
+    res.status(500).json({ error: 'Error obteniendo mensajes' });
+  }
+});
+
+router.delete('/publico', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userRol = req.user?.rol;
+    if (userRol !== 'root' && userRol !== 'admin') {
+      res.status(403).json({ error: 'No autorizado' });
+      return;
+    }
+
+    const db = database.db;
+    if (!db) {
+      res.status(500).json({ error: 'Error de conexión' });
+      return;
+    }
+
+    const chatPublicoCollection = db.collection('chat_publico');
+    await chatPublicoCollection.deleteMany({});
+
+    res.json({ success: true, message: 'Chat público limpiado' });
+  } catch (error) {
+    console.error('Error limpiando chat público:', error);
+    res.status(500).json({ error: 'Error limpiando chat' });
+  }
+});
+
 export default router;
