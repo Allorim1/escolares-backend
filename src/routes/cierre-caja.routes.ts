@@ -95,7 +95,13 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
       return;
     }
 
-    await db.collection('cierre_caja').deleteOne({ _id: new ObjectId(req.params.id) });
+    const id = req.params.id;
+    if (!id || Array.isArray(id)) {
+      res.status(400).json({ error: 'ID inválido' });
+      return;
+    }
+
+    await db.collection('cierre_caja').deleteOne({ _id: new ObjectId(id) });
     res.json({ success: true });
   } catch (error) {
     console.error('Error eliminando cierre:', error);
