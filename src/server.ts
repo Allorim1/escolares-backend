@@ -23,6 +23,7 @@ import homeRoutes from './routes/home.routes';
 import ordersRoutes from './routes/orders.routes';
 import rolesRoutes from './routes/roles.routes';
 import chatRoutes from './routes/chat.routes';
+import cierreCajaRoutes from './routes/cierre-caja.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -1664,6 +1665,7 @@ app.use('/api/home', homeRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/roles', rolesRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/cierre-caja', cierreCajaRoutes);
 
 // Galería - Documentos Temporales y Legales
 app.get('/api/galeria/:tipo', async (req: Request, res: Response) => {
