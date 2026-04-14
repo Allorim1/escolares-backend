@@ -421,6 +421,38 @@ app.put('/api/settings/compras-deshabilitadas', authenticateToken, async (req: R
   }
 });
 
+app.get('/api/settings/ocultar-precios', async (req: Request, res: Response) => {
+  try {
+    const settings = await database.getCollection('settings').findOne({ key: 'ocultarPrecios' });
+    res.json({ hidden: settings?.value === true });
+  } catch (error) {
+    console.error('Error getting ocultar precios setting:', error);
+    res.status(500).json({ error: 'Error al obtener la configuración' });
+  }
+});
+
+app.put('/api/settings/ocultar-precios', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userRol = (req.user as any)?.rol;
+    if (userRol !== 'root') {
+      res.status(403).json({ error: 'Solo el root puede modificar esta configuración' });
+      return;
+    }
+
+    const { hidden } = req.body;
+    await database.getCollection('settings').updateOne(
+      { key: 'ocultarPrecios' },
+      { $set: { key: 'ocultarPrecios', value: hidden, updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, hidden });
+  } catch (error) {
+    console.error('Error saving ocultar precios setting:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración' });
+  }
+});
+
 app.use(
   '/api-docs',
   swaggerUi.serve,

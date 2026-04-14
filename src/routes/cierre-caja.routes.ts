@@ -2,8 +2,21 @@ import { Router, Request, Response } from 'express';
 import { database } from '../config/database';
 import { authenticateToken } from '../middlewares/auth.middleware';
 import { ObjectId } from 'mongodb';
+import nodemailer from 'nodemailer';
 
 const router = Router();
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || ''
+  }
+});
+
+const emailsCierreCaja = (process.env.EMAILS_CIERRE_CAJA || '').split(',').filter(e => e.trim());
 
 interface CierreCaja {
   _id?: ObjectId;
@@ -74,6 +87,43 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     };
 
     await db.collection('cierre_caja').insertOne(cierre);
+    
+    if (emailsCierreCaja.length > 0) {
+      const detalleCajas = Object.entries(cajas).map(([cajaId, metodos]) => {
+        const entries = Object.entries(metodos as Record<string, number>);
+        const detalle = entries
+          .filter(([_, v]) => v > 0)
+          .map(([k, v]) => `${k}: ${v.toFixed(2)}`)
+          .join(', ');
+        return `${cajaId}: ${detalle}`;
+      }).join('\n');
+
+      const htmlContent = `
+        <h2>Cierre de Caja</h2>
+        <p><strong>Usuario:</strong> ${username}</p>
+        <p><strong>Fecha:</strong> ${new Date().toLocaleString('es-VE')}</p>
+        <p><strong>Saldo Inicial:</strong> Bs. ${saldoInicial.toFixed(2)}</p>
+        <p><strong>Total Gastos:</strong> Bs. ${(totalGastos || 0).toFixed(2)}</p>
+        <p><strong>Saldo Final:</strong> Bs. ${saldoFinal.toFixed(2)}</p>
+        <p><strong>Diferencia:</strong> Bs. ${(diferencia || 0).toFixed(2)}</p>
+        <h3>Detalle por Caja:</h3>
+        <pre style="background:#f5f5f5;padding:10px;border-radius:4px;">${detalleCajas}</pre>
+        ${observaciones ? `<p><strong>Observaciones:</strong> ${observaciones}</p>` : ''}
+      `;
+
+      try {
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || 'noreply@escolares.com',
+          to: emailsCierreCaja.join(','),
+          subject: `Cierre de Caja - ${new Date().toLocaleDateString('es-VE')}`,
+          html: htmlContent
+        });
+        console.log('Correo de cierre de caja enviado a:', emailsCierreCaja);
+      } catch (emailError) {
+        console.error('Error enviando correo de cierre:', emailError);
+      }
+    }
+    
     res.json({ success: true, cierre });
   } catch (error) {
     console.error('Error guardando cierre:', error);
