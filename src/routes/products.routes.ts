@@ -50,7 +50,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { title, price, description, category, image, marca } = req.body;
+    const { title, price, description, category, image, marca, lineaId, iva, ivaPercentage } = req.body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     const lastProduct = await database.getCollection('products')
@@ -70,10 +70,20 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       image: image || 'https://fakestoreapi.com/img/81fPKd-2AYL._AC_SL1500_.jpg',
       rating: { rate: 0, count: 0 },
       marca: marca || null,
+      lineaId: lineaId || null,
+      iva: iva || false,
+      ivaPercentage: ivaPercentage || 16,
       createdAt: new Date(),
     };
     
     await database.getCollection('products').insertOne(newProduct);
+    
+    if (lineaId) {
+      await database.getCollection('lineas').updateOne(
+        { id: lineaId },
+        { $addToSet: { productIds: newId } }
+      );
+    }
     
     await crearRegistro(database, 'Creación', 'Productos', `Producto creado: ${title}`, { producto: newProduct }, usuario);
     

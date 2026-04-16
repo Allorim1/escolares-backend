@@ -453,6 +453,44 @@ app.put('/api/settings/ocultar-precios', authenticateToken, async (req: Request,
   }
 });
 
+// Mantenimiento Mode Settings
+app.get('/api/settings/mantenimiento', async (req: Request, res: Response) => {
+  try {
+    const settings = await database.getCollection('settings').findOne({ key: 'mantenimiento' });
+    res.json({ enabled: settings?.value === true });
+  } catch (error) {
+    console.error('Error getting mantenimiento setting:', error);
+    res.status(500).json({ error: 'Error al obtener la configuración de mantenimiento' });
+  }
+});
+
+app.put('/api/settings/mantenimiento', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede modificar esta configuración' });
+      return;
+    }
+
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      res.status(400).json({ error: 'Se requiere un valor booleano' });
+      return;
+    }
+
+    await database.getCollection('settings').updateOne(
+      { key: 'mantenimiento' },
+      { $set: { key: 'mantenimiento', value: enabled, updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, enabled });
+  } catch (error) {
+    console.error('Error saving mantenimiento setting:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración de mantenimiento' });
+  }
+});
+
 app.use(
   '/api-docs',
   swaggerUi.serve,
