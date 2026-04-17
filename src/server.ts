@@ -457,7 +457,9 @@ app.put('/api/settings/ocultar-precios', authenticateToken, async (req: Request,
 app.get('/api/settings/mantenimiento', async (req: Request, res: Response) => {
   try {
     const settings = await database.getCollection('settings').findOne({ key: 'mantenimiento' });
-    res.json({ enabled: settings?.value === true });
+    const enabled = settings?.value?.enabled === true;
+    const tipo = settings?.value?.tipo || 'parcial';
+    res.json({ enabled, tipo });
   } catch (error) {
     console.error('Error getting mantenimiento setting:', error);
     res.status(500).json({ error: 'Error al obtener la configuración de mantenimiento' });
@@ -472,19 +474,24 @@ app.put('/api/settings/mantenimiento', authenticateToken, async (req: Request, r
       return;
     }
 
-    const { enabled } = req.body;
+    const { enabled, tipo } = req.body;
     if (typeof enabled !== 'boolean') {
-      res.status(400).json({ error: 'Se requiere un valor booleano' });
+      res.status(400).json({ error: 'Se requiere un valor booleano para enabled' });
+      return;
+    }
+
+    if (tipo && tipo !== 'absoluto' && tipo !== 'parcial') {
+      res.status(400).json({ error: 'El tipo debe ser "absoluto" o "parcial"' });
       return;
     }
 
     await database.getCollection('settings').updateOne(
       { key: 'mantenimiento' },
-      { $set: { key: 'mantenimiento', value: enabled, updatedAt: new Date() } },
+      { $set: { key: 'mantenimiento', value: { enabled, tipo: tipo || 'parcial' }, updatedAt: new Date() } },
       { upsert: true }
     );
 
-    res.json({ success: true, enabled });
+    res.json({ success: true, enabled, tipo: tipo || 'parcial' });
   } catch (error) {
     console.error('Error saving mantenimiento setting:', error);
     res.status(500).json({ error: 'Error al guardar la configuración de mantenimiento' });
@@ -1736,6 +1743,206 @@ app.use('/api/orders', ordersRoutes);
 app.use('/api/roles', rolesRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/cierre-caja', cierreCajaRoutes);
+
+// Gastos - Gestión de Gastos
+app.get('/api/gastos', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('gastos');
+    const gastos = await collection.find({}).sort({ fecha: -1 }).toArray();
+    res.json(gastos);
+  } catch (error) {
+    console.error('Error obteniendo gastos:', error);
+    res.status(500).json({ error: 'Error al obtener gastos' });
+  }
+});
+
+app.post('/api/gastos', async (req: Request, res: Response) => {
+  try {
+    const { descripcion, monto, categoria, fecha, notas } = req.body;
+    if (!descripcion || !categoria || !monto) {
+      res.status(400).json({ error: 'Descripción, categoría y monto son requeridos' });
+      return;
+    }
+    const gasto = {
+      descripcion,
+      monto,
+      categoria,
+      fecha: fecha ? new Date(fecha) : new Date(),
+      notas: notas || '',
+    };
+    const collection = (database as any).getCollection('gastos');
+    const result = await collection.insertOne(gasto);
+    res.json({ ...gasto, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando gasto:', error);
+    res.status(500).json({ error: 'Error al crear gasto' });
+  }
+});
+
+app.put('/api/gastos/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { descripcion, monto, categoria, fecha, notas } = req.body;
+    const updateData: any = { descripcion, monto, categoria, notas };
+    if (fecha) updateData.fecha = new Date(fecha);
+    const collection = (database as any).getCollection('gastos');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando gasto:', error);
+    res.status(500).json({ error: 'Error al actualizar gasto' });
+  }
+});
+
+app.delete('/api/gastos/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('gastos');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando gasto:', error);
+    res.status(500).json({ error: 'Error al eliminar gasto' });
+  }
+});
+
+// Nómina - Empleados
+app.get('/api/nomina/empleados', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('nomina-empleados');
+    const empleados = await collection.find({}).sort({ nombre: 1 }).toArray();
+    res.json(empleados);
+  } catch (error) {
+    console.error('Error obteniendo empleados:', error);
+    res.status(500).json({ error: 'Error al obtener empleados' });
+  }
+});
+
+app.post('/api/nomina/empleados', async (req: Request, res: Response) => {
+  try {
+    const { nombre, cedula, cargo, salario, fechaIngreso, notas } = req.body;
+    if (!nombre || !cedula) {
+      res.status(400).json({ error: 'Nombre y cédula son requeridos' });
+      return;
+    }
+    const empleado = {
+      nombre,
+      cedula,
+      cargo: cargo || '',
+      salario: salario || 0,
+      fechaIngreso: fechaIngreso ? new Date(fechaIngreso) : new Date(),
+      notas: notas || '',
+    };
+    const collection = (database as any).getCollection('nomina-empleados');
+    const result = await collection.insertOne(empleado);
+    res.json({ ...empleado, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando empleado:', error);
+    res.status(500).json({ error: 'Error al crear empleado' });
+  }
+});
+
+app.put('/api/nomina/empleados/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { nombre, cedula, cargo, salario, fechaIngreso, notas } = req.body;
+    const updateData: any = { nombre, cedula, cargo, salario, notas };
+    if (fechaIngreso) updateData.fechaIngreso = new Date(fechaIngreso);
+    const collection = (database as any).getCollection('nomina-empleados');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando empleado:', error);
+    res.status(500).json({ error: 'Error al actualizar empleado' });
+  }
+});
+
+app.delete('/api/nomina/empleados/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('nomina-empleados');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando empleado:', error);
+    res.status(500).json({ error: 'Error al eliminar empleado' });
+  }
+});
+
+// Nómina - Pagos
+app.get('/api/nomina/pagos', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('nomina-pagos');
+    const pagos = await collection.find({}).sort({ fecha: -1 }).toArray();
+    res.json(pagos);
+  } catch (error) {
+    console.error('Error obteniendo pagos:', error);
+    res.status(500).json({ error: 'Error al obtener pagos' });
+  }
+});
+
+app.post('/api/nomina/pagos', async (req: Request, res: Response) => {
+  try {
+    const { empleadoId, empleadoNombre, monto, fecha, tipo, notas } = req.body;
+    if (!empleadoId || !monto) {
+      res.status(400).json({ error: 'Empleado y monto son requeridos' });
+      return;
+    }
+    const pago = {
+      empleadoId,
+      empleadoNombre: empleadoNombre || '',
+      monto,
+      fecha: fecha ? new Date(fecha) : new Date(),
+      tipo: tipo || 'quincena',
+      notas: notas || '',
+    };
+    const collection = (database as any).getCollection('nomina-pagos');
+    const result = await collection.insertOne(pago);
+    res.json({ ...pago, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando pago:', error);
+    res.status(500).json({ error: 'Error al crear pago' });
+  }
+});
+
+app.put('/api/nomina/pagos/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { empleadoId, empleadoNombre, monto, fecha, tipo, notas } = req.body;
+    const updateData: any = { empleadoId, empleadoNombre, monto, tipo, notas };
+    if (fecha) updateData.fecha = new Date(fecha);
+    const collection = (database as any).getCollection('nomina-pagos');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando pago:', error);
+    res.status(500).json({ error: 'Error al actualizar pago' });
+  }
+});
+
+app.delete('/api/nomina/pagos/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('nomina-pagos');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando pago:', error);
+    res.status(500).json({ error: 'Error al eliminar pago' });
+  }
+});
 
 // Galería - Documentos Temporales y Legales
 app.get('/api/galeria/:tipo', async (req: Request, res: Response) => {
