@@ -50,7 +50,8 @@ export class CategoriasController {
 
   async update(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
+      const idParam = req.params.id;
+      const id = Array.isArray(idParam) ? idParam[0] : idParam;
       const { nombre, expanded, orden, items } = req.body;
 
       const updateData: Partial<CategoriaMenu> = {
@@ -80,7 +81,8 @@ export class CategoriasController {
 
   async delete(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
+      const idParam = req.params.id;
+      const id = Array.isArray(idParam) ? idParam[0] : idParam;
 
       const result = await database
         .getCollection<CategoriaMenu>('categorias')
@@ -132,8 +134,10 @@ export class CategoriasController {
 
   async removeItem(req: Request, res: Response): Promise<void> {
     try {
-      const { id, itemIndex } = req.params;
-      const index = parseInt(itemIndex);
+      const idParam = req.params.id;
+      const id = Array.isArray(idParam) ? idParam[0] : idParam;
+      const itemIndexParam = req.params.itemIndex;
+      const index = parseInt(Array.isArray(itemIndexParam) ? itemIndexParam[0] : itemIndexParam);
 
       if (isNaN(index)) {
         res.status(400).json({ error: 'Índice inválido' });
