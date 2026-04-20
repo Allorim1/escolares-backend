@@ -1746,6 +1746,46 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/cierre-caja', cierreCajaRoutes);
 app.use('/api/categorias', categoriasRoutes);
 
+// Categorías de Productos
+app.get('/api/productos-categorias', async (req: Request, res: Response) => {
+  try {
+    const categorias = await database
+      .getCollection<any>('productos_categorias')
+      .find({})
+      .sort({ nombre: 1 })
+      .toArray();
+    res.json(categorias);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener categorías' });
+  }
+});
+
+app.post('/api/productos-categorias', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { nombre } = req.body;
+    if (!nombre) {
+      res.status(400).json({ error: 'El nombre es requerido' });
+      return;
+    }
+    const id = `cat-${Date.now()}`;
+    const categoria = { id, nombre, createdAt: new Date() };
+    await database.getCollection('productos_categorias').insertOne(categoria);
+    res.status(201).json(categoria);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al crear categoría' });
+  }
+});
+
+app.delete('/api/productos-categorias/:id', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    await database.getCollection('productos_categorias').deleteOne({ id });
+    res.json({ message: 'Categoría eliminada' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al eliminar categoría' });
+  }
+});
+
 // Gastos - Gestión de Gastos
 app.get('/api/gastos', async (req: Request, res: Response) => {
   try {
