@@ -50,7 +50,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { title, price, description, category, image, marca, lineaId, iva, ivaPercentage } = req.body;
+    const { title, price, description, category, image, marca, lineaId, iva, ivaPercentage, estado, images } = req.body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     const lastProduct = await database.getCollection('products')
@@ -73,6 +73,8 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       lineaId: lineaId || null,
       iva: iva || false,
       ivaPercentage: ivaPercentage || 16,
+      estado: estado || 'disponible',
+      ...(images && { images }),
       createdAt: new Date(),
     };
     
@@ -97,7 +99,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { title, price, description, category, image, marca } = req.body;
+    const { title, price, description, category, image, marca, iva, ivaPercentage, estado, images, lineaId } = req.body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     const productoAnterior = await database.getCollection('products').findOne({ id });
@@ -109,6 +111,11 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
       category,
       image,
       marca: marca || null,
+      iva: iva || false,
+      ivaPercentage: ivaPercentage || 16,
+      estado: estado || 'disponible',
+      ...(images && { images }),
+      ...(lineaId !== undefined && { lineaId }),
     };
     
     await database.getCollection('products').updateOne(
