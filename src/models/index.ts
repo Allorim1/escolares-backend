@@ -111,3 +111,20 @@ export interface Rol {
   createdAt: Date;
   updatedAt: Date;
 }
+
+export interface CategoriaMenu {
+  _id?: string;
+  id: string;
+  nombre: string;
+  expanded: boolean;
+  orden: number;
+  items: CategoriaItem[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CategoriaItem {
+  label: string;
+  route: string;
+  permiso?: string;
+}

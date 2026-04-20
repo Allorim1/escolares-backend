@@ -24,6 +24,7 @@ import ordersRoutes from './routes/orders.routes';
 import rolesRoutes from './routes/roles.routes';
 import chatRoutes from './routes/chat.routes';
 import cierreCajaRoutes from './routes/cierre-caja.routes';
+import categoriasRoutes from './routes/categorias.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -1743,6 +1744,7 @@ app.use('/api/orders', ordersRoutes);
 app.use('/api/roles', rolesRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/cierre-caja', cierreCajaRoutes);
+app.use('/api/categorias', categoriasRoutes);
 
 // Gastos - Gestión de Gastos
 app.get('/api/gastos', async (req: Request, res: Response) => {
