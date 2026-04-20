@@ -102,7 +102,8 @@ export class CategoriasController {
 
   async addItem(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
+      const idParam = req.params.id;
+      const id = Array.isArray(idParam) ? idParam[0] : idParam;
       const { label, route, permiso } = req.body;
 
       if (!label || !route) {
