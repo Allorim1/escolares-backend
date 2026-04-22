@@ -34,7 +34,7 @@ export class OfertasController {
 
   async getByProductId(req: Request, res: Response): Promise<void> {
     try {
-      const productId = req.params.productId;
+      const productId = req.params.productId as string;
       const oferta = await database.getCollection<Oferta>('ofertas').findOne({ productId });
       res.json(oferta);
     } catch (error) {
@@ -79,7 +79,7 @@ export class OfertasController {
   async delete(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      const productId = req.params.productId;
+      const productId = req.params.productId as string;
       const ofertaEliminada = await database.getCollection<Oferta>('ofertas').findOne({ productId });
       const result = await database.getCollection<Oferta>('ofertas').deleteOne({ productId });
       if (result.deletedCount === 0) {
