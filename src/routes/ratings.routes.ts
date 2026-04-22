@@ -29,7 +29,7 @@ router.get('/:productId/stats', async (req: Request, res: Response) => {
 router.get('/:productId/user', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { productId } = req.params;
-    const userId = req.user?.id || req.user?._id;
+    const userId = req.user?.userId;
     
     if (!userId) {
       return res.status(401).json({ error: 'No autenticado' });
@@ -47,7 +47,7 @@ router.get('/:productId/user', authenticateToken, async (req: Request, res: Resp
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { productId, rate } = req.body;
-    const userId = req.user?.id || req.user?._id;
+    const userId = req.user?.userId;
     
     if (!userId) {
       return res.status(401).json({ error: 'No autenticado' });
