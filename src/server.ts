@@ -543,6 +543,19 @@ app.post('/api/registros', async (req: Request, res: Response) => {
 app.get('/api/registros', async (req: Request, res: Response) => {
   try {
     const { modulo, limit = 100 } = req.query;
+    const db = database.db;
+    if (!db) {
+      res.json([]);
+      return;
+    }
+    
+    const exists = await db.listCollections().toArray();
+    const names = exists.map((c: any) => c.name);
+    if (!names.includes('registros')) {
+      res.json([]);
+      return;
+    }
+    
     const collection = database.getCollection('registros');
 
     const filter: any = {};
