@@ -15,7 +15,7 @@ export interface Linea {
 
 export interface Oferta {
   _id?: string;
-  productId: number;
+  productId: string | number;
   precioOferta: number;
 }
 

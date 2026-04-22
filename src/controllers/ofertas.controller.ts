@@ -35,12 +35,7 @@ export class OfertasController {
   async getByProductId(req: Request, res: Response): Promise<void> {
     try {
       const productId = req.params.productId;
-      const oferta = await database.getCollection<Oferta>('ofertas').findOne({
-        $or: [
-          { productId: productId as any },
-          { productId: parseInt(productId as string) || productId }
-        ]
-      });
+      const oferta = await database.getCollection<Oferta>('ofertas').findOne({ productId });
       res.json(oferta);
     } catch (error) {
       res.status(500).json({ error: 'Error al obtener oferta' });
@@ -50,15 +45,11 @@ export class OfertasController {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      let { productId, precioOferta } = req.body;
+      const { productId, precioOferta } = req.body;
       
       if (!productId || precioOferta === undefined) {
         res.status(400).json({ error: 'productId y precioOferta son requeridos' });
         return;
-      }
-
-      if (typeof productId === 'string' && /^\d+$/.test(productId)) {
-        productId = parseInt(productId);
       }
 
       const existingOferta = await database.getCollection<Oferta>('ofertas').findOne({ productId });
