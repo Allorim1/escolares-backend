@@ -34,8 +34,13 @@ export class OfertasController {
 
   async getByProductId(req: Request, res: Response): Promise<void> {
     try {
-      const productId = parseInt(req.params.productId as string);
-      const oferta = await database.getCollection<Oferta>('ofertas').findOne({ productId });
+      const productId = req.params.productId;
+      const oferta = await database.getCollection<Oferta>('ofertas').findOne({
+        $or: [
+          { productId: productId as any },
+          { productId: parseInt(productId as string) || productId }
+        ]
+      });
       res.json(oferta);
     } catch (error) {
       res.status(500).json({ error: 'Error al obtener oferta' });
@@ -45,13 +50,20 @@ export class OfertasController {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      const { productId, precioOferta } = req.body;
-      if (!productId || !precioOferta) {
+      let { productId, precioOferta } = req.body;
+      
+      if (!productId || precioOferta === undefined) {
         res.status(400).json({ error: 'productId y precioOferta son requeridos' });
         return;
       }
 
+      if (typeof productId === 'string' && /^\d+$/.test(productId)) {
+        productId = parseInt(productId);
+      }
+
       const existingOferta = await database.getCollection<Oferta>('ofertas').findOne({ productId });
+      const ofertaData = { productId, precioOferta };
+      
       if (existingOferta) {
         const result = await database
           .getCollection<Oferta>('ofertas')
@@ -63,12 +75,11 @@ export class OfertasController {
         return;
       }
 
-      const newOferta: Oferta = { productId, precioOferta };
-      await database.getCollection<Oferta>('ofertas').insertOne(newOferta);
+      await database.getCollection<Oferta>('ofertas').insertOne(ofertaData);
 
-      await crearRegistro('Creación', 'Ofertas', `Oferta creada para producto ${productId}`, { oferta: newOferta }, usuario);
+      await crearRegistro('Creación', 'Ofertas', `Oferta creada para producto ${productId}`, { oferta: ofertaData }, usuario);
 
-      res.status(201).json(newOferta);
+      res.status(201).json(ofertaData);
     } catch (error) {
       res.status(500).json({ error: 'Error al crear oferta' });
     }
@@ -77,7 +88,7 @@ export class OfertasController {
   async delete(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      const productId = parseInt(req.params.productId as string);
+      const productId = req.params.productId;
       const ofertaEliminada = await database.getCollection<Oferta>('ofertas').findOne({ productId });
       const result = await database.getCollection<Oferta>('ofertas').deleteOne({ productId });
       if (result.deletedCount === 0) {
