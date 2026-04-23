@@ -55,11 +55,17 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
   { id: 'eliminar_usuarios', nombre: 'Eliminar Usuarios', descripcion: 'Puede eliminar usuarios', modulo: 'usuarios' },
   { id: 'gestionar_roles', nombre: 'Gestionar Roles', descripcion: 'Puede crear y editar roles', modulo: 'usuarios' },
   
-  { id: 'ver_proveedores', nombre: 'Ver Proveedores', descripcion: ' Puede ver la lista de proveedores', modulo: 'proveedores' },
+  { id: 'ver_proveedores', nombre: 'Ver Proveedores', descripcion: 'Puede ver la lista de proveedores', modulo: 'proveedores' },
   { id: 'crear_proveedores', nombre: 'Crear Proveedores', descripcion: 'Puede crear proveedores', modulo: 'proveedores' },
   { id: 'editar_proveedores', nombre: 'Editar Proveedores', descripcion: 'Puede editar proveedores', modulo: 'proveedores' },
   { id: 'eliminar_proveedores', nombre: 'Eliminar Proveedores', descripcion: 'Puede eliminar proveedores', modulo: 'proveedores' },
   { id: 'gestionar_facturas', nombre: 'Gestionar Facturas', descripcion: 'Puede gestionar facturas de proveedores', modulo: 'proveedores' },
+
+  { id: 'ver_retenciones', nombre: 'Ver Retenciones', descripcion: 'Puede ver retenciones', modulo: 'cuentas_por_pagar' },
+  { id: 'crear_retenciones', nombre: 'Crear Retenciones', descripcion: 'Puede crear retenciones', modulo: 'cuentas_por_pagar' },
+  { id: 'eliminar_retenciones', nombre: 'Eliminar Retenciones', descripcion: 'Puede eliminar retenciones', modulo: 'cuentas_por_pagar' },
+
+  { id: 'ver_libro_compras', nombre: 'Ver Libro de Compras', descripcion: 'Puede ver el libro de compras', modulo: 'cuentas_por_pagar' },
   
   { id: 'ver_inicio', nombre: 'Ver Gestión de Inicio', descripcion: 'Puede gestionar el contenido de la página de inicio', modulo: 'inicio' },
   { id: 'ver_reportes', nombre: 'Ver Reportes', descripcion: 'Puede ver reportes y estadísticas', modulo: 'reportes' },
