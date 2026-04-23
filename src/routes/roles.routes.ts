@@ -41,34 +41,45 @@ const requireRoot = (req: Request, res: Response, next: () => void) => {
 };
 
 const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modulo: string }[] = [
-  { id: 'ver_productos', nombre: 'Ver Productos', descripcion: 'Puede ver la lista de productos', modulo: 'productos' },
-  { id: 'crear_productos', nombre: 'Crear Productos', descripcion: 'Puede crear nuevos productos', modulo: 'productos' },
-  { id: 'editar_productos', nombre: 'Editar Productos', descripcion: 'Puede editar productos existentes', modulo: 'productos' },
-  { id: 'eliminar_productos', nombre: 'Eliminar Productos', descripcion: 'Puede eliminar productos', modulo: 'productos' },
+  // Panel Admin - Pedidos
+  { id: 'pedidos_ver', nombre: 'Ver Pedidos', descripcion: 'Puede ver los pedidos', modulo: 'panel_admin' },
   
-  { id: 'ver_pedidos', nombre: 'Ver Pedidos', descripcion: 'Puede ver los pedidos de clientes', modulo: 'pedidos' },
-  { id: 'gestionar_pedidos', nombre: 'Gestionar Pedidos', descripcion: 'Puede cambiar estado de pedidos', modulo: 'pedidos' },
+  // Panel Admin - Costos y Tasas
+  { id: 'tasas_gestionar', nombre: 'Gestionar Tasas', descripcion: 'Puede gestionar costos y tasas', modulo: 'panel_admin' },
+  { id: 'tasas_ver', nombre: 'Ver Tasas', descripcion: 'Puede ver histórico de costos', modulo: 'panel_admin' },
   
-  { id: 'ver_usuarios', nombre: 'Ver Usuarios', descripcion: 'Puede ver la lista de usuarios', modulo: 'usuarios' },
-  { id: 'crear_usuarios', nombre: 'Crear Usuarios', descripcion: 'Puede crear nuevos usuarios', modulo: 'usuarios' },
-  { id: 'editar_usuarios', nombre: 'Editar Usuarios', descripcion: 'Puede editar usuarios', modulo: 'usuarios' },
-  { id: 'eliminar_usuarios', nombre: 'Eliminar Usuarios', descripcion: 'Puede eliminar usuarios', modulo: 'usuarios' },
-  { id: 'gestionar_roles', nombre: 'Gestionar Roles', descripcion: 'Puede crear y editar roles', modulo: 'usuarios' },
+  // Panel Admin - Registro/Facturación
+  { id: 'facturas_registrar', nombre: 'Registrar Facturas', descripcion: 'Puede registrar facturas', modulo: 'panel_admin' },
+  { id: 'facturas_gestionar', nombre: 'Gestionar Facturas', descripcion: 'Puede gestionar facturación', modulo: 'panel_admin' },
   
-  { id: 'ver_proveedores', nombre: 'Ver Proveedores', descripcion: 'Puede ver la lista de proveedores', modulo: 'proveedores' },
-  { id: 'crear_proveedores', nombre: 'Crear Proveedores', descripcion: 'Puede crear proveedores', modulo: 'proveedores' },
-  { id: 'editar_proveedores', nombre: 'Editar Proveedores', descripcion: 'Puede editar proveedores', modulo: 'proveedores' },
-  { id: 'eliminar_proveedores', nombre: 'Eliminar Proveedores', descripcion: 'Puede eliminar proveedores', modulo: 'proveedores' },
-  { id: 'gestionar_facturas', nombre: 'Gestionar Facturas', descripcion: 'Puede gestionar facturas de proveedores', modulo: 'proveedores' },
-
+  // Panel Admin - Otros
+  { id: 'gastos_gestionar', nombre: 'Gestionar Gastos', descripcion: 'Puede gestionar gastos', modulo: 'panel_admin' },
+  { id: 'nomina_ver', nombre: 'Ver Nómina', descripcion: 'Puede ver nómina', modulo: 'panel_admin' },
+  { id: 'documentos_ver', nombre: 'Ver Galería de Documentos', descripcion: 'Puede ver documentos', modulo: 'panel_admin' },
+  { id: 'conversion_gestionar', nombre: 'Gestionar Conversión', descripcion: 'Puede gestionar conversión', modulo: 'panel_admin' },
+  { id: 'chat_ver', nombre: 'Ver Chat', descripcion: 'Puede acceder al chat', modulo: 'panel_admin' },
+  { id: 'caja_ver', nombre: 'Ver Cierre de Caja', descripcion: 'Puede ver cierre de caja', modulo: 'panel_admin' },
+  
+  // Cuentas por Pagar
+  { id: 'ver_proveedores', nombre: 'Ver Proveedores', descripcion: 'Puede ver proveedores', modulo: 'cuentas_por_pagar' },
   { id: 'ver_retenciones', nombre: 'Ver Retenciones', descripcion: 'Puede ver retenciones', modulo: 'cuentas_por_pagar' },
-  { id: 'crear_retenciones', nombre: 'Crear Retenciones', descripcion: 'Puede crear retenciones', modulo: 'cuentas_por_pagar' },
-  { id: 'eliminar_retenciones', nombre: 'Eliminar Retenciones', descripcion: 'Puede eliminar retenciones', modulo: 'cuentas_por_pagar' },
-
-  { id: 'ver_libro_compras', nombre: 'Ver Libro de Compras', descripcion: 'Puede ver el libro de compras', modulo: 'cuentas_por_pagar' },
+  { id: 'ver_libro_compras', nombre: 'Ver Libro de Compras', descripcion: 'Puede ver libro de compras', modulo: 'cuentas_por_pagar' },
   
-  { id: 'ver_inicio', nombre: 'Ver Gestión de Inicio', descripcion: 'Puede gestionar el contenido de la página de inicio', modulo: 'inicio' },
-  { id: 'ver_reportes', nombre: 'Ver Reportes', descripcion: 'Puede ver reportes y estadísticas', modulo: 'reportes' },
+  // Panel Web - Inicio
+  { id: 'inicio_gestionar', nombre: 'Gestionar Inicio', descripcion: 'Puede gestionar página de inicio', modulo: 'panel_web' },
+  
+  // Panel Web - Catálogo
+  { id: 'productos_gestionar', nombre: 'Gestionar Productos', descripcion: 'Puede gestionar productos', modulo: 'panel_web' },
+  { id: 'marcas_ver', nombre: 'Ver Marcas', descripcion: 'Puede ver marcas', modulo: 'panel_web' },
+  { id: 'lineas_ver', nombre: 'Ver Líneas', descripcion: 'Puede ver líneas', modulo: 'panel_web' },
+  { id: 'ofertas_ver', nombre: 'Ver Ofertas', descripcion: 'Puede ver ofertas', modulo: 'panel_web' },
+  
+  // Panel Web - Usuarios y Roles
+  { id: 'usuarios_gestionar', nombre: 'Gestionar Usuarios', descripcion: 'Puede gestionar usuarios', modulo: 'panel_web' },
+  { id: 'roles_gestionar', nombre: 'Gestionar Roles', descripcion: 'Puede gestionar roles', modulo: 'panel_web' },
+  
+  // Panel Web - Manuales
+  { id: 'manuales_ver', nombre: 'Ver Manuales', descripcion: 'Puede ver manuales', modulo: 'panel_web' },
 ];
 
 router.get('/permisos', authenticateToken, requireRoot, async (req: Request, res: Response) => {
