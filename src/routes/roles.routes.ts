@@ -105,18 +105,36 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const userRol = (req as any).userRol;
-    const userId = (req as any).user?.id || (req as any).user?._id;
-
-    console.log('GET /roles/:id - id:', id, 'userRol:', userRol, 'userId:', userId);
+    const tokenPayload = (req as any).user;
+    
+    console.log('GET /roles/:id - id:', id, 'userRol:', userRol, 'tokenPayload:', tokenPayload);
 
     // Si no es root, verificar que el usuario solo acceda a su propio rol
     if (userRol !== 'root') {
+      // Obtener el userId del token
+      const userId = tokenPayload?.userId;
+      
+      if (!userId) {
+        res.status(403).json({ error: 'Token inválido - no userId' });
+        return;
+      }
+      
       // Buscar el usuario para verificar su rolId
       const user = await database.getCollection('users').findOne({ id: userId });
-      console.log('Usuario encontrado:', user?.username, 'rolId:', user?.rolId);
+      console.log('Usuario encontrado:', user?.username, 'rolId:', user?.rolId, 'rol:', user?.rol);
       
-      if (!user || user.rolId !== id) {
-        res.status(403).json({ error: 'No tienes permisos para ver este rol', debug: { userRolId: user?.rolId, requestedId: id } });
+      if (!user) {
+        res.status(403).json({ error: 'Usuario no encontrado en BD' });
+        return;
+      }
+      
+      // El usuario puede ver su propio rol (comparar rolId)
+      if (user.rolId !== id) {
+        console.log('Acceso denegado: user.rolId =', user.rolId, 'requested id =', id);
+        res.status(403).json({ 
+          error: 'No tienes permisos para ver este rol', 
+          debug: { userRolId: user?.rolId, requestedId: id, userRol: userRol } 
+        });
         return;
       }
     }
