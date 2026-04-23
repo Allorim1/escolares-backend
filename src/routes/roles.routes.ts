@@ -90,9 +90,22 @@ router.get('/', authenticateToken, requireRoot, async (req: Request, res: Respon
   }
 });
 
-router.get('/:id', authenticateToken, requireRoot, async (req: Request, res: Response) => {
+router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const userRol = (req as any).userRol;
+    const userId = (req as any).user?.id || (req as any).user?._id;
+
+    // Si no es root, solo puede ver su propio rol
+    if (userRol !== 'root' && req.params.id !== userRol) {
+      // Verificar si el id del rol coincide con el del usuario
+      const user = await database.getCollection('users').findOne({ id: userId });
+      if (!user || user.rolId !== id) {
+        res.status(403).json({ error: 'No tienes permisos para ver este rol' });
+        return;
+      }
+    }
+
     const rol = await database.getCollection<Rol>('roles').findOne({ id });
 
     if (!rol) {
