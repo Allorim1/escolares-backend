@@ -107,12 +107,16 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
     const userRol = (req as any).userRol;
     const userId = (req as any).user?.id || (req as any).user?._id;
 
-    // Si no es root, solo puede ver su propio rol
-    if (userRol !== 'root' && req.params.id !== userRol) {
-      // Verificar si el id del rol coincide con el del usuario
+    console.log('GET /roles/:id - id:', id, 'userRol:', userRol, 'userId:', userId);
+
+    // Si no es root, verificar que el usuario solo acceda a su propio rol
+    if (userRol !== 'root') {
+      // Buscar el usuario para verificar su rolId
       const user = await database.getCollection('users').findOne({ id: userId });
+      console.log('Usuario encontrado:', user?.username, 'rolId:', user?.rolId);
+      
       if (!user || user.rolId !== id) {
-        res.status(403).json({ error: 'No tienes permisos para ver este rol' });
+        res.status(403).json({ error: 'No tienes permisos para ver este rol', debug: { userRolId: user?.rolId, requestedId: id } });
         return;
       }
     }
@@ -120,14 +124,16 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
     const rol = await database.getCollection<Rol>('roles').findOne({ id });
 
     if (!rol) {
-      res.status(404).json({ error: 'Rol no encontrado' });
+      console.log('Rol no encontrado con id:', id);
+      res.status(404).json({ error: 'Rol no encontrado', id });
       return;
     }
 
+    console.log('Rol enviado:', rol.nombre, 'permisos:', rol.permisos);
     res.json(rol);
   } catch (error) {
     console.error('Error getting rol:', error);
-    res.status(500).json({ error: 'Error al obtener rol' });
+    res.status(500).json({ error: 'Error al obtener rol', details: error instanceof Error ? error.message : error });
   }
 });
 
