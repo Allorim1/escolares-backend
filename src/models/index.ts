@@ -55,6 +55,18 @@ export interface Product {
   marcaId?: string;
   lineaId?: string;
   stock: number;
+  categoriaId?: string;
+}
+
+export interface ProductCategoria {
+  _id?: string;
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  imagen?: string;
+  orden: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface OrderItem {
