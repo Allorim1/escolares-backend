@@ -76,9 +76,7 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
   
   // Panel Web - Usuarios y Roles
   { id: 'usuarios_gestionar', nombre: 'Gestionar Usuarios', descripcion: 'Puede gestionar usuarios', modulo: 'panel_web' },
-  { id: 'roles_gestionar', nombre: 'Gestionar Roles', descripcion: 'Puede gestionar roles', modulo: 'panel_web' },
-  
-  // Panel Web - Manuales
+
   { id: 'manuales_ver', nombre: 'Ver Manuales', descripcion: 'Puede ver manuales', modulo: 'panel_web' },
 ];
 

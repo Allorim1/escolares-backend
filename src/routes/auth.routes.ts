@@ -189,6 +189,8 @@ router.get('/profile', authenticateToken, (req: Request, res: Response) =>
  *                 type: string
  *               cedula:
  *                 type: string
+ *               supervisorKey:
+ *                 type: string
  *     responses:
  *       200:
  *         description: Perfil actualizado

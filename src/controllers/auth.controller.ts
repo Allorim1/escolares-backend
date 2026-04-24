@@ -285,24 +285,25 @@ export class AuthController {
     }
   }
 
-  async update(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      const userId = req.user?.userId;
-      const { username, email, nombreCompleto, direccion, telefono, cedula, direcciones } = req.body;
+   async update(req: AuthRequest, res: Response): Promise<void> {
+     try {
+       const userId = req.user?.userId;
+       const { username, email, nombreCompleto, direccion, telefono, cedula, direcciones, supervisorKey } = req.body;
 
-      if (!userId) {
-        res.status(401).json({ error: 'No autorizado' });
-        return;
-      }
+       if (!userId) {
+         res.status(401).json({ error: 'No autorizado' });
+         return;
+       }
 
-      const updateData: Partial<User> = {};
-      if (username) updateData.username = username;
-      if (email) updateData.email = email;
-      if (nombreCompleto !== undefined) updateData.nombreCompleto = nombreCompleto;
-      if (direccion !== undefined) updateData.direccion = direccion;
-      if (telefono !== undefined) updateData.telefono = telefono;
-      if (cedula !== undefined) updateData.cedula = cedula;
-      if (direcciones !== undefined) updateData.direcciones = direcciones;
+       const updateData: Partial<User> = {};
+       if (username) updateData.username = username;
+       if (email) updateData.email = email;
+       if (nombreCompleto !== undefined) updateData.nombreCompleto = nombreCompleto;
+       if (direccion !== undefined) updateData.direccion = direccion;
+       if (telefono !== undefined) updateData.telefono = telefono;
+       if (cedula !== undefined) updateData.cedula = cedula;
+       if (direcciones !== undefined) updateData.direcciones = direcciones;
+       if (supervisorKey !== undefined) updateData.supervisorKey = supervisorKey;
 
       const result = await database
         .getCollection<User>('users')

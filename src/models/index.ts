@@ -37,6 +37,7 @@ export interface User {
   tipoPersona?: 'natural' | 'juridica';
   comentarios?: string;
   direcciones?: Direccion[];
+  supervisorKey?: string;
 }
 
 export interface Direccion {
