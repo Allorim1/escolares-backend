@@ -93,6 +93,8 @@ export interface Order {
   fotoComprobante?: string;
   status: OrderStatus;
   historial: OrderHistorial[];
+  autorizadoPor?: string;
+  autorizadoNombre?: string;
   createdAt: Date;
   updatedAt: Date;
 }

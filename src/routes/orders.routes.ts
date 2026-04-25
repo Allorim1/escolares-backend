@@ -207,6 +207,70 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
   }
 });
 
+router.put('/:id/cancel-authorize', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { motivo, claveSupervisor } = req.body;
+
+    if (!motivo || !claveSupervisor) {
+      res.status(400).json({ error: 'Motivo y clave de supervisor son requeridos' });
+      return;
+    }
+
+    const order = await database.getCollection<Order>('orders').findOne({ id });
+
+    if (!order) {
+      res.status(404).json({ error: 'Pedido no encontrado' });
+      return;
+    }
+
+    if (order.status === 'entregado' || order.status === 'cancelado') {
+      res.status(400).json({ error: 'Solo se pueden cancelar pedidos en estados anteriores a entregado o ya cancelados' });
+      return;
+    }
+
+    const supervisor = await database.getCollection('users').findOne({ supervisorKey: claveSupervisor });
+
+    if (!supervisor) {
+      res.status(403).json({ error: 'Clave de supervisor inválida' });
+      return;
+    }
+
+    const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+    const supervisorNombre = supervisor.nombreCompleto || supervisor.username || 'Supervisor';
+
+    const updatedHistorial = [
+      ...order.historial,
+      {
+        status: 'cancelado' as OrderStatus,
+        fecha: new Date(),
+        observaciones: `Cancelado por ${supervisorNombre}: ${motivo}`,
+      },
+    ];
+
+    const result = await database.getCollection<Order>('orders').findOneAndUpdate(
+      { id },
+      {
+        $set: {
+          status: 'cancelado',
+          historial: updatedHistorial,
+          autorizadoPor: supervisor.id,
+          autorizadoNombre: supervisorNombre,
+          updatedAt: new Date(),
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    await crearRegistro(database, 'Cancelación', 'Pedidos', `Pedido #${id.slice(-8)} cancelado por ${supervisorNombre}`, { pedidoId: id, motivo, supervisorId: supervisor.id }, usuario);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error canceling order:', error);
+    res.status(500).json({ error: 'Error al cancelar pedido' });
+  }
+});
+
 router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -232,5 +296,6 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
     res.status(500).json({ error: 'Error al eliminar pedido' });
   }
 });
+
 
 export default router;
