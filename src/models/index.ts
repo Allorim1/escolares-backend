@@ -91,6 +91,7 @@ export interface Order {
   metodoPago: string;
   referencia: string;
   fotoComprobante?: string;
+  facturaImage?: string;
   status: OrderStatus;
   historial: OrderHistorial[];
   autorizadoPor?: string;

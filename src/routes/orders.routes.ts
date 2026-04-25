@@ -167,6 +167,12 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
       return;
     }
 
+    // Validación: si el estado es "entregado", debe tener facturaImage
+    if (status === 'entregado' && !order.facturaImage) {
+      res.status(400).json({ error: 'Debe subir una factura antes de marcar el pedido como entregado' });
+      return;
+    }
+
     const statusLabels: Record<OrderStatus, string> = {
       confirmar: 'Esperando confirmación',
       pendiente: 'Pedido recibido',
@@ -268,6 +274,50 @@ router.put('/:id/cancel-authorize', authenticateToken, async (req: Request, res:
   } catch (error) {
     console.error('Error canceling order:', error);
     res.status(500).json({ error: 'Error al cancelar pedido' });
+  }
+});
+
+router.put('/:id/factura', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { facturaImage } = req.body;
+
+    if (!facturaImage) {
+      res.status(400).json({ error: 'Imagen de factura es requerida' });
+      return;
+    }
+
+    const order = await database.getCollection<Order>('orders').findOne({ id });
+
+    if (!order) {
+      res.status(404).json({ error: 'Pedido no encontrado' });
+      return;
+    }
+
+    // Solo usuarios con permisos de admin/owner pueden subir facturas
+    const user = await database.getCollection('users').findOne({ id: req.user?.userId });
+    if (!user || (user.rol !== 'root' && user.rol !== 'owner' && user.rol !== 'usuario')) {
+      res.status(403).json({ error: 'No tiene permisos para subir facturas' });
+      return;
+    }
+
+    const result = await database.getCollection<Order>('orders').findOneAndUpdate(
+      { id },
+      {
+        $set: {
+          facturaImage,
+          updatedAt: new Date(),
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    await crearRegistro(database, 'Actualización', 'Pedidos', `Factura subida para pedido #${id.slice(-8)}`, { pedidoId: id }, user.nombre || user.username || 'Sistema');
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error uploading factura:', error);
+    res.status(500).json({ error: 'Error al subir factura' });
   }
 });
 
