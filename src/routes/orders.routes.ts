@@ -25,6 +25,22 @@ const crearRegistro = async (database: any, accion: string, modulo: string, desc
   });
 };
 
+// Emitir notificación de compra a todos los usuarios conectados
+const emitirNotificacionCompra = (io: any, order: any) => {
+  const notificacion = {
+    tipo: 'compra',
+    titulo: 'Nueva Compra Realizada',
+    mensaje: `Se ha realizado una nueva compra por $${order.total}`,
+    pedidoId: order.id,
+    cliente: order.nombre,
+    fecha: new Date(),
+    imagenProducto: order.items && order.items.length > 0 ? order.items[0].image : null
+  };
+  
+  console.log('Emitiendo notificación de compra:', notificacion);
+  io.emit('notificacion-compra', notificacion);
+};
+
 router.get('/admin/all', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
@@ -135,6 +151,12 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     };
 
     await database.getCollection<Order>('orders').insertOne(newOrder);
+
+    // Emitir notificación de compra a todos los usuarios conectados
+    const io = req.app.get('io');
+    if (io) {
+      emitirNotificacionCompra(io, newOrder);
+    }
 
     res.status(201).json(newOrder);
   } catch (error) {
@@ -346,6 +368,5 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
     res.status(500).json({ error: 'Error al eliminar pedido' });
   }
 });
-
 
 export default router;

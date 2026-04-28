@@ -13,6 +13,8 @@ import { randomBytes } from 'crypto';
 import multer from 'multer';
 import Tesseract from 'tesseract.js';
 import Redis from 'ioredis';
+import { Server } from 'socket.io';
+import http from 'http';
 
 import marcasRoutes from './routes/marcas.routes';
 import lineasRoutes from './routes/lineas.routes';
@@ -63,6 +65,41 @@ try {
 }
 
 const CACHE_TTL = 300;
+
+// Create HTTP server
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.ALLOWED_ORIGINS 
+      ? process.env.ALLOWED_ORIGINS.split(',')
+      : ['http://localhost:4200', 'http://localhost:3000', 'https://escolares.vercel.app', 'https://escolares-ng.vercel.app'],
+    methods: ['GET', 'POST']
+  }
+});
+
+// Attach io to app for access in routes
+app.set('io', io);
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('Usuario conectado:', socket.id);
+  
+  socket.on('disconnect', () => {
+    console.log('Usuario desconectado:', socket.id);
+  });
+  
+  // Join a room for order updates
+  socket.on('join-orders-room', (userId) => {
+    socket.join(`orders-${userId}`);
+    console.log(`Usuario ${userId} se unió a la sala de órdenes`);
+  });
+  
+  // Leave room
+  socket.on('leave-orders-room', (userId) => {
+    socket.leave(`orders-${userId}`);
+    console.log(`Usuario ${userId} salió de la sala de órdenes`);
+  });
+});
 
 const cacheGet = async (key: string): Promise<string | null> => {
   if (!redis) return null;
@@ -3881,7 +3918,7 @@ app.use((req: Request, res: Response) => {
 async function startServer() {
   const dbConnected = await database.connect();
 
-  app.listen(PORT, () => {
+  httpServer.listen(PORT, () => {
     if (dbConnected) {
       console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
       console.log(`Swagger UI disponible en http://localhost:${PORT}/api-docs`);
