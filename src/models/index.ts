@@ -44,6 +44,12 @@ export interface Direccion {
   id: string;
   nombre: string;
   direccion: string;
+  alias?: string;
+  calle?: string;
+  ciudad?: string;
+  estado?: string;
+  codigoPostal?: string;
+  principal?: boolean;
 }
 
 export interface Product {
