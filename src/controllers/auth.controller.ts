@@ -288,7 +288,7 @@ export class AuthController {
    async update(req: AuthRequest, res: Response): Promise<void> {
      try {
        const userId = req.user?.userId;
-       const { username, email, nombreCompleto, direccion, telefono, cedula, direcciones, supervisorKey } = req.body;
+      const { username, email, nombreCompleto, direccion, telefono, cedula, direcciones, metodosPago, supervisorKey } = req.body;
 
        if (!userId) {
          res.status(401).json({ error: 'No autorizado' });
@@ -303,6 +303,7 @@ export class AuthController {
        if (telefono !== undefined) updateData.telefono = telefono;
        if (cedula !== undefined) updateData.cedula = cedula;
        if (direcciones !== undefined) updateData.direcciones = direcciones;
+       if (metodosPago !== undefined) updateData.metodosPago = metodosPago;
        if (supervisorKey !== undefined) updateData.supervisorKey = supervisorKey;
 
       const result = await database

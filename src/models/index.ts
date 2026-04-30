@@ -37,6 +37,7 @@ export interface User {
   tipoPersona?: 'natural' | 'juridica';
   comentarios?: string;
   direcciones?: Direccion[];
+  metodosPago?: MetodoPago[];
   supervisorKey?: string;
 }
 
@@ -49,6 +50,17 @@ export interface Direccion {
   ciudad?: string;
   estado?: string;
   codigoPostal?: string;
+  principal?: boolean;
+}
+
+export interface MetodoPago {
+  id: string;
+  alias: string;
+  tipo: 'zelle' | 'efectivo' | 'transferencia' | 'pago_movil';
+  titular?: string;
+  referencia?: string;
+  banco?: string;
+  telefono?: string;
   principal?: boolean;
 }
 
