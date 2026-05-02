@@ -343,6 +343,45 @@ router.put('/:id/factura', authenticateToken, async (req: Request, res: Response
   }
 });
 
+router.put('/:id/assign-delivery', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { deliveryPersonId, deliveryPersonName } = req.body;
+
+    if (!deliveryPersonId || !deliveryPersonName) {
+      res.status(400).json({ error: 'ID y nombre del repartidor son requeridos' });
+      return;
+    }
+
+    const order = await database.getCollection<Order>('orders').findOne({ id });
+
+    if (!order) {
+      res.status(404).json({ error: 'Pedido no encontrado' });
+      return;
+    }
+
+    const result = await database.getCollection<Order>('orders').findOneAndUpdate(
+      { id },
+      {
+        $set: {
+          deliveryPersonId,
+          deliveryPersonName,
+          updatedAt: new Date(),
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+    await crearRegistro(database, 'Asignación', 'Pedidos', `Repartidor asignado a pedido #${id.slice(-8)}: ${deliveryPersonName}`, { pedidoId: id, deliveryPersonId, deliveryPersonName }, usuario);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error assigning delivery person:', error);
+    res.status(500).json({ error: 'Error al asignar repartidor' });
+  }
+});
+
 router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;

@@ -114,6 +114,8 @@ export interface Order {
   historial: OrderHistorial[];
   autorizadoPor?: string;
   autorizadoNombre?: string;
+  deliveryPersonId?: string;
+  deliveryPersonName?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -153,6 +155,16 @@ export interface CategoriaMenu {
   expanded: boolean;
   orden: number;
   items: CategoriaItem[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface DeliveryPerson {
+  _id?: string;
+  id: string;
+  nombre: string;
+  telefono?: string;
+  activo: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
