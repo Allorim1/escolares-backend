@@ -408,4 +408,23 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
   }
 });
 
+// Obtener pedidos asignados a repartidor
+router.get('/delivery/assigned', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { status } = req.query;
+    const filter: any = { deliveryPersonId: { $exists: true, $ne: null } };
+    if (status) {
+      filter.status = status;
+    }
+    const orders = await database.getCollection<Order>('orders')
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json(orders);
+  } catch (error) {
+    console.error('Error fetching assigned orders:', error);
+    res.status(500).json({ error: 'Error al obtener pedidos asignados' });
+  }
+});
+
 export default router;

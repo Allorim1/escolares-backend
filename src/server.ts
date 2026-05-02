@@ -29,6 +29,7 @@ import cierreCajaRoutes from './routes/cierre-caja.routes';
 import categoriasRoutes from './routes/categorias.routes';
 import ratingsRoutes from './routes/ratings.routes';
 import productCategoriasRoutes from './routes/product-categorias.routes';
+import deliveryRoutes from './routes/delivery.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -1799,6 +1800,7 @@ app.use('/api/cierre-caja', cierreCajaRoutes);
 app.use('/api/categorias', categoriasRoutes);
 app.use('/api/ratings', ratingsRoutes);
 app.use('/api/producto-categorias', productCategoriasRoutes);
+app.use('/api/delivery', deliveryRoutes);
 
 // Categorías de Productos
 app.get('/api/productos-categorias', async (req: Request, res: Response) => {
