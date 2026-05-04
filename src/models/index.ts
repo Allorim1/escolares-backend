@@ -112,6 +112,7 @@ export interface Order {
   facturaImage?: string;
   bancoEmisor?: string;
   cedulaTitular?: string;
+  correo?: string;
   status: OrderStatus;
   historial: OrderHistorial[];
   autorizadoPor?: string;

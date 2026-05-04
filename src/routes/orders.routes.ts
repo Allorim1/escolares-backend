@@ -114,7 +114,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
-    const { items, total, nombre, cedula, telefono, direccion, metodoPago, referencia, fotoComprobante, bancoEmisor, cedulaTitular } = req.body;
+    const { items, total, nombre, cedula, telefono, direccion, metodoPago, referencia, fotoComprobante, bancoEmisor, cedulaTitular, correo } = req.body;
 
     if (!userId) {
       res.status(401).json({ error: 'No autorizado' });
@@ -138,6 +138,9 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       metodoPago,
       referencia,
       fotoComprobante: fotoComprobante || '',
+      bancoEmisor: bancoEmisor || '',
+      cedulaTitular: cedulaTitular || '',
+      correo: correo || '',
       status: 'pendiente',
       historial: [
         {
