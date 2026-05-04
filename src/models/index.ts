@@ -110,6 +110,8 @@ export interface Order {
   referencia: string;
   fotoComprobante?: string;
   facturaImage?: string;
+  bancoEmisor?: string;
+  cedulaTitular?: string;
   status: OrderStatus;
   historial: OrderHistorial[];
   autorizadoPor?: string;
