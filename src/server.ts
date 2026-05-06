@@ -1802,11 +1802,11 @@ app.use('/api/ratings', ratingsRoutes);
 app.use('/api/producto-categorias', productCategoriasRoutes);
 app.use('/api/delivery', deliveryRoutes);
 
-// Categorías de Productos
+// Categorías de Productos - Endpoints para compatibilidad con módulo de productos
 app.get('/api/productos-categorias', async (req: Request, res: Response) => {
   try {
     const categorias = await database
-      .getCollection<any>('productos_categorias')
+      .getCollection<any>('producto-categorias')
       .find({})
       .sort({ nombre: 1 })
       .toArray();
@@ -1818,25 +1818,102 @@ app.get('/api/productos-categorias', async (req: Request, res: Response) => {
 
 app.post('/api/productos-categorias', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { nombre } = req.body;
+    const { nombre, descripcion, imagen, orden } = req.body;
     if (!nombre) {
       res.status(400).json({ error: 'El nombre es requerido' });
       return;
     }
-    const id = `cat-${Date.now()}`;
-    const categoria = { id, nombre, createdAt: new Date() };
-    await database.getCollection('productos_categorias').insertOne(categoria);
+    const id = `cat-prod-${Date.now()}`;
+    const now = new Date();
+    const categoria = { 
+      id, 
+      nombre, 
+      descripcion: descripcion || '', 
+      imagen: imagen || '', 
+      orden: orden ?? 0, 
+      createdAt: now, 
+      updatedAt: now 
+    };
+    await database.getCollection('producto-categorias').insertOne(categoria);
     res.status(201).json(categoria);
   } catch (error) {
     res.status(500).json({ error: 'Error al crear categoría' });
   }
 });
 
+app.put('/api/productos-categorias/:id', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, imagen, orden } = req.body;
+    
+    // Obtener la categoría actual para saber el nombre anterior
+    const categoriaActual = await database.getCollection('producto-categorias').findOne({ id });
+    
+    if (!categoriaActual) {
+      res.status(404).json({ error: 'Categoría no encontrada' });
+      return;
+    }
+    
+    const updateData: any = { updatedAt: new Date() };
+    if (nombre !== undefined) updateData.nombre = nombre;
+    if (descripcion !== undefined) updateData.descripcion = descripcion;
+    if (imagen !== undefined) updateData.imagen = imagen;
+    if (orden !== undefined) updateData.orden = orden;
+    
+    const result = await database
+      .getCollection('producto-categorias')
+      .findOneAndUpdate({ id }, { $set: updateData }, { returnDocument: 'after' });
+    
+    if (!result) {
+      res.status(404).json({ error: 'Categoría no encontrada' });
+      return;
+    }
+    
+    // Si se cambió el nombre, actualizar los productos que referencian esta categoría por nombre
+    if (nombre !== undefined && nombre !== categoriaActual.nombre) {
+      await database
+        .getCollection('products')
+        .updateMany(
+          { category: categoriaActual.nombre },
+          { $set: { category: nombre } }
+        );
+    }
+    
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar categoría' });
+  }
+});
+
 app.delete('/api/productos-categorias/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    await database.getCollection('productos_categorias').deleteOne({ id });
-    res.json({ message: 'Categoría eliminada' });
+    
+    // Obtener la categoría antes de eliminarla para saber su nombre
+    const categoria = await database.getCollection('producto-categorias').findOne({ id });
+    
+    if (!categoria) {
+      res.status(404).json({ error: 'Categoría no encontrada' });
+      return;
+    }
+    
+    const result = await database.getCollection('producto-categorias').deleteOne({ id });
+    
+    if (result.deletedCount === 0) {
+      res.status(404).json({ error: 'Categoría no encontrada' });
+      return;
+    }
+    
+    // Actualizar productos que tengan esta categoría por nombre
+    // Los productos guardan el nombre de la categoría en el campo 'category'
+    await database
+      .getCollection('products')
+      .updateMany(
+        { category: categoria.nombre },
+        { $set: { category: '' } }
+      );
+    
+    res.json({ message: 'Categoría eliminada correctamente' });
   } catch (error) {
     res.status(500).json({ error: 'Error al eliminar categoría' });
   }

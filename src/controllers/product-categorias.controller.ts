@@ -54,6 +54,16 @@ export class ProductCategoriasController {
       const id = Array.isArray(idParam) ? idParam[0] : idParam;
       const { nombre, descripcion, imagen, orden } = req.body;
 
+      // Obtener la categoría actual para saber el nombre anterior
+      const categoriaActual = await database
+        .getCollection<ProductCategoria>('producto-categorias')
+        .findOne({ id });
+
+      if (!categoriaActual) {
+        res.status(404).json({ error: 'Categoría no encontrada' });
+        return;
+      }
+
       const updateData: Partial<ProductCategoria> = {
         updatedAt: new Date(),
       };
@@ -72,6 +82,16 @@ export class ProductCategoriasController {
         return;
       }
 
+      // Si se cambió el nombre, actualizar los productos que referencian esta categoría por nombre
+      if (nombre !== undefined && nombre !== categoriaActual.nombre) {
+        await database
+          .getCollection('products')
+          .updateMany(
+            { category: categoriaActual.nombre },
+            { $set: { category: nombre } }
+          );
+      }
+
       res.json(result);
     } catch (error) {
       console.error('Error al actualizar categoría de producto:', error);
@@ -84,6 +104,16 @@ export class ProductCategoriasController {
       const idParam = req.params.id;
       const id = Array.isArray(idParam) ? idParam[0] : idParam;
 
+      // Obtener la categoría antes de eliminarla para saber su nombre
+      const categoria = await database
+        .getCollection<ProductCategoria>('producto-categorias')
+        .findOne({ id });
+
+      if (!categoria) {
+        res.status(404).json({ error: 'Categoría no encontrada' });
+        return;
+      }
+
       const result = await database
         .getCollection<ProductCategoria>('producto-categorias')
         .deleteOne({ id });
@@ -93,12 +123,13 @@ export class ProductCategoriasController {
         return;
       }
 
-      // Also remove this category from products
+      // Actualizar productos que tengan esta categoría por nombre
+      // Los productos guardan el nombre de la categoría en el campo 'category'
       await database
         .getCollection('products')
         .updateMany(
-          { categoriaId: id },
-          { $unset: { categoriaId: 1 } }
+          { category: categoria.nombre },
+          { $set: { category: '' } }
         );
 
       res.json({ message: 'Categoría eliminada correctamente' });
