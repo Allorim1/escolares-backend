@@ -444,6 +444,78 @@ export class RedesSocialesController {
       res.status(500).json({ error: 'Error al eliminar notificación' });
     }
   }
+
+  // Webhook para verificación de WhatsApp
+  async verifyWebhook(req: Request, res: Response): Promise<void> {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '';
+
+    if (mode === 'subscribe' && token === verifyToken) {
+      console.log('Webhook verificado');
+      res.status(200).send(challenge);
+    } else {
+      console.error('Verificación fallida');
+      res.sendStatus(403);
+    }
+  }
+
+  // Webhook para recibir mensajes de WhatsApp
+  async webhookWhatsApp(req: Request, res: Response): Promise<void> {
+    try {
+      const body = req.body;
+      console.log('Webhook recibido:', JSON.stringify(body, null, 2));
+
+      // Verificar que es un evento de WhatsApp
+      if (body.object !== 'whatsapp_business_account') {
+        res.sendStatus(404);
+        return;
+      }
+
+      // Procesar cada entrada
+      for (const entry of body.entry || []) {
+        for (const change of entry.changes || []) {
+          if (change.field === 'messages') {
+            const messages = change.value?.messages || [];
+            for (const message of messages) {
+              if (message.type === 'text') {
+                const from = message.from; // número de teléfono del remitente
+                const text = message.text?.body;
+                const messageId = message.id;
+                const timestamp = parseInt(message.timestamp) * 1000; // convertir a milisegundos
+
+                // Crear mensaje en la base de datos
+                const nuevoMensaje: MensajeRedSocial = {
+                  id: `msg-${Date.now()}`,
+                  plataforma: 'WhatsApp',
+                  usuario: from,
+                  texto: text || '',
+                  fecha: new Date(timestamp),
+                  leido: false,
+                  respondido: false,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                };
+
+                await database
+                  .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+                  .insertOne(nuevoMensaje);
+                console.log('Mensaje de WhatsApp guardado:', nuevoMensaje);
+              }
+            }
+          }
+        }
+      }
+
+      // Responder 200 OK a Meta
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Error procesando webhook de WhatsApp:', error);
+      res.sendStatus(500);
+    }
+  }
 }
 
 export const redesSocialesController = new RedesSocialesController();

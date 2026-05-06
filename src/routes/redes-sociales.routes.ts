@@ -28,4 +28,8 @@ router.post('/notificaciones', authenticateToken, (req, res) => redesSocialesCon
 router.put('/notificaciones/:id', authenticateToken, (req, res) => redesSocialesController.updateNotificacion(req, res));
 router.delete('/notificaciones/:id', authenticateToken, (req, res) => redesSocialesController.deleteNotificacion(req, res));
 
+// Webhook WhatsApp
+router.get('/webhook/whatsapp', (req, res) => redesSocialesController.verifyWebhook(req, res));
+router.post('/webhook/whatsapp', (req, res) => redesSocialesController.webhookWhatsApp(req, res));
+
 export default router;
