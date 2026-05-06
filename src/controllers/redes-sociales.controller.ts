@@ -153,6 +153,43 @@ export class RedesSocialesController {
       const id = Array.isArray(idParam) ? idParam[0] : idParam;
       const { leido, respondido, respuesta } = req.body;
 
+      // Obtener el mensaje actual para conocer la plataforma y el usuario (destinatario)
+      const mensaje = await database
+        .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+        .findOne({ id });
+
+      if (!mensaje) {
+        res.status(404).json({ error: 'Mensaje no encontrado' });
+        return;
+      }
+
+      // Si se está marcando como respondido y hay una respuesta, y la plataforma es WhatsApp, enviar mensaje
+      if (respondido === true && respuesta && mensaje.plataforma === 'WhatsApp') {
+        // Obtener la configuración de WhatsApp (red social con plataforma WhatsApp y habilitada)
+        const whatsappConfig = await database
+          .getCollection<RedSocial>('redes-sociales')
+          .findOne({ plataforma: 'WhatsApp', habilitada: true });
+
+        if (!whatsappConfig) {
+          res.status(400).json({ error: 'Configuración de WhatsApp no encontrada o no habilitada' });
+          return;
+        }
+
+        if (!whatsappConfig.token || !whatsappConfig.usuario) {
+          res.status(400).json({ error: 'Token o número de teléfono (usuario) de WhatsApp no configurado' });
+          return;
+        }
+
+        // Enviar mensaje por WhatsApp usando la API de Facebook Graph
+        try {
+          await this.sendWhatsAppMessage(whatsappConfig.usuario, whatsappConfig.token, mensaje.usuario, respuesta);
+        } catch (error: any) {
+          console.error('Error al enviar mensaje por WhatsApp:', error);
+          res.status(500).json({ error: `Error al enviar mensaje por WhatsApp: ${error.message}` });
+          return;
+        }
+      }
+
       const updateData: Partial<MensajeRedSocial> = {
         updatedAt: new Date(),
       };
@@ -195,6 +232,28 @@ export class RedesSocialesController {
     } catch (error) {
       console.error('Error al eliminar mensaje:', error);
       res.status(500).json({ error: 'Error al eliminar mensaje' });
+    }
+  }
+
+  private async sendWhatsAppMessage(phoneNumberId: string, accessToken: string, to: string, text: string): Promise<void> {
+    const url = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
+    const payload = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'text',
+      text: { body: text }
+    };
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`WhatsApp API error: ${response.status} ${errorText}`);
     }
   }
 
