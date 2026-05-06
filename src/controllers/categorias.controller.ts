@@ -111,7 +111,7 @@ export class CategoriasController {
         return;
       }
 
-      const newItem: CategoriaItem = { label, route, permiso };
+      const newItem: CategoriaItem = { label, route, to: route, permiso };
 
       const result = await database
         .getCollection<CategoriaMenu>('categorias')
