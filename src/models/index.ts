@@ -176,7 +176,7 @@ export interface CategoriaItem {
   label: string;
   route: string;
   to: string;
-  perm​iso?: string;
+  permiso?: string;
 }
 
 export interface RedSocial {
