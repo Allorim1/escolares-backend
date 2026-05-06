@@ -453,11 +453,13 @@ export class RedesSocialesController {
 
     const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '';
 
+    console.log('Webhook verification request:', { mode, token, challenge, verifyToken });
+
     if (mode === 'subscribe' && token === verifyToken) {
-      console.log('Webhook verificado');
+      console.log('Webhook verificado exitosamente');
       res.status(200).send(challenge);
     } else {
-      console.error('Verificación fallida');
+      console.error('Verificación fallida: token mismatch or missing parameters');
       res.sendStatus(403);
     }
   }

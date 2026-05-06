@@ -50,7 +50,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { title, price, description, category, image, marca, lineaId, iva, ivaPercentage, estado, images, enOferta, ofertaPorcentaje, ofertaPrecio } = req.body;
+    const { title, price, description, category, image, marca, lineaId, iva, ivaPercentage, estado, images, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores, stock } = req.body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     const lastProduct = await database.getCollection('products')
@@ -78,6 +78,9 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       ofertaPorcentaje: ofertaPorcentaje || 0,
       ofertaPrecio: ofertaPrecio || 0,
       ...(images && { images }),
+      colorido: colorido || false,
+      colores: colores || [],
+      stock: stock || 0,
       createdAt: new Date(),
     };
     
@@ -102,7 +105,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { title, price, description, category, image, marca, iva, ivaPercentage, estado, images, lineaId, enOferta, ofertaPorcentaje, ofertaPrecio } = req.body;
+    const { title, price, description, category, image, marca, iva, ivaPercentage, estado, images, lineaId, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores, stock } = req.body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     const productoAnterior = await database.getCollection('products').findOne({ id });
@@ -122,6 +125,9 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
       ofertaPrecio: ofertaPrecio || 0,
       ...(images && { images }),
       ...(lineaId !== undefined && { lineaId }),
+      colorido: colorido || false,
+      colores: colores || [],
+      stock: stock || 0,
     };
     
     await database.getCollection('products').updateOne(

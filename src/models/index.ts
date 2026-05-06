@@ -64,6 +64,12 @@ export interface MetodoPago {
   principal?: boolean;
 }
 
+export interface Color {
+  id: string;
+  nombre: string;
+  codigoHex: string;
+}
+
 export interface Product {
   _id?: string;
   id: number;
@@ -71,10 +77,13 @@ export interface Product {
   description: string;
   price: number;
   image: string;
+  images?: string[];
   marcaId?: string;
   lineaId?: string;
   stock: number;
   categoriaId?: string;
+  colorido?: boolean;
+  colores?: Color[];
 }
 
 export interface ProductCategoria {
