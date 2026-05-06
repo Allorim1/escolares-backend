@@ -175,5 +175,50 @@ export interface DeliveryPerson {
 export interface CategoriaItem {
   label: string;
   route: string;
-  permiso?: string;
+  to: string;
+  perm​iso?: string;
+}
+
+export interface RedSocial {
+  _id?: string;
+  id: string;
+  plataforma: string;
+  usuario: string;
+  token: string;
+  habilitada: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MensajeRedSocial {
+  _id?: string;
+  id: string;
+  plataforma: string;
+  usuario: string;
+  texto: string;
+  fecha: Date;
+  leido: boolean;
+  respondido: boolean;
+  respuesta?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface RespuestaAutomatica {
+  _id?: string;
+  id: string;
+  palabraClave: string;
+  respuesta: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface NotificacionRedSocial {
+  _id?: string;
+  id: string;
+  tipo: string;
+  canal: string;
+  activa: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }

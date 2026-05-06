@@ -30,6 +30,7 @@ import categoriasRoutes from './routes/categorias.routes';
 import ratingsRoutes from './routes/ratings.routes';
 import productCategoriasRoutes from './routes/product-categorias.routes';
 import deliveryRoutes from './routes/delivery.routes';
+import redesSocialesRoutes from './routes/redes-sociales.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -1801,6 +1802,7 @@ app.use('/api/categorias', categoriasRoutes);
 app.use('/api/ratings', ratingsRoutes);
 app.use('/api/producto-categorias', productCategoriasRoutes);
 app.use('/api/delivery', deliveryRoutes);
+app.use('/api/redes-sociales', redesSocialesRoutes);
 
 // Categorías de Productos - Endpoints para compatibilidad con módulo de productos
 app.get('/api/productos-categorias', async (req: Request, res: Response) => {
