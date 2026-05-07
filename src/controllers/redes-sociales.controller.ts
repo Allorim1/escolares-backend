@@ -151,7 +151,7 @@ export class RedesSocialesController {
     try {
       const idParam = req.params.id;
       const id = Array.isArray(idParam) ? idParam[0] : idParam;
-      const { leido, respondido, respuesta } = req.body;
+      const { leido, respondido, respuesta, mediaType, mediaUrl, mediaCaption, mediaFilename } = req.body;
 
       // Obtener el mensaje actual para conocer la plataforma y el usuario (destinatario)
       const mensaje = await database
@@ -163,8 +163,8 @@ export class RedesSocialesController {
         return;
       }
 
-      // Si se está marcando como respondido y hay una respuesta, y la plataforma es WhatsApp, enviar mensaje
-      if (respondido === true && respuesta && mensaje.plataforma === 'WhatsApp') {
+      // Si se está marcando como respondido y hay una respuesta o media, y la plataforma es WhatsApp, enviar mensaje
+      if (respondido === true && (respuesta || mediaUrl) && mensaje.plataforma === 'WhatsApp') {
         // Obtener la configuración de WhatsApp (red social con plataforma WhatsApp y habilitada)
         const whatsappConfig = await database
           .getCollection<RedSocial>('redes-sociales')
@@ -188,7 +188,9 @@ export class RedesSocialesController {
             tokenMasked: whatsappConfig.token ? `${whatsappConfig.token.substring(0, 5)}...` : 'empty',
             tokenLength: whatsappConfig.token?.length,
             to: mensaje.usuario,
-            respuestaLength: respuesta.length
+            respuestaLength: respuesta?.length || 0,
+            mediaType,
+            mediaUrl
           });
           // Validar que el token no esté vacío
           if (!whatsappConfig.token || whatsappConfig.token.trim() === '') {
@@ -199,7 +201,7 @@ export class RedesSocialesController {
           if (!phoneNumberIdDigits || phoneNumberIdDigits.length < 10) {
             throw new Error('El ID del número de teléfono de WhatsApp parece inválido. Debe ser un número de teléfono ID (solo dígitos)');
           }
-          await this.sendWhatsAppMessage(whatsappConfig.usuario, whatsappConfig.token, mensaje.usuario, respuesta);
+          await this.sendWhatsAppMessage(whatsappConfig.usuario, whatsappConfig.token, mensaje.usuario, respuesta, mediaType, mediaUrl, mediaCaption, mediaFilename);
         } catch (error: any) {
           console.error('Error al enviar mensaje por WhatsApp:', error);
           res.status(500).json({ error: `Error al enviar mensaje por WhatsApp: ${error.message}` });
@@ -214,6 +216,10 @@ export class RedesSocialesController {
       if (leido !== undefined) updateData.leido = leido;
       if (respondido !== undefined) updateData.respondido = respondido;
       if (respuesta !== undefined) updateData.respuesta = respuesta;
+      if (mediaType !== undefined) updateData.mediaType = mediaType;
+      if (mediaUrl !== undefined) updateData.mediaUrl = mediaUrl;
+      if (mediaCaption !== undefined) updateData.mediaCaption = mediaCaption;
+      if (mediaFilename !== undefined) updateData.mediaFilename = mediaFilename;
 
       const result = await database
         .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
@@ -252,7 +258,7 @@ export class RedesSocialesController {
     }
   }
 
-  private async sendWhatsAppMessage(phoneNumberId: string, accessToken: string, to: string, text: string): Promise<void> {
+  private async sendWhatsAppMessage(phoneNumberId: string, accessToken: string, to: string, text?: string, mediaType?: string, mediaUrl?: string, mediaCaption?: string, mediaFilename?: string): Promise<void> {
     // Trim and clean inputs
     const trimmedToken = accessToken.trim();
     const trimmedPhoneNumberId = phoneNumberId.trim();
@@ -269,21 +275,42 @@ export class RedesSocialesController {
       tokenFirst5: trimmedToken.substring(0, 5) + '...',
       to,
       cleanTo,
-      textLength: text.length
+      textLength: text?.length || 0
     });
     
     const url = `https://graph.facebook.com/v25.0/${cleanPhoneNumberId}/messages`;
-    const payload = {
+
+    let payload: any = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to: cleanTo,
-      type: 'text',
-      text: {
-        preview_url: false,
-        body: text
-      }
     };
-    console.log('WhatsApp API request:', { url, payload: { ...payload, text: { ...payload.text, body: `${payload.text.body.substring(0, 50)}...` } } });
+
+    if (mediaUrl) {
+      // Send media message
+      payload.type = mediaType || 'image';
+      payload[payload.type] = {
+        link: mediaUrl,
+      };
+      if (mediaCaption) {
+        payload[payload.type].caption = mediaCaption;
+      }
+      if (mediaFilename && payload.type === 'document') {
+        payload[payload.type].filename = mediaFilename;
+      }
+    } else {
+      // Send text message
+      payload.type = 'text';
+      payload.text = {
+        preview_url: false,
+        body: text || ''
+      };
+    }
+    const logPayload = { ...payload };
+    if (logPayload.text?.body) {
+      logPayload.text.body = `${logPayload.text.body.substring(0, 50)}...`;
+    }
+    console.log('WhatsApp API request:', { url, payload: logPayload });
     const response = await fetch(url, {
       method: 'POST',
       headers: {

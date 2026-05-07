@@ -210,6 +210,10 @@ export interface MensajeRedSocial {
   leido: boolean;
   respondido: boolean;
   respuesta?: string;
+  mediaType?: 'image' | 'document' | 'audio' | 'video' | 'sticker';
+  mediaUrl?: string;
+  mediaCaption?: string;
+  mediaFilename?: string;
   createdAt: Date;
   updatedAt: Date;
 }
