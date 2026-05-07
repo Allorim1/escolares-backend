@@ -42,7 +42,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const swaggerSpec = swaggerJsdoc(swaggerConfig);
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 let redis: Redis | null = null;
 
 try {
@@ -74,7 +74,7 @@ const io = new Server(httpServer, {
   cors: {
     origin: process.env.ALLOWED_ORIGINS 
       ? process.env.ALLOWED_ORIGINS.split(',')
-      : ['http://localhost:4200', 'http://localhost:3000', 'https://escolares.vercel.app', 'https://escolares-ng.vercel.app'],
+      : ['http://localhost:4200', 'http://localhost:3000', 'https://test.escolaresonline.com', 'https://escolaresonline.com'],
     methods: ['GET', 'POST']
   }
 });
