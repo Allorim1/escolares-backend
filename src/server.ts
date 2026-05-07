@@ -46,7 +46,10 @@ const redisUrl = process.env.REDIS_URL || 'redis://redis_shared:6379';
 let redis: Redis | null = null;
 
 try {
-  redis = new Redis(redisUrl, {
+  redis = new Redis({
+    host: 'redis_shared',
+    port: 6379,
+    family: 4,
     lazyConnect: true,
     maxRetriesPerRequest: 3,
     retryStrategy: (times) => {
