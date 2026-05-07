@@ -184,10 +184,21 @@ export class RedesSocialesController {
         try {
           console.log('WhatsApp config:', {
             phoneNumberId: whatsappConfig.usuario,
+            phoneNumberIdLength: whatsappConfig.usuario?.length,
             tokenMasked: whatsappConfig.token ? `${whatsappConfig.token.substring(0, 5)}...` : 'empty',
+            tokenLength: whatsappConfig.token?.length,
             to: mensaje.usuario,
             respuestaLength: respuesta.length
           });
+          // Validar que el token no esté vacío
+          if (!whatsappConfig.token || whatsappConfig.token.trim() === '') {
+            throw new Error('Token de acceso de WhatsApp no configurado o vacío');
+          }
+          // Validar que el phoneNumberId sea un número válido (solo dígitos)
+          const phoneNumberIdDigits = whatsappConfig.usuario.replace(/\D/g, '');
+          if (!phoneNumberIdDigits || phoneNumberIdDigits.length < 10) {
+            throw new Error('El ID del número de teléfono de WhatsApp parece inválido. Debe ser un número de teléfono ID (solo dígitos)');
+          }
           await this.sendWhatsAppMessage(whatsappConfig.usuario, whatsappConfig.token, mensaje.usuario, respuesta);
         } catch (error: any) {
           console.error('Error al enviar mensaje por WhatsApp:', error);
@@ -275,9 +286,16 @@ export class RedesSocialesController {
         const errorJson = JSON.parse(errorText);
         if (errorJson.error && errorJson.error.message) {
           errorMessage = `WhatsApp API error: ${errorJson.error.message}`;
+          // Provide more specific guidance for authentication errors
+          if (response.status === 401 || response.status === 403) {
+            errorMessage += '. Verifica que el token de acceso y el ID del número de teléfono (Phone Number ID) sean correctos y tengan los permisos necesarios.';
+          }
         }
       } catch (e) {
         // If not JSON, keep raw error text
+      }
+      if (response.status === 401 || response.status === 403) {
+        errorMessage += ' (Error de autenticación: token inválido o expirado, o Phone Number ID incorrecto)';
       }
       throw new Error(errorMessage);
     }
