@@ -73,6 +73,8 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
   { id: 'marcas_ver', nombre: 'Ver Marcas', descripcion: 'Puede ver marcas', modulo: 'panel_web' },
   { id: 'lineas_ver', nombre: 'Ver Líneas', descripcion: 'Puede ver líneas', modulo: 'panel_web' },
   { id: 'ofertas_ver', nombre: 'Ver Ofertas', descripcion: 'Puede ver ofertas', modulo: 'panel_web' },
+  { id: 'producto_categorias_ver', nombre: 'Ver Categorías de Productos', descripcion: 'Puede ver categorías de productos', modulo: 'panel_web' },
+  { id: 'producto_categorias_gestionar', nombre: 'Gestionar Categorías de Productos', descripcion: 'Puede gestionar categorías de productos', modulo: 'panel_web' },
   
   // Panel Web - Usuarios y Roles
   { id: 'usuarios_gestionar', nombre: 'Gestionar Usuarios', descripcion: 'Puede gestionar usuarios', modulo: 'panel_web' },
