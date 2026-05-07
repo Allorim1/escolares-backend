@@ -182,6 +182,12 @@ export class RedesSocialesController {
 
         // Enviar mensaje por WhatsApp usando la API de Facebook Graph
         try {
+          console.log('WhatsApp config:', {
+            phoneNumberId: whatsappConfig.usuario,
+            tokenMasked: whatsappConfig.token ? `${whatsappConfig.token.substring(0, 5)}...` : 'empty',
+            to: mensaje.usuario,
+            respuestaLength: respuesta.length
+          });
           await this.sendWhatsAppMessage(whatsappConfig.usuario, whatsappConfig.token, mensaje.usuario, respuesta);
         } catch (error: any) {
           console.error('Error al enviar mensaje por WhatsApp:', error);
@@ -236,13 +242,23 @@ export class RedesSocialesController {
   }
 
   private async sendWhatsAppMessage(phoneNumberId: string, accessToken: string, to: string, text: string): Promise<void> {
-    const url = `https://graph.facebook.com/v25.0/${phoneNumberId}/messages`;
+    // Ensure phoneNumberId contains only digits (remove any non-numeric characters)
+    const cleanPhoneNumberId = phoneNumberId.replace(/\D/g, '');
+    // Ensure recipient number contains only digits (remove any non-numeric characters including plus sign)
+    const cleanTo = to.replace(/\D/g, '');
+    
+    const url = `https://graph.facebook.com/v25.0/${cleanPhoneNumberId}/messages`;
     const payload = {
       messaging_product: 'whatsapp',
-      to,
+      recipient_type: 'individual',
+      to: cleanTo,
       type: 'text',
-      text: { body: text }
+      text: {
+        preview_url: false,
+        body: text
+      }
     };
+    console.log('WhatsApp API request:', { url, payload });
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -253,7 +269,17 @@ export class RedesSocialesController {
     });
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`WhatsApp API error: ${response.status} ${errorText}`);
+      console.error('WhatsApp API error response:', errorText);
+      let errorMessage = `WhatsApp API error: ${response.status}`;
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error && errorJson.error.message) {
+          errorMessage = `WhatsApp API error: ${errorJson.error.message}`;
+        }
+      } catch (e) {
+        // If not JSON, keep raw error text
+      }
+      throw new Error(errorMessage);
     }
   }
 
