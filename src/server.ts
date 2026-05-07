@@ -42,7 +42,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const swaggerSpec = swaggerJsdoc(swaggerConfig);
 
-const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
+const redisUrl = process.env.REDIS_URL || 'redis://redis_shared:6379';
 let redis: Redis | null = null;
 
 try {
