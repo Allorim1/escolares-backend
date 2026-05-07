@@ -68,6 +68,7 @@ export interface Color {
   id: string;
   nombre: string;
   codigoHex: string;
+  imagen: string; // Imagen requerida para cada color
 }
 
 export interface Product {
@@ -80,7 +81,7 @@ export interface Product {
   images?: string[];
   marcaId?: string;
   lineaId?: string;
-  stock: number;
+  // stock removido según solicitud
   categoriaId?: string;
   colorido?: boolean;
   colores?: Color[];

@@ -4,6 +4,16 @@ import { authenticateToken } from '../middlewares/auth.middleware';
 
 const router = express.Router();
 
+// Default colors for easier selection
+const defaultColors = [
+  { id: '1', nombre: 'Rojo', codigoHex: '#FF0000', imagen: 'https://via.placeholder.com/150/FF0000/FFFFFF?text=Rojo' },
+  { id: '2', nombre: 'Verde', codigoHex: '#00FF00', imagen: 'https://via.placeholder.com/150/00FF00/000000?text=Verde' },
+  { id: '3', nombre: 'Azul', codigoHex: '#0000FF', imagen: 'https://via.placeholder.com/150/0000FF/FFFFFF?text=Azul' },
+  { id: '4', nombre: 'Amarillo', codigoHex: '#FFFF00', imagen: 'https://via.placeholder.com/150/FFFF00/000000?text=Amarillo' },
+  { id: '5', nombre: 'Negro', codigoHex: '#000000', imagen: 'https://via.placeholder.com/150/000000/FFFFFF?text=Negro' },
+  { id: '6', nombre: 'Blanco', codigoHex: '#FFFFFF', imagen: 'https://via.placeholder.com/150/FFFFFF/000000?text=Blanco' }
+];
+
 const crearRegistro = async (database: any, accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
   const db = database.db;
   if (!db) return;
@@ -50,7 +60,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { title, price, description, category, image, marca, lineaId, iva, ivaPercentage, estado, images, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores, stock } = req.body;
+    const { title, price, description, category, image, marca, lineaId, iva, ivaPercentage, estado, images, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores } = req.body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     const lastProduct = await database.getCollection('products')
@@ -61,28 +71,28 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     
     const newId = lastProduct.length > 0 ? String(Number(lastProduct[0].id) + 1) : '1';
     
-    const newProduct = {
-      id: newId,
-      title,
-      price: Number(price),
-      description,
-      category: category || ' ',
-      image: image || ' ',
-      rating: { rate: 0, count: 0 },
-      marca: marca || null,
-      lineaId: lineaId || null,
-      iva: iva || false,
-      ivaPercentage: ivaPercentage || 16,
-      estado: estado || 'disponible',
-      enOferta: enOferta || false,
-      ofertaPorcentaje: ofertaPorcentaje || 0,
-      ofertaPrecio: ofertaPrecio || 0,
-      ...(images && { images }),
-      colorido: colorido || false,
-      colores: colores || [],
-      stock: stock || 0,
-      createdAt: new Date(),
-    };
+     const newProduct = {
+       id: newId,
+       title,
+       price: Number(price),
+       description,
+       category: category || ' ',
+       image: image || ' ',
+       rating: { rate: 0, count: 0 },
+       marca: marca || null,
+       lineaId: lineaId || null,
+       iva: iva || false,
+       ivaPercentage: ivaPercentage || 16,
+       estado: estado || 'disponible',
+       enOferta: enOferta || false,
+       ofertaPorcentaje: ofertaPorcentaje || 0,
+       ofertaPrecio: ofertaPrecio || 0,
+       ...(images && { images }),
+       colorido: colorido || false,
+       colores: colores && colores.length > 0 ? colores : defaultColors,
+       // stock removido según solicitud
+       createdAt: new Date(),
+     };
     
     await database.getCollection('products').insertOne(newProduct);
     
@@ -105,30 +115,30 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { title, price, description, category, image, marca, iva, ivaPercentage, estado, images, lineaId, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores, stock } = req.body;
+    const { title, price, description, category, image, marca, iva, ivaPercentage, estado, images, lineaId, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores } = req.body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     const productoAnterior = await database.getCollection('products').findOne({ id });
     
-    const updateData: any = {
-      title,
-      price: Number(price),
-      description,
-      category,
-      image,
-      marca: marca || null,
-      iva: iva || false,
-      ivaPercentage: ivaPercentage || 16,
-      estado: estado || 'disponible',
-      enOferta: enOferta || false,
-      ofertaPorcentaje: ofertaPorcentaje || 0,
-      ofertaPrecio: ofertaPrecio || 0,
-      ...(images && { images }),
-      ...(lineaId !== undefined && { lineaId }),
-      colorido: colorido || false,
-      colores: colores || [],
-      stock: stock || 0,
-    };
+     const updateData: any = {
+       title,
+       price: Number(price),
+       description,
+       category,
+       image,
+       marca: marca || null,
+       iva: iva || false,
+       ivaPercentage: ivaPercentage || 16,
+       estado: estado || 'disponible',
+       enOferta: enOferta || false,
+       ofertaPorcentaje: ofertaPorcentaje || 0,
+       ofertaPrecio: ofertaPrecio || 0,
+       ...(images && { images }),
+       ...(lineaId !== undefined && { lineaId }),
+       colorido: colorido || false,
+       colores: colores && colores.length > 0 ? colores : defaultColors,
+       // stock removido según solicitud
+     };
     
     await database.getCollection('products').updateOne(
       { id },
