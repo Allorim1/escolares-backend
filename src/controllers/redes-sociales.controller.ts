@@ -296,13 +296,13 @@ export class RedesSocialesController {
       const errorText = await response.text();
       console.error('WhatsApp API error response:', errorText);
       let errorMessage = `WhatsApp API error: ${response.status}`;
-      let errorCode = '';
+      let errorCode: number = 0;
       let errorType = '';
       try {
         const errorJson = JSON.parse(errorText);
         if (errorJson.error) {
           errorMessage = `WhatsApp API error: ${errorJson.error.message || errorJson.error}`;
-          errorCode = errorJson.error.code;
+          errorCode = parseInt(errorJson.error.code, 10);
           errorType = errorJson.error.type;
           // Provide more specific guidance for authentication errors
           if (response.status === 401 || response.status === 403) {
