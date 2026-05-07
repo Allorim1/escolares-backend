@@ -253,10 +253,24 @@ export class RedesSocialesController {
   }
 
   private async sendWhatsAppMessage(phoneNumberId: string, accessToken: string, to: string, text: string): Promise<void> {
+    // Trim and clean inputs
+    const trimmedToken = accessToken.trim();
+    const trimmedPhoneNumberId = phoneNumberId.trim();
     // Ensure phoneNumberId contains only digits (remove any non-numeric characters)
-    const cleanPhoneNumberId = phoneNumberId.replace(/\D/g, '');
+    const cleanPhoneNumberId = trimmedPhoneNumberId.replace(/\D/g, '');
     // Ensure recipient number contains only digits (remove any non-numeric characters including plus sign)
     const cleanTo = to.replace(/\D/g, '');
+    
+    // Log token details (masked) for debugging
+    console.log('WhatsApp API details:', {
+      phoneNumberId: trimmedPhoneNumberId,
+      cleanPhoneNumberId,
+      tokenLength: trimmedToken.length,
+      tokenFirst5: trimmedToken.substring(0, 5) + '...',
+      to,
+      cleanTo,
+      textLength: text.length
+    });
     
     const url = `https://graph.facebook.com/v25.0/${cleanPhoneNumberId}/messages`;
     const payload = {
@@ -269,11 +283,11 @@ export class RedesSocialesController {
         body: text
       }
     };
-    console.log('WhatsApp API request:', { url, payload });
+    console.log('WhatsApp API request:', { url, payload: { ...payload, text: { ...payload.text, body: `${payload.text.body.substring(0, 50)}...` } } });
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authorization': `Bearer ${trimmedToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -282,13 +296,23 @@ export class RedesSocialesController {
       const errorText = await response.text();
       console.error('WhatsApp API error response:', errorText);
       let errorMessage = `WhatsApp API error: ${response.status}`;
+      let errorCode = '';
+      let errorType = '';
       try {
         const errorJson = JSON.parse(errorText);
-        if (errorJson.error && errorJson.error.message) {
-          errorMessage = `WhatsApp API error: ${errorJson.error.message}`;
+        if (errorJson.error) {
+          errorMessage = `WhatsApp API error: ${errorJson.error.message || errorJson.error}`;
+          errorCode = errorJson.error.code;
+          errorType = errorJson.error.type;
           // Provide more specific guidance for authentication errors
           if (response.status === 401 || response.status === 403) {
             errorMessage += '. Verifica que el token de acceso y el ID del número de teléfono (Phone Number ID) sean correctos y tengan los permisos necesarios.';
+            if (errorCode === 190) {
+              errorMessage += ' El token de acceso puede haber expirado. Genera un nuevo token de acceso de larga duración en la configuración de la aplicación de Facebook.';
+            }
+            if (errorCode === 100) {
+              errorMessage += ' El Phone Number ID puede ser incorrecto. Asegúrate de usar el ID numérico del número de teléfono de WhatsApp Business, no el número de teléfono mismo.';
+            }
           }
         }
       } catch (e) {
@@ -296,6 +320,7 @@ export class RedesSocialesController {
       }
       if (response.status === 401 || response.status === 403) {
         errorMessage += ' (Error de autenticación: token inválido o expirado, o Phone Number ID incorrecto)';
+        errorMessage += ' Revisa la documentación de WhatsApp Business API: https://developers.facebook.com/docs/whatsapp/cloud-api/get-started#authenticate-your-requests';
       }
       throw new Error(errorMessage);
     }
