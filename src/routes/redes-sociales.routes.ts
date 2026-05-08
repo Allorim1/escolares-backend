@@ -32,4 +32,8 @@ router.delete('/notificaciones/:id', authenticateToken, (req, res) => redesSocia
 router.get('/webhook/whatsapp', (req, res) => redesSocialesController.verifyWebhook(req, res));
 router.post('/webhook/whatsapp', (req, res) => redesSocialesController.webhookWhatsApp(req, res));
 
+// Webhook Instagram
+router.get('/webhook/instagram', (req, res) => redesSocialesController.verifyInstagramWebhook(req, res));
+router.post('/webhook/instagram', (req, res) => redesSocialesController.webhookInstagram(req, res));
+
 export default router;

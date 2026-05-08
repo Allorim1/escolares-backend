@@ -163,49 +163,87 @@ export class RedesSocialesController {
         return;
       }
 
-      // Si se está marcando como respondido y hay una respuesta o media, y la plataforma es WhatsApp, enviar mensaje
-      if (respondido === true && (respuesta || mediaUrl) && mensaje.plataforma === 'WhatsApp') {
-        // Obtener la configuración de WhatsApp (red social con plataforma WhatsApp y habilitada)
-        const whatsappConfig = await database
-          .getCollection<RedSocial>('redes-sociales')
-          .findOne({ plataforma: 'WhatsApp', habilitada: true });
+      // Si se está marcando como respondido y hay una respuesta o media, enviar mensaje según la plataforma
+      if (respondido === true && (respuesta || mediaUrl)) {
+        if (mensaje.plataforma === 'WhatsApp') {
+          // Obtener la configuración de WhatsApp (red social con plataforma WhatsApp y habilitada)
+          const whatsappConfig = await database
+            .getCollection<RedSocial>('redes-sociales')
+            .findOne({ plataforma: 'WhatsApp', habilitada: true });
 
-        if (!whatsappConfig) {
-          res.status(400).json({ error: 'Configuración de WhatsApp no encontrada o no habilitada' });
-          return;
-        }
-
-        if (!whatsappConfig.token || !whatsappConfig.usuario) {
-          res.status(400).json({ error: 'Token o número de teléfono (usuario) de WhatsApp no configurado' });
-          return;
-        }
-
-        // Enviar mensaje por WhatsApp usando la API de Facebook Graph
-        try {
-          console.log('WhatsApp config:', {
-            phoneNumberId: whatsappConfig.usuario,
-            phoneNumberIdLength: whatsappConfig.usuario?.length,
-            tokenMasked: whatsappConfig.token ? `${whatsappConfig.token.substring(0, 5)}...` : 'empty',
-            tokenLength: whatsappConfig.token?.length,
-            to: mensaje.usuario,
-            respuestaLength: respuesta?.length || 0,
-            mediaType,
-            mediaUrl
-          });
-          // Validar que el token no esté vacío
-          if (!whatsappConfig.token || whatsappConfig.token.trim() === '') {
-            throw new Error('Token de acceso de WhatsApp no configurado o vacío');
+          if (!whatsappConfig) {
+            res.status(400).json({ error: 'Configuración de WhatsApp no encontrada o no habilitada' });
+            return;
           }
-          // Validar que el phoneNumberId sea un número válido (solo dígitos)
-          const phoneNumberIdDigits = whatsappConfig.usuario.replace(/\D/g, '');
-          if (!phoneNumberIdDigits || phoneNumberIdDigits.length < 10) {
-            throw new Error('El ID del número de teléfono de WhatsApp parece inválido. Debe ser un número de teléfono ID (solo dígitos)');
+
+          if (!whatsappConfig.token || !whatsappConfig.usuario) {
+            res.status(400).json({ error: 'Token o número de teléfono (usuario) de WhatsApp no configurado' });
+            return;
           }
-          await this.sendWhatsAppMessage(whatsappConfig.usuario, whatsappConfig.token, mensaje.usuario, respuesta, mediaType, mediaUrl, mediaCaption, mediaFilename);
-        } catch (error: any) {
-          console.error('Error al enviar mensaje por WhatsApp:', error);
-          res.status(500).json({ error: `Error al enviar mensaje por WhatsApp: ${error.message}` });
-          return;
+
+          // Enviar mensaje por WhatsApp usando la API de Facebook Graph
+          try {
+            console.log('WhatsApp config:', {
+              phoneNumberId: whatsappConfig.usuario,
+              phoneNumberIdLength: whatsappConfig.usuario?.length,
+              tokenMasked: whatsappConfig.token ? `${whatsappConfig.token.substring(0, 5)}...` : 'empty',
+              tokenLength: whatsappConfig.token?.length,
+              to: mensaje.usuario,
+              respuestaLength: respuesta?.length || 0,
+              mediaType,
+              mediaUrl
+            });
+            // Validar que el token no esté vacío
+            if (!whatsappConfig.token || whatsappConfig.token.trim() === '') {
+              throw new Error('Token de acceso de WhatsApp no configurado o vacío');
+            }
+            // Validar que el phoneNumberId sea un número válido (solo dígitos)
+            const phoneNumberIdDigits = whatsappConfig.usuario.replace(/\D/g, '');
+            if (!phoneNumberIdDigits || phoneNumberIdDigits.length < 10) {
+              throw new Error('El ID del número de teléfono de WhatsApp parece inválido. Debe ser un número de teléfono ID (solo dígitos)');
+            }
+            await this.sendWhatsAppMessage(whatsappConfig.usuario, whatsappConfig.token, mensaje.usuario, respuesta, mediaType, mediaUrl, mediaCaption, mediaFilename);
+          } catch (error: any) {
+            console.error('Error al enviar mensaje por WhatsApp:', error);
+            res.status(500).json({ error: `Error al enviar mensaje por WhatsApp: ${error.message}` });
+            return;
+          }
+        } else if (mensaje.plataforma === 'Instagram') {
+          // Obtener la configuración de Instagram (red social con plataforma Instagram y habilitada)
+          const instagramConfig = await database
+            .getCollection<RedSocial>('redes-sociales')
+            .findOne({ plataforma: 'Instagram', habilitada: true });
+
+          if (!instagramConfig) {
+            res.status(400).json({ error: 'Configuración de Instagram no encontrada o no habilitada' });
+            return;
+          }
+
+          if (!instagramConfig.token || !instagramConfig.usuario) {
+            res.status(400).json({ error: 'Token o ID de página (usuario) de Instagram no configurado' });
+            return;
+          }
+
+          // Enviar mensaje por Instagram usando la API de Facebook Graph
+          try {
+            console.log('Instagram config:', {
+              pageId: instagramConfig.usuario,
+              tokenMasked: instagramConfig.token ? `${instagramConfig.token.substring(0, 5)}...` : 'empty',
+              to: mensaje.usuario,
+              respuestaLength: respuesta?.length || 0,
+              mediaType,
+              mediaUrl
+            });
+            // Validar que el token no esté vacío
+            if (!instagramConfig.token || instagramConfig.token.trim() === '') {
+              throw new Error('Token de acceso de Instagram no configurado o vacío');
+            }
+            await this.sendInstagramMessage(instagramConfig.usuario, instagramConfig.token, mensaje.usuario, respuesta, mediaType, mediaUrl, mediaCaption);
+          } catch (error: any) {
+            console.error('Error al enviar mensaje por Instagram:', error);
+            res.status(500).json({ error: `Error al enviar mensaje por Instagram: ${error.message}` });
+            return;
+          }
         }
       }
 
@@ -350,6 +388,132 @@ export class RedesSocialesController {
         errorMessage += ' Revisa la documentación de WhatsApp Business API: https://developers.facebook.com/docs/whatsapp/cloud-api/get-started#authenticate-your-requests';
       }
       throw new Error(errorMessage);
+    }
+  }
+
+  private async sendInstagramMessage(pageId: string, accessToken: string, recipientId: string, text?: string, mediaType?: string, mediaUrl?: string, mediaCaption?: string): Promise<void> {
+    // Limpiar y preparar los inputs
+    const trimmedToken = accessToken.trim();
+    const trimmedPageId = pageId.trim();
+
+    console.log('Instagram API details:', {
+      pageId: trimmedPageId,
+      tokenLength: trimmedToken.length,
+      tokenFirst5: trimmedToken.substring(0, 5) + '...',
+      recipientId,
+      textLength: text?.length || 0,
+      mediaType,
+      mediaUrl
+    });
+
+    // Validar token
+    if (!trimmedToken || trimmedToken.trim() === '') {
+      throw new Error('Token de acceso de Instagram no configurado o vacío');
+    }
+
+    let requestBody: any = {
+      recipient: { id: recipientId },
+    };
+
+    if (mediaUrl) {
+      // Enviar mensaje con media
+      if (mediaType === 'image') {
+        requestBody.message = {
+          attachment: {
+            type: 'image',
+            payload: {
+              url: mediaUrl,
+            }
+          }
+        };
+        if (mediaCaption) {
+          // Para Instagram, el caption va en un mensaje separado después de la imagen
+          // Primero enviamos la imagen, luego el texto si hay caption
+        }
+      } else if (mediaType === 'video') {
+        requestBody.message = {
+          attachment: {
+            type: 'video',
+            payload: {
+              url: mediaUrl,
+            }
+          }
+        };
+      } else {
+        // Para otros tipos o si no se especifica, enviar como texto
+        requestBody.message = {
+          text: text || 'Mensaje multimedia'
+        };
+      }
+    } else {
+      // Enviar mensaje de texto
+      requestBody.message = {
+        text: text || ''
+      };
+    }
+
+    const url = `https://graph.facebook.com/v18.0/${trimmedPageId}/messages`;
+
+    console.log('Instagram API request:', {
+      url,
+      requestBody: {
+        ...requestBody,
+        message: requestBody.message.text ? { text: `${requestBody.message.text.substring(0, 50)}...` } : requestBody.message
+      }
+    });
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${trimmedToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Instagram API error response:', errorText);
+        let errorMessage = `Instagram API error: ${response.status}`;
+
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.error) {
+            errorMessage = `Instagram API error: ${errorJson.error.message || errorJson.error}`;
+          }
+        } catch (e) {
+          // Mantener el mensaje de error original si no se puede parsear
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      // Si hay media con caption, enviar el caption como mensaje separado
+      if (mediaUrl && mediaCaption && (mediaType === 'image' || mediaType === 'video')) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Esperar 1 segundo
+
+        const textRequestBody = {
+          recipient: { id: recipientId },
+          message: { text: mediaCaption }
+        };
+
+        const textResponse = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${trimmedToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(textRequestBody),
+        });
+
+        if (!textResponse.ok) {
+          console.warn('Error al enviar caption de Instagram, pero la media se envió correctamente');
+        }
+      }
+    } catch (error: any) {
+      console.error('Error en sendInstagramMessage:', error);
+      throw error;
     }
   }
 
@@ -560,6 +724,25 @@ export class RedesSocialesController {
     }
   }
 
+  // Webhook para verificación de Instagram
+  async verifyInstagramWebhook(req: Request, res: Response): Promise<void> {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    const verifyToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || '';
+
+    console.log('Instagram webhook verification request:', { mode, token, challenge, verifyToken });
+
+    if (mode === 'subscribe' && token === verifyToken) {
+      console.log('Webhook de Instagram verificado exitosamente');
+      res.status(200).send(challenge);
+    } else {
+      console.error('Verificación de Instagram fallida: token mismatch or missing parameters');
+      res.sendStatus(403);
+    }
+  }
+
   // Webhook para recibir mensajes de WhatsApp
   async webhookWhatsApp(req: Request, res: Response): Promise<void> {
     try {
@@ -611,6 +794,91 @@ export class RedesSocialesController {
       res.sendStatus(200);
     } catch (error) {
       console.error('Error procesando webhook de WhatsApp:', error);
+      res.sendStatus(500);
+    }
+  }
+
+  // Webhook para recibir mensajes de Instagram
+  async webhookInstagram(req: Request, res: Response): Promise<void> {
+    try {
+      const body = req.body;
+      console.log('Webhook de Instagram recibido:', JSON.stringify(body, null, 2));
+
+      // Verificar que es un evento de Instagram
+      if (body.object !== 'instagram') {
+        res.sendStatus(404);
+        return;
+      }
+
+      // Procesar cada entrada
+      for (const entry of body.entry || []) {
+        for (const change of entry.messaging || []) {
+          // Para Instagram, los mensajes vienen en el array messaging
+          const message = change.message;
+          if (message && message.text) {
+            const from = change.sender?.id; // ID del remitente en Instagram
+            const text = message.text;
+            const messageId = message.mid;
+            const timestamp = parseInt(message.timestamp); // timestamp ya está en milisegundos
+
+            // Crear mensaje en la base de datos
+            const nuevoMensaje: MensajeRedSocial = {
+              id: `msg-${Date.now()}`,
+              plataforma: 'Instagram',
+              usuario: from || 'unknown',
+              texto: text,
+              fecha: new Date(timestamp),
+              leido: false,
+              respondido: false,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+
+            await database
+              .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+              .insertOne(nuevoMensaje);
+            console.log('Mensaje de Instagram guardado:', nuevoMensaje);
+          }
+        }
+
+        // También procesar cambios en el array changes (similar a WhatsApp)
+        for (const change of entry.changes || []) {
+          if (change.field === 'messages') {
+            const messages = change.value?.messages || [];
+            for (const message of messages) {
+              if (message.message?.text) {
+                const from = message.from?.id; // ID del remitente
+                const text = message.message.text;
+                const messageId = message.id;
+                const timestamp = parseInt(message.timestamp) * 1000;
+
+                // Crear mensaje en la base de datos
+                const nuevoMensaje: MensajeRedSocial = {
+                  id: `msg-${Date.now()}`,
+                  plataforma: 'Instagram',
+                  usuario: from || 'unknown',
+                  texto: text,
+                  fecha: new Date(timestamp),
+                  leido: false,
+                  respondido: false,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                };
+
+                await database
+                  .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+                  .insertOne(nuevoMensaje);
+                console.log('Mensaje de Instagram guardado:', nuevoMensaje);
+              }
+            }
+          }
+        }
+      }
+
+      // Responder 200 OK a Meta
+      res.sendStatus(200);
+    } catch (error) {
+      console.error('Error procesando webhook de Instagram:', error);
       res.sendStatus(500);
     }
   }
