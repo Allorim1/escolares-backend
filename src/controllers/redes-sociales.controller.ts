@@ -2,6 +2,11 @@ import { Request, Response } from 'express';
 import { database } from '../config/database';
 import { RedSocial, MensajeRedSocial, RespuestaAutomatica, NotificacionRedSocial } from '../models';
 
+// Declarar tipos globales para Socket.IO
+declare global {
+  var io: any;
+}
+
 export class RedesSocialesController {
   // Redes Sociales - CRUD
   async getRedesSociales(req: Request, res: Response): Promise<void> {
@@ -784,6 +789,11 @@ export class RedesSocialesController {
                   .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
                   .insertOne(nuevoMensaje);
                 console.log('Mensaje de WhatsApp guardado:', nuevoMensaje);
+
+                // Emitir evento de nuevo mensaje a todos los administradores conectados
+                if (global.io) {
+                  global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
+                }
               }
             }
           }
@@ -838,6 +848,11 @@ export class RedesSocialesController {
               .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
               .insertOne(nuevoMensaje);
             console.log('Mensaje de Instagram guardado:', nuevoMensaje);
+
+            // Emitir evento de nuevo mensaje a todos los administradores conectados
+            if (global.io) {
+              global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
+            }
           }
         }
 

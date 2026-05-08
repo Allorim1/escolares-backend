@@ -104,6 +104,18 @@ io.on('connection', (socket) => {
     socket.leave(`orders-${userId}`);
     console.log(`Usuario ${userId} salió de la sala de órdenes`);
   });
+
+  // Join messages room
+  socket.on('join-messages-room', (userId) => {
+    socket.join(`messages-${userId}`);
+    console.log(`Usuario ${userId} se unió a la sala de mensajes`);
+  });
+
+  // Leave messages room
+  socket.on('leave-messages-room', (userId) => {
+    socket.leave(`messages-${userId}`);
+    console.log(`Usuario ${userId} salió de la sala de mensajes`);
+  });
 });
 
 const cacheGet = async (key: string): Promise<string | null> => {
