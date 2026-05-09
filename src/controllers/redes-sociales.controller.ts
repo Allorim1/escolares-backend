@@ -122,24 +122,34 @@ export class RedesSocialesController {
 
   async createMensaje(req: Request, res: Response): Promise<void> {
     try {
-      const { plataforma, usuario, texto } = req.body;
+      const { plataforma, usuario, texto, mediaType, mediaUrl, mediaCaption, mediaFilename } = req.body;
 
-      if (!plataforma || !usuario || !texto) {
-        res.status(400).json({ error: 'Plataforma, usuario y texto son requeridos' });
+      if (!plataforma || !usuario) {
+        res.status(400).json({ error: 'Plataforma y usuario son requeridos' });
         return;
       }
 
-      const id = `msg-${Date.now()}`;
+      // Si no hay texto ni media, es un error
+      if (!texto && !mediaUrl) {
+        res.status(400).json({ error: 'Se requiere texto o contenido multimedia' });
+        return;
+      }
+
+      const id = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const now = new Date();
 
       const nuevoMensaje: MensajeRedSocial = {
         id,
         plataforma,
         usuario,
-        texto,
+        texto: texto || undefined,
         fecha: now,
-        leido: false,
-        respondido: false,
+        leido: true, // Los mensajes que enviamos nosotros se marcan como leídos
+        respondido: true, // Los mensajes que enviamos son respuestas
+        mediaType: mediaType || undefined,
+        mediaUrl: mediaUrl || undefined,
+        mediaCaption: mediaCaption || undefined,
+        mediaFilename: mediaFilename || undefined,
         createdAt: now,
         updatedAt: now,
       };
