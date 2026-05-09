@@ -623,6 +623,7 @@ app.get('/api/registros', async (req: Request, res: Response) => {
       .find(filter)
       .sort({ fecha: -1 })
       .limit(Number(limit))
+      .allowDiskUse(true)
       .toArray();
 
     res.json(registros);
@@ -668,7 +669,7 @@ app.post('/api/costos', async (req: Request, res: Response) => {
 app.get('/api/costos', async (req: Request, res: Response) => {
   try {
     const collection = database.getCollection('costos');
-    const grupos = await collection.find().sort({ fecha: -1 }).toArray();
+    const grupos = await collection.find().sort({ fecha: -1 }).allowDiskUse(true).toArray();
     res.json(grupos);
   } catch (error) {
     console.error('Error obteniendo grupos:', error);
@@ -798,7 +799,7 @@ app.post('/api/facturas', async (req: Request, res: Response) => {
 app.get('/api/facturas', async (req: Request, res: Response) => {
   try {
     const collection = database.getCollection('facturas');
-    const facturas = await collection.find().sort({ fecha: -1 }).toArray();
+    const facturas = await collection.find().sort({ fecha: -1 }).allowDiskUse(true).toArray();
     res.json(facturas);
   } catch (error) {
     console.error('Error obteniendo facturas:', error);
@@ -1944,7 +1945,7 @@ app.delete('/api/productos-categorias/:id', authenticateToken, async (req: Reque
 app.get('/api/gastos', async (req: Request, res: Response) => {
   try {
     const collection = (database as any).getCollection('gastos');
-    const gastos = await collection.find({}).sort({ fecha: -1 }).toArray();
+    const gastos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
     res.json(gastos);
   } catch (error) {
     console.error('Error obteniendo gastos:', error);
@@ -2077,7 +2078,7 @@ app.delete('/api/nomina/empleados/:id', async (req: Request, res: Response) => {
 app.get('/api/nomina/pagos', async (req: Request, res: Response) => {
   try {
     const collection = (database as any).getCollection('nomina-pagos');
-    const pagos = await collection.find({}).sort({ fecha: -1 }).toArray();
+    const pagos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
     res.json(pagos);
   } catch (error) {
     console.error('Error obteniendo pagos:', error);
@@ -2147,7 +2148,7 @@ app.get('/api/galeria/:tipo', async (req: Request, res: Response) => {
     const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
     const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
     const collection = (database as any).getCollection(collectionName);
-    const docs = await collection.find({}).sort({ fechaSubida: -1 }).toArray();
+    const docs = await collection.find({}).sort({ fechaSubida: -1 }).allowDiskUse(true).toArray();
     res.json(docs);
   } catch (error) {
     console.error('Error obteniendo documentos galería:', error);

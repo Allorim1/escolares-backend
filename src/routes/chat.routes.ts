@@ -140,7 +140,7 @@ router.get('/mensajes/:usuarioId', authenticateToken, async (req: Request, res: 
         { emisorId: userId, receptorId: otroUsuarioId },
         { emisorId: otroUsuarioId, receptorId: userId }
       ]
-    }).sort({ fecha: 1 }).toArray();
+    }).sort({ fecha: 1 }).allowDiskUse(true).toArray();
 
     await chatCollection.updateMany(
       { emisorId: otroUsuarioId, receptorId: userId, leido: false },

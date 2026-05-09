@@ -112,6 +112,7 @@ export class RedesSocialesController {
         .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
         .find({})
         .sort({ fecha: -1 })
+        .allowDiskUse(true)
         .toArray();
       res.json(mensajes);
     } catch (error) {
