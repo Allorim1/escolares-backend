@@ -3,6 +3,8 @@ import multer from 'multer';
 import path from 'path';
 import { redesSocialesController } from '../controllers/redes-sociales.controller';
 import { authenticateToken } from '../middlewares/auth.middleware';
+import { database } from '../config/database';
+import { MensajeRedSocial } from '../models';
 
 // Configurar multer para subida de archivos
 const storage = multer.diskStorage({
