@@ -65,9 +65,131 @@ router.delete('/notificaciones/:id', authenticateToken, (req, res) => redesSocia
 router.get('/webhook/whatsapp', (req, res) => redesSocialesController.verifyWebhook(req, res));
 router.post('/webhook/whatsapp', (req, res) => redesSocialesController.webhookWhatsApp(req, res));
 
-// Webhook Instagram
-router.get('/webhook/instagram', (req, res) => redesSocialesController.verifyInstagramWebhook(req, res));
-router.post('/webhook/instagram', (req, res) => redesSocialesController.webhookInstagram(req, res));
+// Webhook Instagram - Sin middleware de autenticación
+router.get('/webhook/instagram', (req, res) => {
+  console.log('GET /webhook/instagram - Verificación de webhook');
+  return redesSocialesController.verifyInstagramWebhook(req, res);
+});
+router.post('/webhook/instagram', (req, res) => {
+  console.log('POST /webhook/instagram - Mensaje recibido');
+  return redesSocialesController.webhookInstagram(req, res);
+});
+
+// Endpoint de prueba para verificar webhooks
+router.get('/test-webhook', (req, res) => {
+  res.json({
+    status: 'Webhook endpoint funcionando',
+    timestamp: new Date().toISOString(),
+    instagram_webhook_url: '/api/redes-sociales/webhook/instagram',
+    environment: {
+      INSTAGRAM_WEBHOOK_VERIFY_TOKEN: process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ? 'CONFIGURADO' : 'NO CONFIGURADO',
+      NODE_ENV: process.env.NODE_ENV
+    }
+  });
+});
+
+// Endpoint para verificar configuración completa
+router.get('/check-config', (req, res) => {
+  return redesSocialesController.checkWebhookConfig(req, res);
+});
+
+// Endpoint para simular un webhook de Instagram (solo para testing)
+router.post('/test-webhook/instagram', (req, res) => {
+  console.log('🧪 TEST WEBHOOK - Simulando recepción de mensaje Instagram');
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body:', JSON.stringify(req.body, null, 2));
+
+  // Procesar como si fuera un webhook real
+  redesSocialesController.webhookInstagram(req, res);
+});
+
+// Endpoint para enviar un mensaje de prueba a Instagram
+router.post('/test-send-message', authenticateToken, async (req, res) => {
+  try {
+    const { plataforma, usuario, texto } = req.body;
+
+    if (!plataforma || !usuario || !texto) {
+      return res.status(400).json({ error: 'Se requieren plataforma, usuario y texto' });
+    }
+
+    // Crear mensaje de prueba
+    const mensajePrueba: MensajeRedSocial = {
+      id: `test-${Date.now()}`,
+      plataforma,
+      usuario,
+      texto: `[TEST] ${texto}`,
+      fecha: new Date(),
+      leido: false,
+      respondido: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    await database.getCollection('redes-sociales-mensajes').insertOne(mensajePrueba);
+
+    // Emitir evento de nuevo mensaje
+    if (global.io) {
+      global.io.to('messages-admin').emit('nuevo-mensaje', mensajePrueba);
+    }
+
+    res.json({ success: true, message: 'Mensaje de prueba enviado', mensaje: mensajePrueba });
+  } catch (error) {
+    console.error('Error enviando mensaje de prueba:', error);
+    res.status(500).json({ error: 'Error al enviar mensaje de prueba' });
+  }
+});
+
+// Endpoint para obtener estadísticas de mensajes
+router.get('/mensajes/stats', authenticateToken, async (req, res) => {
+  try {
+    const totalMensajes = await database.getCollection('redes-sociales-mensajes').countDocuments();
+    const mensajesPorPlataforma = await database.getCollection('redes-sociales-mensajes').aggregate([
+      { $group: { _id: '$plataforma', count: { $sum: 1 } } }
+    ]).toArray();
+
+    const mensajesRecientes = await database.getCollection('redes-sociales-mensajes')
+      .find({})
+      .sort({ fecha: -1 })
+      .limit(5)
+      .allowDiskUse(true)
+      .toArray();
+
+    res.json({
+      success: true,
+      stats: {
+        total: totalMensajes,
+        porPlataforma: mensajesPorPlataforma,
+        recientes: mensajesRecientes
+      }
+    });
+  } catch (error) {
+    console.error('Error obteniendo estadísticas:', error);
+    res.status(500).json({ error: 'Error al obtener estadísticas' });
+  }
+});
+
+// Endpoint para obtener mensajes recientes (para testing)
+router.get('/mensajes/recientes', authenticateToken, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 10;
+    const mensajes = await database
+      .getCollection('redes-sociales-mensajes')
+      .find({})
+      .sort({ fecha: -1 })
+      .limit(limit)
+      .allowDiskUse(true)
+      .toArray();
+
+    res.json({
+      success: true,
+      count: mensajes.length,
+      mensajes: mensajes
+    });
+  } catch (error) {
+    console.error('Error obteniendo mensajes recientes:', error);
+    res.status(500).json({ error: 'Error al obtener mensajes recientes' });
+  }
+});
 
 // Subida de archivos multimedia
 router.post('/upload-media', authenticateToken, (req, res) => {

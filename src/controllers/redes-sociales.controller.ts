@@ -742,19 +742,33 @@ export class RedesSocialesController {
 
   // Webhook para verificación de Instagram
   async verifyInstagramWebhook(req: Request, res: Response): Promise<void> {
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
-    const challenge = req.query['hub.challenge'];
+    const mode = req.query['hub.mode'] as string;
+    const token = req.query['hub.verify_token'] as string;
+    const challenge = req.query['hub.challenge'] as string;
 
     const verifyToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || '';
 
-    console.log('Instagram webhook verification request:', { mode, token, challenge, verifyToken });
+    console.log('🔍 Verificación de webhook Instagram:');
+    console.log('  - Mode:', mode);
+    console.log('  - Token recibido:', token ? `${token.substring(0, 5)}...` : 'undefined');
+    console.log('  - Challenge:', challenge);
+    console.log('  - Token esperado:', verifyToken ? `${verifyToken.substring(0, 5)}...` : 'NO CONFIGURADO');
+
+    if (!verifyToken) {
+      console.error('❌ ERROR: INSTAGRAM_WEBHOOK_VERIFY_TOKEN no está configurado en las variables de entorno');
+      res.sendStatus(500);
+      return;
+    }
 
     if (mode === 'subscribe' && token === verifyToken) {
-      console.log('Webhook de Instagram verificado exitosamente');
+      console.log('✅ Webhook de Instagram verificado exitosamente');
       res.status(200).send(challenge);
     } else {
-      console.error('Verificación de Instagram fallida: token mismatch or missing parameters');
+      console.error('❌ Verificación de Instagram fallida:', {
+        modeCorrecto: mode === 'subscribe',
+        tokenCorrecto: token === verifyToken,
+        razon: mode !== 'subscribe' ? 'Mode incorrecto' : 'Token incorrecto'
+      });
       res.sendStatus(403);
     }
   }
@@ -823,67 +837,79 @@ export class RedesSocialesController {
   async webhookInstagram(req: Request, res: Response): Promise<void> {
     try {
       const body = req.body;
-      console.log('Webhook de Instagram recibido:', JSON.stringify(body, null, 2));
+      console.log('=== WEBHOOK INSTAGRAM RECIBIDO ===');
+      console.log('Headers:', req.headers);
+      console.log('Body completo:', JSON.stringify(body, null, 2));
 
       // Verificar que es un evento de Instagram
       if (body.object !== 'instagram') {
+        console.log('❌ Webhook no es de Instagram, objeto:', body.object);
         res.sendStatus(404);
         return;
       }
 
+      console.log('✅ Webhook válido de Instagram detectado');
+
       // Procesar cada entrada
       for (const entry of body.entry || []) {
-        for (const change of entry.messaging || []) {
-          // Para Instagram, los mensajes vienen en el array messaging
-          const message = change.message;
-          if (message && message.text) {
-            const from = change.sender?.id; // ID del remitente en Instagram
-            const text = message.text;
-            const messageId = message.mid;
-            const timestamp = parseInt(message.timestamp); // timestamp ya está en milisegundos
+        console.log('📝 Procesando entry de Instagram:', JSON.stringify(entry, null, 2));
 
-            // Crear mensaje en la base de datos
-            const nuevoMensaje: MensajeRedSocial = {
-              id: `msg-${Date.now()}`,
-              plataforma: 'Instagram',
-              usuario: from || 'unknown',
-              texto: text,
-              fecha: new Date(timestamp),
-              leido: false,
-              respondido: false,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            };
+        // Para Instagram Messenger API (versión actual)
+        for (const messaging of entry.messaging || []) {
+          console.log('💬 Procesando messaging event:', JSON.stringify(messaging, null, 2));
 
-            await database
-              .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
-              .insertOne(nuevoMensaje);
-            console.log('Mensaje de Instagram guardado:', nuevoMensaje);
+          // Procesar mensajes de texto
+          if (messaging.message?.text) {
+            const from = messaging.sender?.id;
+            const to = messaging.recipient?.id;
+            const text = messaging.message.text;
+            const messageId = messaging.message.mid;
+            const timestamp = messaging.timestamp;
 
-            // Emitir evento de nuevo mensaje a todos los administradores conectados
-            if (global.io) {
-              global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
+            console.log('✅ Mensaje de texto encontrado:', { from, to, text, messageId, timestamp });
+
+            if (from && text) {
+              const nuevoMensaje: MensajeRedSocial = {
+                id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                plataforma: 'Instagram',
+                usuario: from,
+                texto: text,
+                fecha: new Date(timestamp),
+                leido: false,
+                respondido: false,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              };
+
+              await database
+                .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+                .insertOne(nuevoMensaje);
+              console.log('💾 Mensaje de Instagram guardado:', nuevoMensaje);
+
+              // Emitir evento de nuevo mensaje
+              if (global.io) {
+                global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
+              }
             }
           }
-        }
 
-        // También procesar cambios en el array changes (similar a WhatsApp)
-        for (const change of entry.changes || []) {
-          if (change.field === 'messages') {
-            const messages = change.value?.messages || [];
-            for (const message of messages) {
-              if (message.message?.text) {
-                const from = message.from?.id; // ID del remitente
-                const text = message.message.text;
-                const messageId = message.id;
-                const timestamp = parseInt(message.timestamp) * 1000;
+          // Procesar mensajes con adjuntos
+          if (messaging.message?.attachments) {
+            const from = messaging.sender?.id;
+            const attachments = messaging.message.attachments;
+            const timestamp = messaging.timestamp;
 
-                // Crear mensaje en la base de datos
+            console.log('🖼️ Mensaje con adjuntos encontrado:', { from, attachments: attachments.length });
+
+            for (const attachment of attachments) {
+              if (attachment.type === 'image' && attachment.payload?.url && from) {
                 const nuevoMensaje: MensajeRedSocial = {
-                  id: `msg-${Date.now()}`,
+                  id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                   plataforma: 'Instagram',
-                  usuario: from || 'unknown',
-                  texto: text,
+                  usuario: from,
+                  texto: 'Imagen recibida',
+                  mediaType: 'image',
+                  mediaUrl: attachment.payload.url,
                   fecha: new Date(timestamp),
                   leido: false,
                   respondido: false,
@@ -894,7 +920,124 @@ export class RedesSocialesController {
                 await database
                   .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
                   .insertOne(nuevoMensaje);
-                console.log('Mensaje de Instagram guardado:', nuevoMensaje);
+                console.log('💾 Imagen de Instagram guardada:', nuevoMensaje);
+
+                // Emitir evento
+                if (global.io) {
+                  global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
+                }
+              }
+            }
+          }
+
+          // Procesar postbacks (cuando usuario hace click en botones)
+          if (messaging.postback) {
+            const from = messaging.sender?.id;
+            const payload = messaging.postback.payload;
+            const timestamp = messaging.timestamp;
+
+            console.log('🔘 Postback recibido:', { from, payload });
+
+            if (from && payload) {
+              const nuevoMensaje: MensajeRedSocial = {
+                id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                plataforma: 'Instagram',
+                usuario: from,
+                texto: `Postback: ${payload}`,
+                fecha: new Date(timestamp),
+                leido: false,
+                respondido: false,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              };
+
+              await database
+                .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+                .insertOne(nuevoMensaje);
+              console.log('💾 Postback de Instagram guardado:', nuevoMensaje);
+            }
+          }
+        }
+
+        // Procesar cambios (formato alternativo - para versiones más antiguas)
+        for (const change of entry.changes || []) {
+          console.log('🔄 Procesando change (formato alternativo):', JSON.stringify(change, null, 2));
+
+          if (change.field === 'messages' && change.value?.messages) {
+            for (const message of change.value.messages) {
+              console.log('📨 Procesando mensaje alternativo:', JSON.stringify(message, null, 2));
+
+              if (message.message?.text) {
+                const from = message.from?.id || message.sender?.id;
+                const text = message.message.text;
+                let timestamp = message.timestamp;
+
+                // Ajustar timestamp si es necesario (algunas versiones envían en segundos)
+                if (timestamp && timestamp < 1e10) {
+                  timestamp = timestamp * 1000;
+                }
+
+                console.log('✅ Mensaje alternativo procesado:', { from, text, timestamp });
+
+                if (from && text) {
+                  const nuevoMensaje: MensajeRedSocial = {
+                    id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    plataforma: 'Instagram',
+                    usuario: from,
+                    texto: text,
+                    fecha: new Date(timestamp),
+                    leido: false,
+                    respondido: false,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                  };
+
+                  await database
+                    .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+                    .insertOne(nuevoMensaje);
+                  console.log('💾 Mensaje alternativo de Instagram guardado:', nuevoMensaje);
+
+                  // Emitir evento
+                  if (global.io) {
+                    global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
+                  }
+                }
+              }
+
+              // Procesar adjuntos en formato alternativo
+              if (message.message?.attachments) {
+                const from = message.from?.id || message.sender?.id;
+                const attachments = message.message.attachments;
+                let timestamp = message.timestamp;
+
+                if (timestamp && timestamp < 1e10) {
+                  timestamp = timestamp * 1000;
+                }
+
+                console.log('🖼️ Adjuntos alternativos encontrados:', { from, attachments: attachments.length });
+
+                for (const attachment of attachments) {
+                  if (attachment.type === 'image' && attachment.payload?.url && from) {
+                    const nuevoMensaje: MensajeRedSocial = {
+                      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                      plataforma: 'Instagram',
+                      usuario: from,
+                      texto: 'Imagen recibida (formato alternativo)',
+                      mediaType: 'image',
+                      mediaUrl: attachment.payload.url,
+                      fecha: new Date(timestamp),
+                      leido: false,
+                      respondido: false,
+                      createdAt: new Date(),
+                      updatedAt: new Date(),
+                    };
+
+                    await database
+                      .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+                      .insertOne(nuevoMensaje);
+                    console.log('💾 Imagen alternativa de Instagram guardada:', nuevoMensaje);
+                  }
+                }
               }
             }
           }
@@ -902,11 +1045,46 @@ export class RedesSocialesController {
       }
 
       // Responder 200 OK a Meta
+      console.log(`✅ Webhook de Instagram procesado exitosamente - ${body.entry?.length || 0} entries procesadas`);
       res.sendStatus(200);
     } catch (error) {
-      console.error('Error procesando webhook de Instagram:', error);
+      console.error('❌ Error procesando webhook de Instagram:', error);
       res.sendStatus(500);
     }
+  }
+
+  // Método para verificar configuración de webhooks
+  async checkWebhookConfig(req: Request, res: Response): Promise<void> {
+    try {
+      const config = {
+        instagram: {
+          webhook_verify_token: process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ? 'CONFIGURADO' : 'NO CONFIGURADO',
+          webhook_url: `${req.protocol}://${req.get('host')}/api/redes-sociales/webhook/instagram`,
+          test_endpoint: `${req.protocol}://${req.get('host')}/api/redes-sociales/test-webhook`
+        },
+        database: {
+          connected: !!(global as any).db,
+          messages_collection_exists: false
+        },
+        socket: {
+          io_available: !!(global as any).io
+        }
+      };
+
+      // Verificar si existe la colección de mensajes
+      try {
+        const collections = await (global as any).db.listCollections().toArray();
+        config.database.messages_collection_exists = collections.some((c: any) => c.name === 'redes-sociales-mensajes');
+      } catch (e) {
+        // Ignorar error
+      }
+
+      res.json(config);
+    } catch (error) {
+      console.error('Error verificando configuración:', error);
+      res.status(500).json({ error: 'Error al verificar configuración' });
+    }
+  }
   }
 }
 
