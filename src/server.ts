@@ -1,4 +1,5 @@
 import express, { Express, Request, Response } from 'express';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import swaggerJsdoc from 'swagger-jsdoc';
@@ -1802,6 +1803,9 @@ app.put('/api/proveedores/:id/factura/:index/comentario', async (req: Request, r
 
 app.use(invalidateCache);
 app.use(withCache(300));
+
+// Servir archivos estáticos desde el directorio uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api/marcas', marcasRoutes);
 app.use('/api/lineas', lineasRoutes);

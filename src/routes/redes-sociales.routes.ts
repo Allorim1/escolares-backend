@@ -7,7 +7,9 @@ import { authenticateToken } from '../middlewares/auth.middleware';
 // Configurar multer para subida de archivos
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../../uploads'));
+    const uploadPath = path.join(__dirname, '../../uploads');
+    console.log('Upload destination:', uploadPath);
+    cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -68,24 +70,45 @@ router.get('/webhook/instagram', (req, res) => redesSocialesController.verifyIns
 router.post('/webhook/instagram', (req, res) => redesSocialesController.webhookInstagram(req, res));
 
 // Subida de archivos multimedia
-router.post('/upload-media', authenticateToken, upload.single('file'), (req, res) => {
-  try {
-    if (!req.file) {
-      res.status(400).json({ error: 'No file uploaded' });
-      return;
+router.post('/upload-media', authenticateToken, (req, res) => {
+  const uploadSingle = upload.single('file');
+
+  uploadSingle(req, res, (err) => {
+    if (err) {
+      console.error('Multer error:', err);
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'File too large. Maximum size is 25MB.' });
+        }
+      }
+      return res.status(400).json({ error: err.message || 'File upload error' });
     }
 
-    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-    res.json({
-      url: fileUrl,
-      filename: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size
-    });
-  } catch (error) {
-    console.error('Error uploading file:', error);
-    res.status(500).json({ error: 'Error uploading file' });
-  }
+    try {
+      if (!req.file) {
+        res.status(400).json({ error: 'No file uploaded' });
+        return;
+      }
+
+      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+      console.log('File uploaded successfully:', {
+        url: fileUrl,
+        filename: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
+
+      res.json({
+        url: fileUrl,
+        filename: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
+    } catch (error) {
+      console.error('Error processing uploaded file:', error);
+      res.status(500).json({ error: 'Error processing uploaded file' });
+    }
+  });
 });
 
 export default router;
