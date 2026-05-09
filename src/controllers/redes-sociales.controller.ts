@@ -1085,7 +1085,6 @@ export class RedesSocialesController {
       res.status(500).json({ error: 'Error al verificar configuración' });
     }
   }
-  }
 }
 
 export const redesSocialesController = new RedesSocialesController();
