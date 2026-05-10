@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Express, Request, Response } from 'express';
 import path from 'path';
 import cors from 'cors';
@@ -47,9 +48,7 @@ const redisUrl = process.env.REDIS_URL || 'redis://redis_shared:6379';
 let redis: Redis | null = null;
 
 try {
-  redis = new Redis({
-    host: 'redis_shared',
-    port: 6379,
+  redis = new Redis(redisUrl, {
     family: 4,
     lazyConnect: true,
     maxRetriesPerRequest: 3,

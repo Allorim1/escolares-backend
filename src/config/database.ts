@@ -22,7 +22,7 @@ class Database {
     if (this._db) return true;
 
     try {
-      this.client = new MongoClient(mongoUrl, { family: 4, connectTimeoutMS: 10000 });
+      this.client = new MongoClient('mongodb://127.0.0.1:27017/main', { family: 4, connectTimeoutMS: 10000 });
       await this.client.connect();
       this._db = this.client.db(DB_NAME);
       dbInstance = this._db;
