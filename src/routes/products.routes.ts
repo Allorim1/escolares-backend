@@ -36,8 +36,22 @@ const crearRegistro = async (database: any, accion: string, modulo: string, desc
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 20;
+    const pageParam = req.query.page as string | undefined;
+    const limitParam = req.query.limit as string | undefined;
+
+    // Si no se envían parámetros de paginación, devolver todos los productos
+    // (la paginación se maneja del lado del frontend)
+    if (!pageParam && !limitParam) {
+      const products = await database.getCollection('products').find({}).toArray();
+      res.json({
+        products,
+        total: products.length
+      });
+      return;
+    }
+
+    const page = parseInt(pageParam || '1');
+    const limit = parseInt(limitParam || '20');
     const skip = (page - 1) * limit;
 
     const [products, total] = await Promise.all([
