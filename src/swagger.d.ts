@@ -1,3 +1,11 @@
+declare global {
+  namespace NodeJS {
+    interface Global {
+      sseClients?: Set<any>;
+    }
+  }
+}
+
 declare module 'swagger-jsdoc' {
   const swaggerJsdoc: (options: any) => object;
   export default swaggerJsdoc;
@@ -55,37 +63,4 @@ declare module 'cors' {
 
   function cors(options?: CorsOptions): (req: Request, res: Response, next: NextFunction) => void;
   export default cors;
-}
-
-declare module 'swagger-ui-express' {
-  import { Express, Request, Response, NextFunction } from 'express';
-
-  interface SwaggerUiOptions {
-    swaggerOptions?: {
-      spec?: object;
-      url?: string;
-      urls?: Array<{ url: string; name: string }>;
-    };
-    customCss?: string;
-    customCssUrl?: string;
-    customJs?: string;
-    customJsStr?: string;
-    customfavIcon?: string;
-    customSiteTitle?: string;
-    docExpansion?: 'list' | 'full' | 'none';
-    filter?: boolean | string;
-    layout?: string;
-  }
-
-  function swaggerUi(
-    spec: object,
-    options?: SwaggerUiOptions,
-  ): (req: Request, res: Response, next: NextFunction) => void;
-
-  namespace swaggerUi {
-    const serve: (req: Request, res: Response, next: NextFunction) => void;
-  }
-
-  export default swaggerUi;
-  export { serve };
 }

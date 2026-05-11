@@ -821,13 +821,13 @@ await database
                 }
 
                 // Emitir evento SSE a todos los clientes conectados
-                if (global.sseClients) {
+                if ((global as any).sseClients) {
                   const data = JSON.stringify({ type: 'nuevo-mensaje', mensaje: nuevoMensaje });
-                  global.sseClients.forEach((client: any) => {
+                  (global as any).sseClients.forEach((client: any) => {
                     try {
                       client.write(`data: ${data}\n\n`);
                     } catch (e) {
-                      global.sseClients.delete(client);
+                      (global as any).sseClients.delete(client);
                     }
                   });
                 }
@@ -904,13 +904,13 @@ await database
                }
 
                // Emitir evento SSE a todos los clientes conectados
-               if (global.sseClients) {
+               if ((global as any).sseClients) {
                  const data = JSON.stringify({ type: 'nuevo-mensaje', mensaje: nuevoMensaje });
-                 global.sseClients.forEach((client: any) => {
+                 (global as any).sseClients.forEach((client: any) => {
                    try {
                      client.write(`data: ${data}\n\n`);
                    } catch (e) {
-                     global.sseClients.delete(client);
+                     (global as any).sseClients.delete(client);
                    }
                  });
                }
@@ -952,13 +952,13 @@ await database
                  }
 
                  // Emitir evento SSE a todos los clientes conectados
-                 if (global.sseClients) {
+                 if ((global as any).sseClients) {
                    const data = JSON.stringify({ type: 'nuevo-mensaje', mensaje: nuevoMensaje });
-                   global.sseClients.forEach((client: any) => {
+                   (global as any).sseClients.forEach((client: any) => {
                      try {
                        client.write(`data: ${data}\n\n`);
                      } catch (e) {
-                       global.sseClients.delete(client);
+                       (global as any).sseClients.delete(client);
                      }
                    });
                  }
