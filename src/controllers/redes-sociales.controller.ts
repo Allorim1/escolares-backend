@@ -810,14 +810,26 @@ export class RedesSocialesController {
                   updatedAt: new Date(),
                 };
 
-                await database
-                  .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
-                  .insertOne(nuevoMensaje);
+await database
+                   .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+                   .insertOne(nuevoMensaje);
                 console.log('Mensaje de WhatsApp guardado:', nuevoMensaje);
 
                 // Emitir evento de nuevo mensaje a todos los administradores conectados
                 if (global.io) {
                   global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
+                }
+
+                // Emitir evento SSE a todos los clientes conectados
+                if (global.sseClients) {
+                  const data = JSON.stringify({ type: 'nuevo-mensaje', mensaje: nuevoMensaje });
+                  global.sseClients.forEach((client: any) => {
+                    try {
+                      client.write(`data: ${data}\n\n`);
+                    } catch (e) {
+                      global.sseClients.delete(client);
+                    }
+                  });
                 }
               }
             }
@@ -881,15 +893,27 @@ export class RedesSocialesController {
                 updatedAt: new Date(),
               };
 
-              await database
-                .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
-                .insertOne(nuevoMensaje);
-              console.log('💾 Mensaje de Instagram guardado:', nuevoMensaje);
+await database
+                 .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+                 .insertOne(nuevoMensaje);
+               console.log('💾 Mensaje de Instagram guardado:', nuevoMensaje);
 
-              // Emitir evento de nuevo mensaje
-              if (global.io) {
-                global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
-              }
+               // Emitir evento de nuevo mensaje
+               if (global.io) {
+                 global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
+               }
+
+               // Emitir evento SSE a todos los clientes conectados
+               if (global.sseClients) {
+                 const data = JSON.stringify({ type: 'nuevo-mensaje', mensaje: nuevoMensaje });
+                 global.sseClients.forEach((client: any) => {
+                   try {
+                     client.write(`data: ${data}\n\n`);
+                   } catch (e) {
+                     global.sseClients.delete(client);
+                   }
+                 });
+               }
             }
           }
 
@@ -917,15 +941,27 @@ export class RedesSocialesController {
                   updatedAt: new Date(),
                 };
 
-                await database
-                  .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
-                  .insertOne(nuevoMensaje);
-                console.log('💾 Imagen de Instagram guardada:', nuevoMensaje);
+await database
+                   .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
+                   .insertOne(nuevoMensaje);
+                 console.log('💾 Imagen de Instagram guardada:', nuevoMensaje);
 
-                // Emitir evento
-                if (global.io) {
-                  global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
-                }
+                 // Emitir evento
+                 if (global.io) {
+                   global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
+                 }
+
+                 // Emitir evento SSE a todos los clientes conectados
+                 if (global.sseClients) {
+                   const data = JSON.stringify({ type: 'nuevo-mensaje', mensaje: nuevoMensaje });
+                   global.sseClients.forEach((client: any) => {
+                     try {
+                       client.write(`data: ${data}\n\n`);
+                     } catch (e) {
+                       global.sseClients.delete(client);
+                     }
+                   });
+                 }
               }
             }
           }
@@ -1053,7 +1089,32 @@ export class RedesSocialesController {
     }
   }
 
-  // Método para verificar configuración de webhooks
+  // Store connected SSE clients
+  private sseClients: Set<any> = new Set();
+
+  // Register SSE client
+  registerSSEClient(res: any): void {
+    this.sseClients.add(res);
+  }
+
+  // Remove SSE client
+  unregisterSSEClient(res: any): void {
+    this.sseClients.delete(res);
+  }
+
+  // Emit message to all SSE clients
+  emitMessageToSSEClients(mensaje: MensajeRedSocial): void {
+    const data = JSON.stringify({ type: 'nuevo-mensaje', mensaje });
+    this.sseClients.forEach(client => {
+      try {
+        client.write(`data: ${data}\n\n`);
+      } catch (e) {
+        this.sseClients.delete(client);
+      }
+    });
+  }
+
+  // Verificar configuración de webhooks
   async checkWebhookConfig(req: Request, res: Response): Promise<void> {
     try {
       const config = {

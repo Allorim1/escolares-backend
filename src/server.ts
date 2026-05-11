@@ -85,6 +85,9 @@ const io = new Server(httpServer, {
 // Attach io to app for access in routes
 app.set('io', io);
 
+// Initialize global SSE clients
+(global as any).sseClients = new Set();
+
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log('Usuario conectado:', socket.id);

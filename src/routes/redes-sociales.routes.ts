@@ -234,4 +234,36 @@ router.post('/upload-media', authenticateToken, (req, res) => {
   });
 });
 
+// Server-Sent Events (SSE) for real-time message updates
+router.get('/events/messages', authenticateToken, (req, res) => {
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  // Add client to the connected set
+  (global as any).sseClients.add(res);
+
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() })}\n\n`);
+
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log('SSE client disconnected');
+    (global as any).sseClients.delete(res);
+  });
+
+  // Keep connection alive with heartbeat
+  const heartbeat = setInterval(() => {
+    res.write(`:\n\n`);
+  }, 30000);
+
+  // Clear heartbeat and remove client on disconnect
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    (global as any).sseClients.delete(res);
+  });
+});
+
 export default router;
