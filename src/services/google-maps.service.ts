@@ -4,6 +4,54 @@ const PLACES_AUTOCOMPLETE_URL = 'https://maps.googleapis.com/maps/api/place/auto
 const GEOCODING_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
 const DIRECTIONS_URL = 'https://maps.googleapis.com/maps/api/directions/json';
 
+interface GoogleMapsResponse {
+  status: string;
+  predictions?: Prediction[];
+  results?: GeocodeResult[];
+  routes?: Route[];
+}
+
+interface Prediction {
+  description: string;
+  place_id: string;
+  structured_formatting: {
+    main_text: string;
+    secondary_text: string;
+  };
+}
+
+interface GeocodeResult {
+  place_id: string;
+  formatted_address: string;
+  geometry: {
+    location: {
+      lat: number;
+      lng: number;
+    };
+  };
+}
+
+interface Route {
+  overview_polyline: {
+    points: string;
+  };
+  legs: Leg[];
+}
+
+interface Leg {
+  distance: { text: string; value: number };
+  duration: { text: string; value: number };
+  steps: Step[];
+}
+
+interface Step {
+  html_instructions: string;
+  distance: { text: string; value: number };
+  duration: { text: string; value: number };
+  start_location: { lat: number; lng: number };
+  end_location: { lat: number; lng: number };
+}
+
 export const googleMapsService = {
   async autocomplete(input: string, sessionToken?: string): Promise<any> {
     if (!GOOGLE_MAPS_API_KEY) {
@@ -22,8 +70,8 @@ export const googleMapsService = {
     }
 
     const response = await fetch(`${PLACES_AUTOCOMPLETE_URL}?${params}`);
-    const data = await response.json();
-    
+    const data = (await response.json()) as GoogleMapsResponse;
+
     if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
       throw new Error(`Places API error: ${data.status}`);
     }
@@ -43,13 +91,17 @@ export const googleMapsService = {
     });
 
     const response = await fetch(`${GEOCODING_URL}?${params}`);
-    const data = await response.json();
+    const data = (await response.json()) as GoogleMapsResponse;
 
     if (data.status !== 'OK') {
       throw new Error(`Geocoding API error: ${data.status}`);
     }
 
-    const result = data.results[0];
+    const result = data.results?.[0];
+    if (!result) {
+      throw new Error('No results found');
+    }
+
     return {
       placeId: result.place_id,
       formattedAddress: result.formatted_address,
@@ -72,13 +124,17 @@ export const googleMapsService = {
     });
 
     const response = await fetch(`${GEOCODING_URL}?${params}`);
-    const data = await response.json();
+    const data = (await response.json()) as GoogleMapsResponse;
 
     if (data.status !== 'OK') {
       throw new Error(`Geocoding API error: ${data.status}`);
     }
 
-    const result = data.results[0];
+    const result = data.results?.[0];
+    if (!result) {
+      throw new Error('No results found');
+    }
+
     return {
       placeId: result.place_id,
       formattedAddress: result.formatted_address,
@@ -107,26 +163,26 @@ export const googleMapsService = {
     });
 
     const response = await fetch(`${DIRECTIONS_URL}?${params}`);
-    const data = await response.json();
+    const data = (await response.json()) as GoogleMapsResponse;
 
     if (data.status !== 'OK') {
       throw new Error(`Directions API error: ${data.status}`);
     }
 
-    const route = data.routes[0];
-    const leg = route.legs[0];
+    const route = data.routes?.[0];
+    const leg = route?.legs?.[0];
 
     return {
-      distance: leg.distance,
-      duration: leg.duration,
-      steps: leg.steps.map((step: any) => ({
+      distance: leg?.distance,
+      duration: leg?.duration,
+      steps: leg?.steps?.map((step) => ({
         instruction: step.html_instructions.replace(/<[^>]*>/g, ''),
         distance: step.distance,
         duration: step.duration,
         startLocation: step.start_location,
         endLocation: step.end_location,
       })),
-      overviewPolyline: route.overview_polyline,
+      overviewPolyline: route?.overview_polyline,
     };
   },
 };

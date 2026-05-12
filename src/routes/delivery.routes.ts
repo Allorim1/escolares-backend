@@ -277,7 +277,7 @@ router.get('/maps/geocode', authenticateToken, async (req: Request, res: Respons
  */
 router.get('/maps/geocode/place/:placeId', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { placeId } = req.params;
+    const placeId = req.params.placeId as string;
     const result = await googleMapsService.geocodePlaceId(placeId);
     res.json(result);
   } catch (error) {
