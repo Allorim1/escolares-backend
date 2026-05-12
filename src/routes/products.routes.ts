@@ -1,6 +1,49 @@
 import express, { Request, Response } from 'express';
 import { database } from '../config/database';
 import { authenticateToken } from '../middlewares/auth.middleware';
+import Redis from 'ioredis';
+
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+let redis: Redis | null = null;
+try {
+  redis = new Redis(redisUrl, {
+    family: 4,
+    lazyConnect: true,
+    maxRetriesPerRequest: 3,
+  });
+} catch (e) {
+  console.log('Redis not available for products cache');
+}
+
+const CACHE_TTL = 600;
+
+const cacheGet = async (key: string): Promise<string | null> => {
+  if (!redis) return null;
+  try {
+    return await redis.get(key);
+  } catch {
+    return null;
+  }
+};
+
+const cacheSet = async (key: string, value: string, ttl: number = CACHE_TTL): Promise<void> => {
+  if (!redis) return;
+  try {
+    await redis.setex(key, ttl, value);
+  } catch (e) {
+    console.log('Cache set error:', e);
+  }
+};
+
+const cacheDeletePattern = async (pattern: string): Promise<void> => {
+  if (!redis) return;
+  try {
+    const keys = await redis.keys(pattern);
+    if (keys.length > 0) {
+      await redis.del(...keys);
+    }
+  } catch {}
+};
 
 const router = express.Router();
 
@@ -38,15 +81,25 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const pageParam = req.query.page as string | undefined;
     const limitParam = req.query.limit as string | undefined;
+    
+    const cacheKey = `products:${pageParam || 'all'}:${limitParam || 'all'}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      res.header('X-Cache', 'HIT');
+      return res.json(JSON.parse(cached));
+    }
 
     // Si no se envían parámetros de paginación, devolver todos los productos
     // (la paginación se maneja del lado del frontend)
     if (!pageParam && !limitParam) {
       const products = await database.getCollection('products').find({}).toArray();
-      res.json({
+      const result = {
         products,
         total: products.length
-      });
+      };
+      await cacheSet(cacheKey, JSON.stringify(result), CACHE_TTL);
+      res.header('X-Cache', 'MISS');
+      res.json(result);
       return;
     }
 
@@ -59,7 +112,7 @@ router.get('/', async (req: Request, res: Response) => {
       database.getCollection('products').countDocuments()
     ]);
 
-    res.json({
+    const result = {
       products,
       pagination: {
         page,
@@ -67,7 +120,11 @@ router.get('/', async (req: Request, res: Response) => {
         total,
         totalPages: Math.ceil(total / limit)
       }
-    });
+    };
+    
+    await cacheSet(cacheKey, JSON.stringify(result), CACHE_TTL);
+    res.header('X-Cache', 'MISS');
+    res.json(result);
   } catch (error) {
     console.error('Error getting products:', error);
     res.status(500).json({ error: 'Error al obtener productos' });
@@ -77,10 +134,21 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    
+    const cacheKey = `product:${id}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      res.header('X-Cache', 'HIT');
+      return res.json(JSON.parse(cached));
+    }
+    
     const product = await database.getCollection('products').findOne({ id: id });
     if (!product) {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
+    
+    await cacheSet(cacheKey, JSON.stringify(product), CACHE_TTL);
+    res.header('X-Cache', 'MISS');
     res.json(product);
   } catch (error) {
     console.error('Error getting product:', error);
@@ -135,6 +203,10 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     
     await crearRegistro(database, 'Creación', 'Productos', `Producto creado: ${title}`, { producto: newProduct }, usuario);
     
+    // Invalidate product caches after successful operations
+    await cacheDeletePattern('products:*');
+    await cacheDeletePattern('product:*');
+    
     res.status(201).json(newProduct);
   } catch (error) {
     console.error('Error creating product:', error);
@@ -177,6 +249,11 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
     
     const updated = await database.getCollection('products').findOne({ id });
     
+    // Invalidate product caches
+    await cacheDeletePattern('products:*');
+    await cacheDeletePattern(`product:${id}`);
+    await cacheDeletePattern('req:/api/products*');
+    
     await crearRegistro(database, 'Modificación', 'Productos', `Producto modificado: ${title}`, { productoAnterior, productoNuevo: updated }, usuario);
     
     res.json(updated);
@@ -194,6 +271,11 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
     const productoEliminado = await database.getCollection('products').findOne({ id });
     
     await database.getCollection('products').deleteOne({ id });
+    
+    // Invalidate product caches
+    await cacheDeletePattern('products:*');
+    await cacheDeletePattern(`product:${id}`);
+    await cacheDeletePattern('req:/api/products*');
     
     if (productoEliminado) {
       await crearRegistro(database, 'Eliminación', 'Productos', `Producto eliminado: ${productoEliminado.title}`, { producto: productoEliminado }, usuario);

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { database } from '../config/database';
-import { DeliveryPerson } from '../models';
+import { DeliveryPerson, Order } from '../models';
+import { googleMapsService } from '../services/google-maps.service';
 
 const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
   const db = database.db;
@@ -146,6 +147,95 @@ export class DeliveryController {
     } catch (error) {
       console.error('Error deleting delivery person:', error);
       res.status(500).json({ error: 'Error al eliminar repartidor' });
+    }
+  }
+
+  async updateLocation(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { lat, lng } = req.body;
+
+      if (typeof lat !== 'number' || typeof lng !== 'number') {
+        res.status(400).json({ error: 'Latitud y longitud son requeridas' });
+        return;
+      }
+
+      const updateData = {
+        ultimaUbicacion: {
+          lat,
+          lng,
+          timestamp: new Date(),
+        },
+        updatedAt: new Date(),
+      };
+
+      const result = await database
+        .getCollection<DeliveryPerson>('deliveryPersons')
+        .findOneAndUpdate(
+          { id },
+          { $set: updateData },
+          { returnDocument: 'after' },
+        );
+
+      if (!result) {
+        res.status(404).json({ error: 'Repartidor no encontrado' });
+        return;
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error updating delivery person location:', error);
+      res.status(500).json({ error: 'Error al actualizar ubicación' });
+    }
+  }
+
+  async getOrderTracking(req: Request, res: Response): Promise<void> {
+    try {
+      const { orderId } = req.params;
+
+      const order = await database.getCollection<Order>('orders').findOne({ id: orderId });
+      if (!order) {
+        res.status(404).json({ error: 'Pedido no encontrado' });
+        return;
+      }
+
+      const deliveryPerson = order.deliveryPersonId
+        ? await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: order.deliveryPersonId })
+        : null;
+
+      let directions = null;
+      if (deliveryPerson?.ultimaUbicacion && order.latitud && order.longitud) {
+        try {
+          directions = await googleMapsService.getDirections(
+            { lat: deliveryPerson.ultimaUbicacion.lat, lng: deliveryPerson.ultimaUbicacion.lng },
+            { lat: order.latitud, lng: order.longitud },
+          );
+        } catch (e) {
+          console.log('Error getting directions:', e);
+        }
+      }
+
+      res.json({
+        order: {
+          id: order.id,
+          direccion: order.direccion,
+          direccionCompleta: order.direccionCompleta,
+          latitud: order.latitud,
+          longitud: order.longitud,
+          status: order.status,
+        },
+        deliveryPerson: deliveryPerson
+          ? {
+              id: deliveryPerson.id,
+              nombre: deliveryPerson.nombre,
+              ultimaUbicacion: deliveryPerson.ultimaUbicacion,
+            }
+          : null,
+        directions,
+      });
+    } catch (error) {
+      console.error('Error getting order tracking:', error);
+      res.status(500).json({ error: 'Error al obtener seguimiento' });
     }
   }
 }

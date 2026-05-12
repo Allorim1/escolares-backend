@@ -114,7 +114,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
-    const { items, total, nombre, cedula, telefono, direccion, metodoPago, referencia, fotoComprobante, bancoEmisor, cedulaTitular, correo } = req.body;
+    const { items, total, nombre, cedula, telefono, direccion, placeId, direccionCompleta, latitud, longitud, metodoPago, referencia, fotoComprobante, bancoEmisor, cedulaTitular, correo } = req.body;
 
     if (!userId) {
       res.status(401).json({ error: 'No autorizado' });
@@ -135,6 +135,11 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       cedula,
       telefono,
       direccion,
+      // Google Maps fields
+      placeId: placeId || '',
+      direccionCompleta: direccionCompleta || direccion,
+      latitud: latitud || 0,
+      longitud: longitud || 0,
       metodoPago,
       referencia,
       fotoComprobante: fotoComprobante || '',
@@ -155,7 +160,6 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     await database.getCollection<Order>('orders').insertOne(newOrder);
 
-    // Emitir notificación de compra a todos los usuarios conectados
     const io = req.app.get('io');
     if (io) {
       emitirNotificacionCompra(io, newOrder);

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { lineasController } from '../controllers/lineas.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { authenticateToken, requireRoot } from '../middlewares/auth.middleware';
 
 const router = Router();
 
@@ -65,7 +65,7 @@ router.get('/:id', (req: Request, res: Response) => lineasController.getById(req
  *       201:
  *         description: Línea creada
  */
-router.post('/', authenticateToken, (req: Request, res: Response) =>
+router.post('/', authenticateToken, requireRoot, (req: Request, res: Response) =>
   lineasController.create(req, res),
 );
 
@@ -87,7 +87,7 @@ router.post('/', authenticateToken, (req: Request, res: Response) =>
  *       404:
  *         description: Línea no encontrada
  */
-router.put('/:id', authenticateToken, (req: Request, res: Response) =>
+router.put('/:id', authenticateToken, requireRoot, (req: Request, res: Response) =>
   lineasController.update(req, res),
 );
 
@@ -107,7 +107,7 @@ router.put('/:id', authenticateToken, (req: Request, res: Response) =>
  *       204:
  *         description: Línea eliminada
  */
-router.delete('/:id', authenticateToken, (req: Request, res: Response) =>
+router.delete('/:id', authenticateToken, requireRoot, (req: Request, res: Response) =>
   lineasController.delete(req, res),
 );
 
@@ -136,7 +136,7 @@ router.delete('/:id', authenticateToken, (req: Request, res: Response) =>
  *       200:
  *         description: Producto añadido
  */
-router.post('/:id/products', authenticateToken, (req: Request, res: Response) =>
+router.post('/:id/products', authenticateToken, requireRoot, (req: Request, res: Response) =>
   lineasController.addProduct(req, res),
 );
 
@@ -165,7 +165,7 @@ router.post('/:id/products', authenticateToken, (req: Request, res: Response) =>
  *       200:
  *         description: Producto eliminado
  */
-router.delete('/:id/products', authenticateToken, (req: Request, res: Response) =>
+router.delete('/:id/products', authenticateToken, requireRoot, (req: Request, res: Response) =>
   lineasController.removeProduct(req, res),
 );
 

@@ -61,3 +61,16 @@ export const optionalAuth = async (
     next();
   }
 };
+
+export const requireRoot = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): void => {
+  const userRol = (req as any).userRol;
+  if (userRol !== 'root') {
+    res.status(403).json({ error: 'Solo el usuario root puede acceder a esta sección' });
+    return;
+  }
+  next();
+};

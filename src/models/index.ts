@@ -115,7 +115,13 @@ export interface Order {
   nombre: string;
   cedula: string;
   telefono: string;
+  // Legacy text address (mantener compatibilidad)
   direccion: string;
+  // Google Maps fields
+  placeId?: string;
+  direccionCompleta?: string;
+  latitud?: number;
+  longitud?: number;
   metodoPago: string;
   referencia: string;
   fotoComprobante?: string;
@@ -129,6 +135,13 @@ export interface Order {
   autorizadoNombre?: string;
   deliveryPersonId?: string;
   deliveryPersonName?: string;
+  // Real-time tracking fields
+  repartidorUbicacion?: {
+    lat: number;
+    lng: number;
+    timestamp: Date;
+  };
+  tiempoEstimadoLlegada?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -178,6 +191,16 @@ export interface DeliveryPerson {
   nombre: string;
   telefono?: string;
   activo: boolean;
+  // Google Maps fields
+  placeId?: string;
+  direccionCompleta?: string;
+  latitud?: number;
+  longitud?: number;
+  ultimaUbicacion?: {
+    lat: number;
+    lng: number;
+    timestamp: Date;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

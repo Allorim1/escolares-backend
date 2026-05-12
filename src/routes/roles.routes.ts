@@ -69,9 +69,11 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
   { id: 'inicio_gestionar', nombre: 'Gestionar Inicio', descripcion: 'Puede gestionar página de inicio', modulo: 'panel_web' },
   
   // Panel Web - Catálogo
-  { id: 'productos_gestionar', nombre: 'Gestionar Productos', descripcion: 'Puede gestionar productos', modulo: 'panel_web' },
-  { id: 'marcas_ver', nombre: 'Ver Marcas', descripcion: 'Puede ver marcas', modulo: 'panel_web' },
-  { id: 'lineas_ver', nombre: 'Ver Líneas', descripcion: 'Puede ver líneas', modulo: 'panel_web' },
+{ id: 'productos_gestionar', nombre: 'Gestionar Productos', descripcion: 'Puede gestionar productos', modulo: 'panel_web' },
+   { id: 'marcas_ver', nombre: 'Ver Marcas', descripcion: 'Puede ver marcas', modulo: 'panel_web' },
+   { id: 'marcas_gestionar', nombre: 'Gestionar Marcas', descripcion: 'Puede agregar, editar y eliminar marcas', modulo: 'panel_web' },
+   { id: 'lineas_ver', nombre: 'Ver Líneas', descripcion: 'Puede ver líneas', modulo: 'panel_web' },
+   { id: 'lineas_gestionar', nombre: 'Gestionar Líneas', descripcion: 'Puede agregar, editar y eliminar líneas', modulo: 'panel_web' },
   { id: 'ofertas_ver', nombre: 'Ver Ofertas', descripcion: 'Puede ver ofertas', modulo: 'panel_web' },
   { id: 'producto_categorias_ver', nombre: 'Ver Categorías de Productos', descripcion: 'Puede ver categorías de productos', modulo: 'panel_web' },
   { id: 'producto_categorias_gestionar', nombre: 'Gestionar Categorías de Productos', descripcion: 'Puede gestionar categorías de productos', modulo: 'panel_web' },
