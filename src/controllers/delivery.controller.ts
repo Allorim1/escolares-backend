@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { database } from '../config/database';
 import { DeliveryPerson, Order } from '../models';
 import { googleMapsService } from '../services/google-maps.service';
-import bcrypt from 'bcryptjs';
+import argon2 from 'argon2';
 
 const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
   const db = database.db;
@@ -83,23 +83,28 @@ export class DeliveryController {
           return;
         }
 
-        const repartidorRol = await database.getCollection('roles').findOne({ nombre: 'repartidor' });
+const repartidorRol = await database.getCollection('roles').findOne({ nombre: 'repartidor' });
         const rolId = repartidorRol?.id || '';
 
-const newUser = {
-           id: Date.now().toString() + '-user',
-           username,
-           email,
-           password: bcrypt.hashSync(password, 10),
-           isAdmin: false,
-           rol: 'repartidor',
-           rolId,
-           deliveryPersonId: newDeliveryPerson.id,
-           nombreCompleto: nombre,
-           telefono: telefono || '',
-           createdAt: new Date(),
-           updatedAt: new Date(),
-         };
+        const newUser = {
+          id: Date.now().toString() + '-user',
+          username,
+          email,
+          password: await argon2.hash(password, {
+            type: argon2.argon2id,
+            memoryCost: 65536,
+            timeCost: 3,
+            parallelism: 4,
+          }),
+          isAdmin: false,
+          rol: 'repartidor',
+          rolId,
+          deliveryPersonId: newDeliveryPerson.id,
+          nombreCompleto: nombre,
+          telefono: telefono || '',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
 
         await database.getCollection('users').insertOne(newUser);
         newDeliveryPerson.userId = newUser.id;
