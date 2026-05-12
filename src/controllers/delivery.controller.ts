@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { database } from '../config/database';
 import { DeliveryPerson, Order } from '../models';
 import { googleMapsService } from '../services/google-maps.service';
+import bcrypt from 'bcryptjs';
 
 const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
   const db = database.db;
@@ -50,7 +51,7 @@ export class DeliveryController {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      const { nombre, telefono, activo } = req.body;
+      const { nombre, telefono, activo, createLogin } = req.body;
       if (!nombre) {
         res.status(400).json({ error: 'El nombre es requerido' });
         return;
@@ -68,6 +69,45 @@ export class DeliveryController {
       await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
 
       await crearRegistro('Creación', 'Repartidores', `Repartidor creado: ${nombre}`, { repartidor: newDeliveryPerson }, usuario);
+
+      if (createLogin) {
+        const { username, email, password } = createLogin;
+        if (!username || !email || !password) {
+          res.status(400).json({ error: 'Username, email y password son requeridos para crear login' });
+          return;
+        }
+
+        const existingUser = await database.getCollection('users').findOne({ $or: [{ username }, { email }] });
+        if (existingUser) {
+          res.status(400).json({ error: 'Username o email ya existe' });
+          return;
+        }
+
+        const repartidorRol = await database.getCollection('roles').findOne({ nombre: 'repartidor' });
+        const rolId = repartidorRol?.id || '';
+
+const newUser = {
+           id: Date.now().toString() + '-user',
+           username,
+           email,
+           password: bcrypt.hashSync(password, 10),
+           isAdmin: false,
+           rol: 'repartidor',
+           rolId,
+           deliveryPersonId: newDeliveryPerson.id,
+           nombreCompleto: nombre,
+           telefono: telefono || '',
+           createdAt: new Date(),
+           updatedAt: new Date(),
+         };
+
+        await database.getCollection('users').insertOne(newUser);
+        newDeliveryPerson.userId = newUser.id;
+        await database.getCollection<DeliveryPerson>('deliveryPersons').updateOne(
+          { id: newDeliveryPerson.id },
+          { $set: { userId: newUser.id } }
+        );
+      }
 
       res.status(201).json(newDeliveryPerson);
     } catch (error) {

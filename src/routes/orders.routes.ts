@@ -415,14 +415,33 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
   }
 });
 
-// Obtener pedidos asignados a repartidor
+// Obtener pedidos asignados a repartidor (autenticado) o por deliveryPersonId
 router.get('/delivery/assigned', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { status } = req.query;
-    const filter: any = { deliveryPersonId: { $exists: true, $ne: null } };
+    const { status, deliveryPersonId } = req.query;
+    const userId = req.user?.userId;
+    const userRol = req.user?.rol;
+    
+    let filter: any = {};
+    
+    // Si es repartidor, solo ver sus propios pedidos
+    if (userRol === 'repartidor') {
+      const user = await database.getCollection('users').findOne({ id: userId });
+      if (!user?.deliveryPersonId) {
+        res.status(403).json({ error: 'No estás vinculado a un repartidor' });
+        return;
+      }
+      filter.deliveryPersonId = user.deliveryPersonId;
+    } else if (deliveryPersonId) {
+      filter.deliveryPersonId = deliveryPersonId;
+    } else {
+      filter.deliveryPersonId = { $exists: true, $ne: null };
+    }
+    
     if (status) {
       filter.status = status;
     }
+    
     const orders = await database.getCollection<Order>('orders')
       .find(filter)
       .sort({ createdAt: -1 })

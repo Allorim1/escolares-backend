@@ -63,14 +63,27 @@ export const optionalAuth = async (
 };
 
 export const requireRoot = (
-  req: AuthRequest,
-  res: Response,
-  next: NextFunction,
-): void => {
-  const userRol = req.user?.rol || (req as any).userRol;
-  if (userRol !== 'root') {
-    res.status(403).json({ error: 'Solo el usuario root puede acceder a esta sección' });
-    return;
-  }
-  next();
-};
+   req: AuthRequest,
+   res: Response,
+   next: NextFunction,
+ ): void => {
+   const userRol = req.user?.rol || (req as any).userRol;
+   if (userRol !== 'root') {
+     res.status(403).json({ error: 'Solo el usuario root puede acceder a esta sección' });
+     return;
+   }
+   next();
+ };
+
+export const requireDelivery = (
+   req: AuthRequest,
+   res: Response,
+   next: NextFunction,
+ ): void => {
+   const userRol = req.user?.rol || (req as any).userRol;
+   if (userRol !== 'repartidor') {
+     res.status(403).json({ error: 'Solo los repartidores pueden acceder a esta sección' });
+     return;
+   }
+   next();
+ };

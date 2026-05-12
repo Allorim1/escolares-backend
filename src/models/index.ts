@@ -20,26 +20,27 @@ export interface Oferta {
 }
 
 export interface User {
-  _id?: string;
-  id: string;
-  username: string;
-  email: string;
-  password?: string;
-  isAdmin: boolean;
-  isOwner?: boolean;
-  rol?: 'root' | 'owner' | 'usuario';
-  rolId?: string;
-  nombreCompleto?: string;
-  apellido?: string;
-  direccion?: string;
-  telefono?: string;
-  cedula?: string;
-  tipoPersona?: 'natural' | 'juridica';
-  comentarios?: string;
-  direcciones?: Direccion[];
-  metodosPago?: MetodoPago[];
-  supervisorKey?: string;
-}
+   _id?: string;
+   id: string;
+   username: string;
+   email: string;
+   password?: string;
+   isAdmin: boolean;
+   isOwner?: boolean;
+   rol?: 'root' | 'owner' | 'usuario' | 'repartidor';
+   rolId?: string;
+   deliveryPersonId?: string;
+   nombreCompleto?: string;
+   apellido?: string;
+   direccion?: string;
+   telefono?: string;
+   cedula?: string;
+   tipoPersona?: 'natural' | 'juridica';
+   comentarios?: string;
+   direcciones?: Direccion[];
+   metodosPago?: MetodoPago[];
+   supervisorKey?: string;
+ }
 
 export interface Direccion {
   id: string;
@@ -186,24 +187,25 @@ export interface CategoriaMenu {
 }
 
 export interface DeliveryPerson {
-  _id?: string;
-  id: string;
-  nombre: string;
-  telefono?: string;
-  activo: boolean;
-  // Google Maps fields
-  placeId?: string;
-  direccionCompleta?: string;
-  latitud?: number;
-  longitud?: number;
-  ultimaUbicacion?: {
-    lat: number;
-    lng: number;
-    timestamp: Date;
-  };
-  createdAt: Date;
-  updatedAt: Date;
-}
+   _id?: string;
+   id: string;
+   nombre: string;
+   telefono?: string;
+   activo: boolean;
+   userId?: string;
+   // Google Maps fields
+   placeId?: string;
+   direccionCompleta?: string;
+   latitud?: number;
+   longitud?: number;
+   ultimaUbicacion?: {
+     lat: number;
+     lng: number;
+     timestamp: Date;
+   };
+   createdAt: Date;
+   updatedAt: Date;
+ }
 
 export interface CategoriaItem {
   label: string;
