@@ -58,6 +58,8 @@ router.get('/:id', authenticateToken, (req: Request, res: Response) => deliveryC
  *             type: object
  *             required:
  *               - nombre
+ *               - email
+ *               - password
  *             properties:
  *               nombre:
  *                 type: string
@@ -65,6 +67,10 @@ router.get('/:id', authenticateToken, (req: Request, res: Response) => deliveryC
  *                 type: string
  *               activo:
  *                 type: boolean
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
  *     responses:
  *       201:
  *         description: Repartidor creado

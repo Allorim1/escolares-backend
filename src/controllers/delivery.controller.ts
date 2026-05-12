@@ -117,10 +117,10 @@ export class DeliveryController {
     }
   }
 
-  async update(req: Request, res: Response): Promise<void> {
+async update(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      const { nombre, telefono, activo } = req.body;
+      const { nombre, telefono, activo, email, password } = req.body;
 
       const deliveryPersonAnterior = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: req.params.id });
       if (!deliveryPersonAnterior) {
@@ -148,8 +148,41 @@ export class DeliveryController {
         return;
       }
 
+      // Update user credentials if email/password provided
+      if (email || password) {
+        const userUpdate: any = {};
+        let needsUpdate = false;
+
+        if (email) {
+          const existingUser = await database.getCollection('users').findOne({ email });
+          if (existingUser && existingUser.id !== result.userId) {
+            res.status(400).json({ error: 'Email ya existe' });
+            return;
+          }
+          userUpdate.email = email;
+          userUpdate.username = email;
+          needsUpdate = true;
+        }
+        if (password) {
+          userUpdate.password = await argon2.hash(password, {
+            type: argon2.argon2id,
+            memoryCost: 65536,
+            timeCost: 3,
+            parallelism: 4,
+          });
+          needsUpdate = true;
+        }
+
+        if (needsUpdate && result.userId) {
+          await database.getCollection('users').updateOne(
+            { id: result.userId },
+            { $set: userUpdate }
+          );
+        }
+      }
+
       await crearRegistro('Modificación', 'Repartidores', `Repartidor modificado: ${nombre || deliveryPersonAnterior.nombre}`, 
-        { repartidorAnterior: deliveryPersonAnterior, repartidorNuevo: result }, usuario);
+        { repartidorAnterior: deliveryPersonAnterior, repartidorNuevo: result, cambiosUsuario: { email, password: password ? '***' : undefined } }, usuario);
 
       res.json(result);
     } catch (error) {
