@@ -81,31 +81,17 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const pageParam = req.query.page as string | undefined;
     const limitParam = req.query.limit as string | undefined;
-    
-    const cacheKey = `products:${pageParam || 'all'}:${limitParam || 'all'}`;
+
+    const page = parseInt(pageParam || '1');
+    const limit = parseInt(limitParam || '50');
+    const skip = (page - 1) * limit;
+
+    const cacheKey = `products:${page}:${limit}`;
     const cached = await cacheGet(cacheKey);
     if (cached) {
       res.header('X-Cache', 'HIT');
       return res.json(JSON.parse(cached));
     }
-
-    // Si no se envían parámetros de paginación, devolver todos los productos
-    // (la paginación se maneja del lado del frontend)
-    if (!pageParam && !limitParam) {
-      const products = await database.getCollection('products').find({}).toArray();
-      const result = {
-        products,
-        total: products.length
-      };
-      await cacheSet(cacheKey, JSON.stringify(result), CACHE_TTL);
-      res.header('X-Cache', 'MISS');
-      res.json(result);
-      return;
-    }
-
-    const page = parseInt(pageParam || '1');
-    const limit = parseInt(limitParam || '20');
-    const skip = (page - 1) * limit;
 
     const [products, total] = await Promise.all([
       database.getCollection('products').find({}).skip(skip).limit(limit).toArray(),

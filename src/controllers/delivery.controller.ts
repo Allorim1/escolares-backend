@@ -51,9 +51,13 @@ export class DeliveryController {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      const { nombre, telefono, activo, createLogin } = req.body;
+      const { nombre, telefono, activo, email, password } = req.body;
       if (!nombre) {
         res.status(400).json({ error: 'El nombre es requerido' });
+        return;
+      }
+      if (!email || !password) {
+        res.status(400).json({ error: 'Email y password son requeridos para crear el repartidor' });
         return;
       }
 
@@ -70,49 +74,41 @@ export class DeliveryController {
 
       await crearRegistro('Creación', 'Repartidores', `Repartidor creado: ${nombre}`, { repartidor: newDeliveryPerson }, usuario);
 
-      if (createLogin) {
-        const { username, email, password } = createLogin;
-        if (!username || !email || !password) {
-          res.status(400).json({ error: 'Username, email y password son requeridos para crear login' });
-          return;
-        }
-
-        const existingUser = await database.getCollection('users').findOne({ $or: [{ username }, { email }] });
-        if (existingUser) {
-          res.status(400).json({ error: 'Username o email ya existe' });
-          return;
-        }
-
-const repartidorRol = await database.getCollection('roles').findOne({ nombre: 'repartidor' });
-        const rolId = repartidorRol?.id || '';
-
-        const newUser = {
-          id: Date.now().toString() + '-user',
-          username,
-          email,
-          password: await argon2.hash(password, {
-            type: argon2.argon2id,
-            memoryCost: 65536,
-            timeCost: 3,
-            parallelism: 4,
-          }),
-          isAdmin: false,
-          rol: 'repartidor',
-          rolId,
-          deliveryPersonId: newDeliveryPerson.id,
-          nombreCompleto: nombre,
-          telefono: telefono || '',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-
-        await database.getCollection('users').insertOne(newUser);
-        newDeliveryPerson.userId = newUser.id;
-        await database.getCollection<DeliveryPerson>('deliveryPersons').updateOne(
-          { id: newDeliveryPerson.id },
-          { $set: { userId: newUser.id } }
-        );
+      const existingUser = await database.getCollection('users').findOne({ $or: [{ username: email }, { email }] });
+      if (existingUser) {
+        res.status(400).json({ error: 'Email ya existe' });
+        return;
       }
+
+      const repartidorRol = await database.getCollection('roles').findOne({ nombre: 'repartidor' });
+      const rolId = repartidorRol?.id || '';
+
+      const newUser = {
+        id: Date.now().toString() + '-user',
+        username: email,
+        email,
+        password: await argon2.hash(password, {
+          type: argon2.argon2id,
+          memoryCost: 65536,
+          timeCost: 3,
+          parallelism: 4,
+        }),
+        isAdmin: false,
+        rol: 'repartidor',
+        rolId,
+        deliveryPersonId: newDeliveryPerson.id,
+        nombreCompleto: nombre,
+        telefono: telefono || '',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      await database.getCollection('users').insertOne(newUser);
+      newDeliveryPerson.userId = newUser.id;
+      await database.getCollection<DeliveryPerson>('deliveryPersons').updateOne(
+        { id: newDeliveryPerson.id },
+        { $set: { userId: newUser.id } }
+      );
 
       res.status(201).json(newDeliveryPerson);
     } catch (error) {
