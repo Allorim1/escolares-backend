@@ -47,10 +47,10 @@ export class LineasController {
 
   async create(req: Request, res: Response): Promise<void> {
     try {
-      const userRol = (req as any).userRol;
-      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      if (userRol !== 'owner') {
-        res.status(403).json({ error: 'Solo el owner puede crear líneas' });
+      const userRol = req.user?.rol || (req as any).userRol;
+      const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+      if (userRol !== 'root') {
+        res.status(403).json({ error: 'Solo el root puede crear líneas' });
         return;
       }
 
@@ -79,10 +79,10 @@ export class LineasController {
 
   async update(req: Request, res: Response): Promise<void> {
     try {
-      const userRol = (req as any).userRol;
-      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      if (userRol !== 'owner') {
-        res.status(403).json({ error: 'Solo el owner puede modificar líneas' });
+      const userRol = req.user?.rol || (req as any).userRol;
+      const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+      if (userRol !== 'root') {
+        res.status(403).json({ error: 'Solo el root puede modificar líneas' });
         return;
       }
 
@@ -111,10 +111,10 @@ export class LineasController {
 
   async delete(req: Request, res: Response): Promise<void> {
     try {
-      const userRol = (req as any).userRol;
-      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      if (userRol !== 'owner') {
-        res.status(403).json({ error: 'Solo el owner puede eliminar líneas' });
+      const userRol = req.user?.rol || (req as any).userRol;
+      const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+      if (userRol !== 'root') {
+        res.status(403).json({ error: 'Solo el root puede eliminar líneas' });
         return;
       }
 
@@ -137,9 +137,9 @@ export class LineasController {
 
   async addProduct(req: Request, res: Response): Promise<void> {
     try {
-      const userRol = (req as any).userRol;
-      if (userRol !== 'owner') {
-        res.status(403).json({ error: 'Solo el owner puede añadir productos a líneas' });
+      const userRol = req.user?.rol || (req as any).userRol;
+      if (userRol !== 'root') {
+        res.status(403).json({ error: 'Solo el root puede añadir productos a líneas' });
         return;
       }
 
@@ -164,9 +164,9 @@ export class LineasController {
 
   async removeProduct(req: Request, res: Response): Promise<void> {
     try {
-      const userRol = (req as any).userRol;
-      if (userRol !== 'owner') {
-        res.status(403).json({ error: 'Solo el owner puede eliminar productos de líneas' });
+      const userRol = req.user?.rol || (req as any).userRol;
+      if (userRol !== 'root') {
+        res.status(403).json({ error: 'Solo el root puede eliminar productos de líneas' });
         return;
       }
 

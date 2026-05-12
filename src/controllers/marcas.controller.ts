@@ -48,10 +48,10 @@ export class MarcasController {
 
   async create(req: Request, res: Response): Promise<void> {
     try {
-      const userRol = (req as any).userRol;
-      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      if (userRol !== 'owner') {
-        res.status(403).json({ error: 'Solo el owner puede crear marcas' });
+      const userRol = req.user?.rol || (req as any).userRol;
+      const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+      if (userRol !== 'root') {
+        res.status(403).json({ error: 'Solo el root puede crear marcas' });
         return;
       }
 
@@ -79,10 +79,10 @@ export class MarcasController {
 
   async update(req: Request, res: Response): Promise<void> {
     try {
-      const userRol = (req as any).userRol;
-      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      if (userRol !== 'owner') {
-        res.status(403).json({ error: 'Solo el owner puede modificar marcas' });
+      const userRol = req.user?.rol || (req as any).userRol;
+      const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+      if (userRol !== 'root') {
+        res.status(403).json({ error: 'Solo el root puede modificar marcas' });
         return;
       }
 
@@ -111,10 +111,10 @@ export class MarcasController {
 
   async delete(req: Request, res: Response): Promise<void> {
     try {
-      const userRol = (req as any).userRol;
-      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      if (userRol !== 'owner') {
-        res.status(403).json({ error: 'Solo el owner puede eliminar marcas' });
+      const userRol = req.user?.rol || (req as any).userRol;
+      const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+      if (userRol !== 'root') {
+        res.status(403).json({ error: 'Solo el root puede eliminar marcas' });
         return;
       }
 

@@ -67,7 +67,7 @@ export const requireRoot = (
   res: Response,
   next: NextFunction,
 ): void => {
-  const userRol = (req as any).userRol;
+  const userRol = req.user?.rol || (req as any).userRol;
   if (userRol !== 'root') {
     res.status(403).json({ error: 'Solo el usuario root puede acceder a esta sección' });
     return;
