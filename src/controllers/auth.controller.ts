@@ -661,6 +661,133 @@ export class AuthController {
       res.status(500).json({ error: 'Error al actualizar contraseña' });
     }
   }
+
+  async recoverUsername(req: Request, res: Response): Promise<void> {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        res.status(400).json({ error: 'El email es requerido' });
+        return;
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+      const user = await database.getCollection<User>('users').findOne({ email: normalizedEmail });
+
+      if (!user) {
+        res.status(404).json({ error: 'No se encontró ningún usuario con ese email' });
+        return;
+      }
+
+      res.json({ username: user.username, message: 'Usuario encontrado' });
+    } catch (error) {
+      console.error('Error al recuperar usuario:', error);
+      res.status(500).json({ error: 'Error al recuperar usuario' });
+    }
+  }
+
+  async sendOtpForPasswordReset(req: Request, res: Response): Promise<void> {
+    try {
+      const { usernameOrEmail } = req.body;
+
+      if (!usernameOrEmail) {
+        res.status(400).json({ error: 'Usuario o email son requeridos' });
+        return;
+      }
+
+      const identifier = usernameOrEmail.toLowerCase().trim();
+      const user = await database.getCollection<User>('users').findOne({
+        $or: [
+          { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${identifier}$`, 'i') } }
+        ],
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+      await database.getCollection('passwordResetOtp').updateOne(
+        { userId: user.id },
+        { $set: { otp, expiresAt, userId: user.id, used: false } },
+        { upsert: true }
+      );
+
+      console.log(`OTP for ${user.email}: ${otp}`);
+
+      res.json({ message: 'OTP enviado al correo', email: user.email });
+    } catch (error) {
+      console.error('Error al enviar OTP:', error);
+      res.status(500).json({ error: 'Error al enviar OTP' });
+    }
+  }
+
+  async verifyOtpAndResetPassword(req: Request, res: Response): Promise<void> {
+    try {
+      const { email, otp, newPassword } = req.body;
+
+      if (!email || !otp || !newPassword) {
+        res.status(400).json({ error: 'Email, OTP y nueva contraseña son requeridos' });
+        return;
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+      const user = await database.getCollection<User>('users').findOne({ email: normalizedEmail });
+
+      if (!user) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+
+      const otpRecord = await database.getCollection('passwordResetOtp').findOne({ userId: user.id });
+
+      if (!otpRecord) {
+        res.status(400).json({ error: 'OTP no encontrado' });
+        return;
+      }
+
+      if (otpRecord.used) {
+        res.status(400).json({ error: 'OTP ya utilizado' });
+        return;
+      }
+
+      if (new Date() > otpRecord.expiresAt) {
+        res.status(400).json({ error: 'OTP expirado' });
+        return;
+      }
+
+      if (otpRecord.otp !== otp) {
+        res.status(400).json({ error: 'OTP inválido' });
+        return;
+      }
+
+      const hashedPassword = await argon2.hash(newPassword, {
+        type: argon2.argon2id,
+        memoryCost: 65536,
+        timeCost: 3,
+        parallelism: 4,
+      });
+
+      await database.getCollection<User>('users').updateOne(
+        { id: user.id },
+        { $set: { password: hashedPassword } }
+      );
+
+      await database.getCollection('passwordResetOtp').updateOne(
+        { userId: user.id },
+        { $set: { used: true } }
+      );
+
+      res.json({ message: 'Contraseña actualizada correctamente' });
+    } catch (error) {
+      console.error('Error al restablecer contraseña:', error);
+      res.status(500).json({ error: 'Error al restablecer contraseña' });
+    }
+  }
 }
 
 export const authController = new AuthController();
