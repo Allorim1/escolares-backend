@@ -388,7 +388,7 @@ app.put('/api/settings/dolar-api-key', authenticateToken, async (req: Request, r
 
     await database.getCollection('settings').updateOne(
       { key: 'dolarApiKey' },
-      { $set: { key: 'dolarApiKey', value: apiKey.trim(), updatedAt: new Date() } },
+      { $set: { key: 'dolarApiKey', value: apiKey.trim(), updatedAt: new Date(), lastRenewalDate: new Date() } },
       { upsert: true }
     );
 
@@ -396,6 +396,25 @@ app.put('/api/settings/dolar-api-key', authenticateToken, async (req: Request, r
   } catch (error) {
     console.error('Error saving dolar API key:', error);
     res.status(500).json({ error: 'Error al guardar la API key' });
+  }
+});
+
+app.get('/api/settings/api-key-renewal-info', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede acceder a esta información' });
+      return;
+    }
+
+    const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
+    const hasApiKey = !!apiKeySettings?.value;
+    const lastRenewalDate = apiKeySettings?.lastRenewalDate || null;
+
+    res.json({ hasApiKey, lastRenewalDate });
+  } catch (error) {
+    console.error('Error getting API key renewal info:', error);
+    res.status(500).json({ error: 'Error al obtener información de renovación' });
   }
 });
 
