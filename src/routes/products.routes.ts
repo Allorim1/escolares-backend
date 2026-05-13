@@ -147,6 +147,12 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
     const { title, price, description, category, image, marca, lineaId, iva, ivaPercentage, estado, images, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores } = req.body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
+    // Check for duplicate product name
+    const existingProduct = await database.getCollection('products').findOne({ title: { $regex: `^${title}$`, $options: 'i' } });
+    if (existingProduct) {
+      return res.status(400).json({ error: `Ya existe un producto con el nombre "${title}"` });
+    }
+    
     const lastProduct = await database.getCollection('products')
       .find({})
       .sort({ id: -1 })
@@ -208,7 +214,18 @@ router.put('/:id', authenticateToken, async (req: Request, res: Response) => {
     
     const productoAnterior = await database.getCollection('products').findOne({ id });
     
-     const updateData: any = {
+    // Check for duplicate product name (excluding current product)
+    if (title !== productoAnterior?.title) {
+      const existingProduct = await database.getCollection('products').findOne({ 
+        title: { $regex: `^${title}$`, $options: 'i' },
+        id: { $ne: id }
+      });
+      if (existingProduct) {
+        return res.status(400).json({ error: `Ya existe un producto con el nombre "${title}"` });
+      }
+    }
+    
+      const updateData: any = {
        title,
        price: Number(price),
        description,
