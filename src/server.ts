@@ -3756,6 +3756,92 @@ app.post('/api/facturas/save-temp-image', async (req: Request, res: Response) =>
 
 // ============ MANUALES API (Paso a Paso) ============
 
+// Upload endpoint for manual videos
+const manualVideoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, 'uploads', 'manual-videos');
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const uploadManualVideo = multer({
+  storage: manualVideoStorage,
+  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB limit for videos
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos de video'));
+    }
+  }
+});
+
+app.post('/api/manuales/upload-video', authenticateToken, (req: Request, res: Response) => {
+  uploadManualVideo.single('video')(req, res, (err) => {
+    if (err) {
+      console.error('Error uploading video:', err);
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'El video no puede pesar más de 30MB' });
+      }
+      return res.status(400).json({ error: err.message || 'Error al subir el video' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se proporcionó ningún video' });
+    }
+    
+    const videoUrl = `${req.protocol}://${req.get('host')}/uploads/manual-videos/${req.file.filename}`;
+    res.json({ url: videoUrl, filename: req.file.originalname, size: req.file.size });
+  });
+});
+
+// Upload endpoint for manual images
+const manualImageStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, 'uploads', 'manual-images');
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const uploadManualImage = multer({
+  storage: manualImageStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit for images
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos de imagen'));
+    }
+  }
+});
+
+app.post('/api/manuales/upload-image', authenticateToken, (req: Request, res: Response) => {
+  uploadManualImage.single('image')(req, res, (err) => {
+    if (err) {
+      console.error('Error uploading image:', err);
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'La imagen no puede pesar más de 5MB' });
+      }
+      return res.status(400).json({ error: err.message || 'Error al subir la imagen' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se proporcionó ninguna imagen' });
+    }
+    
+    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/manual-images/${req.file.filename}`;
+    res.json({ url: imageUrl, filename: req.file.originalname, size: req.file.size });
+  });
+});
+
 const getManualId = (idParam: string | string[]): string => {
   return Array.isArray(idParam) ? idParam[0] : idParam;
 };
@@ -3844,12 +3930,12 @@ app.post('/api/manuales', authenticateToken, async (req: Request, res: Response)
       descripcion,
       categoria,
       pasos
-    }).length * 2; // Base64 encoding increases size by ~33%, estimate 2x for safety
+    }).length;
 
-    const MAX_DOC_SIZE = 15 * 1024 * 1024; // 15MB safety margin
+    const MAX_DOC_SIZE = 14 * 1024 * 1024; // 14MB safety margin (videos/images stored externally now)
     if (estimatedSize > MAX_DOC_SIZE) {
       return res.status(400).json({ 
-        error: 'El manual es demasiado grande. Reduce el número de pasos o el tamaño de imágenes/videos (máx. 500KB por imagen, 10MB por video).' 
+        error: 'El manual es demasiado grande. Reduce el número de pasos.' 
       });
     }
 
@@ -3911,12 +3997,12 @@ app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Respon
       descripcion,
       categoria,
       pasos
-    }).length * 2;
+    }).length;
 
-    const MAX_DOC_SIZE = 15 * 1024 * 1024; // 15MB safety margin
+    const MAX_DOC_SIZE = 14 * 1024 * 1024; // 14MB safety margin (videos/images stored externally now)
     if (estimatedSize > MAX_DOC_SIZE) {
       return res.status(400).json({ 
-        error: 'El manual es demasiado grande. Reduce el número de pasos o el tamaño de imágenes/videos.' 
+        error: 'El manual es demasiado grande. Reduce el número de pasos.' 
       });
     }
 
