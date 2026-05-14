@@ -3837,7 +3837,22 @@ app.post('/api/manuales', authenticateToken, async (req: Request, res: Response)
         return res.status(400).json({ error: `El paso ${i + 1} debe tener una descripción` });
       }
     }
-    
+
+    // Validate estimated document size (MongoDB has 16MB limit)
+    const estimatedSize = JSON.stringify({
+      titulo,
+      descripcion,
+      categoria,
+      pasos
+    }).length * 2; // Base64 encoding increases size by ~33%, estimate 2x for safety
+
+    const MAX_DOC_SIZE = 15 * 1024 * 1024; // 15MB safety margin
+    if (estimatedSize > MAX_DOC_SIZE) {
+      return res.status(400).json({ 
+        error: 'El manual es demasiado grande. Reduce el número de pasos o el tamaño de imágenes/videos (máx. 500KB por imagen, 10MB por video).' 
+      });
+    }
+
     const manual = {
       titulo: titulo.trim(),
       descripcion: descripcion?.trim() || '',
@@ -3889,7 +3904,22 @@ app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Respon
     if (!pasos || !Array.isArray(pasos) || pasos.length === 0) {
       return res.status(400).json({ error: 'Debe agregar al menos un paso' });
     }
-    
+
+    // Validate estimated document size (MongoDB has 16MB limit)
+    const estimatedSize = JSON.stringify({
+      titulo,
+      descripcion,
+      categoria,
+      pasos
+    }).length * 2;
+
+    const MAX_DOC_SIZE = 15 * 1024 * 1024; // 15MB safety margin
+    if (estimatedSize > MAX_DOC_SIZE) {
+      return res.status(400).json({ 
+        error: 'El manual es demasiado grande. Reduce el número de pasos o el tamaño de imágenes/videos.' 
+      });
+    }
+
     const updateData = {
       titulo: titulo.trim(),
       descripcion: descripcion?.trim() || '',
