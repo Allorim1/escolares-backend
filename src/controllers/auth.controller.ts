@@ -4,6 +4,17 @@ import { database } from '../config/database';
 import { User } from '../models';
 import { jwtConfig } from '../config/jwt';
 import { AuthRequest } from '../middlewares/auth.middleware';
+import nodemailer from 'nodemailer';
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || ''
+  }
+});
 
 export class AuthController {
   async register(req: Request, res: Response): Promise<void> {
@@ -717,7 +728,26 @@ export class AuthController {
         { upsert: true }
       );
 
-      console.log(`OTP for ${user.email}: ${otp}`);
+      // Send email if SMTP is configured
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        try {
+          await transporter.sendMail({
+            from: process.env.SMTP_FROM || process.env.SMTP_USER,
+            to: user.email,
+            subject: 'Código de recuperación de contraseña',
+            html: `
+              <h2>Recuperación de contraseña</h2>
+              <p>Tu código de verificación es: <strong>${otp}</strong></p>
+              <p>Este código expira en 10 minutos.</p>
+            `,
+          });
+        } catch (emailError) {
+          console.error('Error sending email:', emailError);
+          // Continue even if email fails - OTP is still valid
+        }
+      } else {
+        console.log(`OTP for ${user.email}: ${otp}`);
+      }
 
       res.json({ message: 'OTP enviado al correo', email: user.email });
     } catch (error) {
@@ -728,15 +758,20 @@ export class AuthController {
 
   async verifyOtpAndResetPassword(req: Request, res: Response): Promise<void> {
     try {
-      const { email, otp, newPassword } = req.body;
+      const { usernameOrEmail, otp, newPassword } = req.body;
 
-      if (!email || !otp || !newPassword) {
-        res.status(400).json({ error: 'Email, OTP y nueva contraseña son requeridos' });
+      if (!usernameOrEmail || !otp || !newPassword) {
+        res.status(400).json({ error: 'Usuario/email, OTP y nueva contraseña son requeridos' });
         return;
       }
 
-      const normalizedEmail = email.toLowerCase().trim();
-      const user = await database.getCollection<User>('users').findOne({ email: normalizedEmail });
+      const identifier = usernameOrEmail.toLowerCase().trim();
+      const user = await database.getCollection<User>('users').findOne({
+        $or: [
+          { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${identifier}$`, 'i') } }
+        ],
+      });
 
       if (!user) {
         res.status(404).json({ error: 'Usuario no encontrado' });
