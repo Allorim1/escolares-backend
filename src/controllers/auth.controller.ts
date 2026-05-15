@@ -678,15 +678,20 @@ export class AuthController {
       const { email } = req.body;
 
       if (!email) {
-        res.status(400).json({ error: 'El email es requerido' });
+        res.status(400).json({ error: 'El email o usuario es requerido' });
         return;
       }
 
-      const normalizedEmail = email.toLowerCase().trim();
-      const user = await database.getCollection<User>('users').findOne({ email: normalizedEmail });
+      const identifier = email.toLowerCase().trim();
+      const user = await database.getCollection<User>('users').findOne({
+        $or: [
+          { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${identifier}$`, 'i') } }
+        ]
+      });
 
       if (!user) {
-        res.status(404).json({ error: 'No se encontró ningún usuario con ese email' });
+        res.status(404).json({ error: 'No se encontró ningún usuario con ese email o usuario' });
         return;
       }
 
@@ -761,7 +766,7 @@ export class AuthController {
       const { usernameOrEmail, otp, newPassword } = req.body;
 
       if (!usernameOrEmail || !otp || !newPassword) {
-        res.status(400).json({ error: 'Usuario/email, OTP y nueva contraseña son requeridos' });
+        res.status(400).json({ error: 'Usuario/email, OTP y nueva contraseña son requeridos', received: { usernameOrEmail: !!usernameOrEmail, otp: !!otp, newPassword: !!newPassword } });
         return;
       }
 
@@ -774,14 +779,14 @@ export class AuthController {
       });
 
       if (!user) {
-        res.status(404).json({ error: 'Usuario no encontrado' });
+        res.status(404).json({ error: 'Usuario no encontrado', identifier });
         return;
       }
 
       const otpRecord = await database.getCollection('passwordResetOtp').findOne({ userId: user.id });
 
       if (!otpRecord) {
-        res.status(400).json({ error: 'OTP no encontrado' });
+        res.status(400).json({ error: 'OTP no encontrado', userId: user.id });
         return;
       }
 
@@ -791,12 +796,12 @@ export class AuthController {
       }
 
       if (new Date() > otpRecord.expiresAt) {
-        res.status(400).json({ error: 'OTP expirado' });
+        res.status(400).json({ error: 'OTP expirado', expiresAt: otpRecord.expiresAt });
         return;
       }
 
       if (otpRecord.otp !== otp) {
-        res.status(400).json({ error: 'OTP inválido' });
+        res.status(400).json({ error: 'OTP inválido', expected: otpRecord.otp, received: otp });
         return;
       }
 

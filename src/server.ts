@@ -198,6 +198,8 @@ const invalidateCache = (req: Request, res: Response, next: () => void) => {
       cacheDeletePattern('req:/api/home*');
     } else if (path.includes('/roles')) {
       cacheDeletePattern('req:/api/roles*');
+    } else if (path.includes('/manuales')) {
+      cacheDeletePattern('req:/api/manuales*');
     }
   }
   next();
@@ -3950,6 +3952,7 @@ app.post('/api/manuales', authenticateToken, async (req: Request, res: Response)
         descripcion: p.descripcion.trim(),
         imagen: p.imagen || '',
         video: p.video || '',
+        videoUrl: p.videoUrl || '',
         videoDuration: p.videoDuration || 0
       })),
       fechaCreacion: new Date(),
@@ -4017,6 +4020,7 @@ app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Respon
         descripcion: p.descripcion.trim(),
         imagen: p.imagen || '',
         video: p.video || '',
+        videoUrl: p.videoUrl || '',
         videoDuration: p.videoDuration || 0
       })),
       fechaActualizacion: new Date()
