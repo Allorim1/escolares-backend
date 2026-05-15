@@ -416,6 +416,69 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
 });
 
 // Obtener pedidos asignados a repartidor (autenticado) o por deliveryPersonId
+router.put('/:id/accept', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ error: 'No autorizado' });
+      return;
+    }
+
+    const order = await database.getCollection<Order>('orders').findOne({ id });
+
+    if (!order) {
+      res.status(404).json({ error: 'Pedido no encontrado' });
+      return;
+    }
+
+    if (order.status !== 'procesando') {
+      res.status(400).json({ error: 'Solo se pueden aceptar pedidos en estado procesando' });
+      return;
+    }
+
+    const statusLabels: Record<OrderStatus, string> = {
+      confirmar: 'Esperando confirmación',
+      pendiente: 'Pedido recibido',
+      procesando: 'Pedido en proceso',
+      procesado: 'Pedido aceptado por repartidor',
+      enviado: 'Pedido enviado',
+      entregado: 'Pedido entregado',
+      cancelado: 'Pedido cancelado',
+    };
+
+    const updatedHistorial = [
+      ...order.historial,
+      {
+        status: 'procesado' as OrderStatus,
+        fecha: new Date(),
+        observaciones: 'Pedido aceptado por el repartidor',
+      },
+    ];
+
+    const result = await database.getCollection<Order>('orders').findOneAndUpdate(
+      { id },
+      {
+        $set: {
+          status: 'procesado',
+          historial: updatedHistorial,
+          updatedAt: new Date(),
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+    await crearRegistro(database, 'Aceptación', 'Pedidos', `Pedido #${id.slice(-8)} aceptado por repartidor`, { pedidoId: id }, usuario);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error accepting order:', error);
+    res.status(500).json({ error: 'Error al aceptar pedido' });
+  }
+});
+
 router.get('/delivery/assigned', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { status, deliveryPersonId } = req.query;
