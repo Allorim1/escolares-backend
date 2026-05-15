@@ -233,4 +233,100 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
   }
 });
 
+// Obtener pedidos asignados a repartidor
+router.get('/delivery/assigned', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { status } = req.query;
+    const userId = req.user?.userId;
+    const userRol = req.user?.rol;
+    
+    let filter: any = {};
+    
+    if (userRol === 'repartidor') {
+      const user = await database.getCollection('users').findOne({ id: userId });
+      if (!user?.deliveryPersonId) {
+        res.status(403).json({ error: 'No estás vinculado a un repartidor' });
+        return;
+      }
+      filter.deliveryPersonId = user.deliveryPersonId;
+    } else {
+      filter.deliveryPersonId = { $exists: true, $ne: null };
+    }
+    
+    if (status) {
+      filter.status = status;
+    }
+    
+    const orders = await database.getCollection<Order>('orders')
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json(orders);
+  } catch (error) {
+    console.error('Error fetching assigned orders:', error);
+    res.status(500).json({ error: 'Error al obtener pedidos asignados' });
+  }
+});
+
+// Aceptar pedido por parte del repartidor
+router.put('/:id/accept', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.userId;
+    const userRol = req.user?.rol;
+
+    if (userRol !== 'repartidor') {
+      res.status(403).json({ error: 'Solo los repartidores pueden aceptar pedidos' });
+      return;
+    }
+
+    const user = await database.getCollection('users').findOne({ id: userId });
+    if (!user?.deliveryPersonId) {
+      res.status(403).json({ error: 'No estás vinculado a un repartidor' });
+      return;
+    }
+
+    const order = await database.getCollection<Order>('orders').findOne({ id });
+
+    if (!order) {
+      res.status(404).json({ error: 'Pedido no encontrado' });
+      return;
+    }
+
+    if (order.status !== 'pendiente') {
+      res.status(400).json({ error: 'Solo se pueden aceptar pedidos en estado pendiente' });
+      return;
+    }
+
+    const updatedHistorial = [
+      ...order.historial,
+      {
+        status: 'procesando' as OrderStatus,
+        fecha: new Date(),
+        observaciones: 'Pedido aceptado por repartidor',
+      },
+    ];
+
+    const result = await database.getCollection<Order>('orders').findOneAndUpdate(
+      { id },
+      {
+        $set: {
+          status: 'procesando',
+          historial: updatedHistorial,
+          updatedAt: new Date(),
+        },
+      },
+      { returnDocument: 'after' }
+    );
+
+    const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
+    await crearRegistro(database, 'Aceptación', 'Pedidos', `Repartidor aceptó pedido #${id.slice(-8)}`, { pedidoId: id }, usuario);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error accepting order:', error);
+    res.status(500).json({ error: 'Error al aceptar pedido' });
+  }
+});
+
 export default router;
