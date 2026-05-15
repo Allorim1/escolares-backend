@@ -43,16 +43,20 @@ export interface User {
  }
 
 export interface Direccion {
-  id: string;
-  nombre: string;
-  direccion: string;
-  alias?: string;
-  calle?: string;
-  ciudad?: string;
-  estado?: string;
-  codigoPostal?: string;
-  principal?: boolean;
-}
+   id: string;
+   nombre: string;
+   direccion?: string;
+   alias?: string;
+   calle?: string;
+   ciudad?: string;
+   estado?: string;
+   codigoPostal?: string;
+   principal?: boolean;
+   // Google Maps fields
+   latitud?: number;
+   longitud?: number;
+   placeId?: string;
+  }
 
 export interface MetodoPago {
   id: string;
