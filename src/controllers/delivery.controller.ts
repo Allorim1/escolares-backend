@@ -289,24 +289,30 @@ async update(req: Request, res: Response): Promise<void> {
         }
       }
 
-      res.json({
-        order: {
-          id: order.id,
-          direccion: order.direccion,
-          direccionCompleta: order.direccionCompleta,
-          latitud: order.latitud,
-          longitud: order.longitud,
-          status: order.status,
-        },
-        deliveryPerson: deliveryPerson
-          ? {
-              id: deliveryPerson.id,
-              nombre: deliveryPerson.nombre,
-              ultimaUbicacion: deliveryPerson.ultimaUbicacion,
-            }
-          : null,
-        directions,
-      });
+res.json({
+         order: {
+           id: order.id,
+           nombre: order.nombre,
+           telefono: order.telefono,
+           direccion: order.direccion,
+           direccionCompleta: order.direccionCompleta,
+           latitud: order.latitud,
+           longitud: order.longitud,
+           status: order.status,
+           items: order.items,
+           total: order.total,
+           referencia: order.referencia,
+           createdAt: order.createdAt,
+         },
+         deliveryPerson: deliveryPerson
+           ? {
+               id: deliveryPerson.id,
+               nombre: deliveryPerson.nombre,
+               ultimaUbicacion: deliveryPerson.ultimaUbicacion,
+             }
+           : null,
+         directions,
+       });
     } catch (error) {
       console.error('Error getting order tracking:', error);
       res.status(500).json({ error: 'Error al obtener seguimiento' });

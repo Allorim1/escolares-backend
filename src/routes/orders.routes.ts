@@ -183,7 +183,7 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
       return;
     }
 
-    const validStatuses: OrderStatus[] = ['confirmar', 'pendiente', 'procesando', 'enviado', 'entregado', 'cancelado'];
+    const validStatuses: OrderStatus[] = ['confirmar', 'pendiente', 'procesando', 'procesado', 'enviado', 'entregado', 'cancelado'];
     if (!validStatuses.includes(status)) {
       res.status(400).json({ error: 'Estado inválido' });
       return;
