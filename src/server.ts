@@ -3349,7 +3349,10 @@ app.post('/api/manuales', authenticateToken, async (req: Request, res: Response)
         numero: index + 1,
         titulo: p.titulo.trim(),
         descripcion: p.descripcion.trim(),
-        imagen: p.imagen || ''
+        imagen: p.imagen || '',
+        video: p.video || '',
+        videoUrl: p.videoUrl || '',
+        videoDuration: p.videoDuration || 0
       })),
       fechaCreacion: new Date(),
       creadoPor: user.username
@@ -3399,7 +3402,10 @@ app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Respon
         numero: index + 1,
         titulo: p.titulo.trim(),
         descripcion: p.descripcion.trim(),
-        imagen: p.imagen || ''
+        imagen: p.imagen || '',
+        video: p.video || '',
+        videoUrl: p.videoUrl || '',
+        videoDuration: p.videoDuration || 0
       })),
       fechaActualizacion: new Date()
     };
