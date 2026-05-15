@@ -3361,6 +3361,8 @@ app.post('/api/manuales', authenticateToken, async (req: Request, res: Response)
     const collection = database.getCollection('manuales');
     const result = await collection.insertOne(manual);
     
+    cacheDeletePattern('req:/api/manuales*');
+    
     res.json({ 
       success: true, 
       id: result.insertedId.toString()
@@ -3415,6 +3417,8 @@ app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Respon
       { $set: updateData }
     );
     
+    cacheDeletePattern('req:/api/manuales*');
+    
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating manual:', error);
@@ -3435,6 +3439,8 @@ app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Res
     const id = getManualId(req.params.id);
     
     await collection.deleteOne({ _id: new ObjectId(id) });
+    
+    cacheDeletePattern('req:/api/manuales*');
     
     res.json({ success: true });
   } catch (error) {
