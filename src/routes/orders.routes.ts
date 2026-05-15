@@ -206,6 +206,7 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
       confirmar: 'Esperando confirmación',
       pendiente: 'Pedido recibido',
       procesando: 'Pedido en proceso',
+      procesado: 'Pedido aceptado por repartidor',
       enviado: 'Pedido enviado',
       entregado: 'Pedido entregado',
       cancelado: 'Pedido cancelado',
