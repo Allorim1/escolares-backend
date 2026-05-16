@@ -81,7 +81,7 @@ export class AuthController {
 
   async registerSimple(req: Request, res: Response): Promise<void> {
     try {
-      const { username, email, password, nombreCompleto, apellido, telefono, direccion, comentarios } = req.body;
+      const { username, email, password, nombreCompleto, apellido, telefono, direccion, comentarios, rol, rolId } = req.body;
 
       if (!username || !email || !password) {
         res.status(400).json({ error: 'Usuario, email y contraseña son requeridos' });
@@ -109,13 +109,19 @@ export class AuthController {
         email: normalizedEmail,
         password: hashedPassword,
         isAdmin: false,
-        rol: 'usuario',
+        rol: rol || 'usuario',
+        rolId: rolId,
         nombreCompleto: nombreCompleto || '',
         apellido: apellido || '',
         telefono: telefono || '',
         direccion: direccion || '',
         comentarios: comentarios || '',
       };
+
+      if (rol === 'owner') {
+        newUser.isAdmin = true;
+        newUser.isOwner = true;
+      }
 
       await database.getCollection<User>('users').insertOne(newUser);
 
