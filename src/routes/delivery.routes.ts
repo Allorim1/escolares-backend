@@ -2,6 +2,33 @@ import { Router, Request, Response } from 'express';
 import { deliveryController } from '../controllers/delivery.controller';
 import { googleMapsService } from '../services/google-maps.service';
 import { authenticateToken } from '../middlewares/auth.middleware';
+import multer from 'multer';
+import path from 'path';
+
+// Configurar multer para subida de fotos de DNI
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, '../../uploads/dni');
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'dni-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const uploadDNI = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB límite
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Tipo de archivo no permitido. Solo imágenes y PDF'));
+    }
+  }
+});
 
 const router = Router();
 
@@ -137,6 +164,52 @@ router.put('/:id', authenticateToken, (req: Request, res: Response) => deliveryC
  *         description: No se puede eliminar porque tiene pedidos asignados
  */
 router.delete('/:id', authenticateToken, (req: Request, res: Response) => deliveryController.delete(req, res));
+
+/**
+ * @swagger
+ * /api/delivery/{id}/dni:
+ *   post:
+ *     summary: Subir foto de DNI del repartidor
+ *     tags: [Repartidores]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID del repartidor
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               dni:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Foto de DNI subida correctamente
+ */
+router.post('/:id/dni', authenticateToken, (req: Request, res: Response) => {
+  const uploadSingle = uploadDNI.single('dni');
+  uploadSingle(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      return res.status(400).json({ error: err.message || 'Error al subir el archivo' });
+    }
+    if (err) {
+      return res.status(400).json({ error: err.message || 'Error al subir el archivo' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se proporcionó archivo' });
+    }
+    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/dni/${req.file.filename}`;
+    deliveryController.updateDNI(req, res, fileUrl);
+  });
+});
 
 /**
  * @swagger

@@ -197,6 +197,7 @@ export interface DeliveryPerson {
    telefono?: string;
    activo: boolean;
    userId?: string;
+   fotoDNI?: string;
    // Google Maps fields
    placeId?: string;
    direccionCompleta?: string;
@@ -209,7 +210,7 @@ export interface DeliveryPerson {
    };
    createdAt: Date;
    updatedAt: Date;
- }
+  }
 
 export interface CategoriaItem {
   label: string;

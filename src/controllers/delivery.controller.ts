@@ -3,6 +3,33 @@ import { database } from '../config/database';
 import { DeliveryPerson, Order } from '../models';
 import { googleMapsService } from '../services/google-maps.service';
 import argon2 from 'argon2';
+import multer from 'multer';
+import path from 'path';
+
+// Configurar multer para subida de fotos de DNI
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, '../../uploads/dni');
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'dni-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const uploadDNI = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB límite
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Tipo de archivo no permitido. Solo imágenes y PDF'));
+    }
+  }
+});
 
 const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
   const db = database.db;
@@ -51,7 +78,7 @@ export class DeliveryController {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      const { nombre, telefono, activo, email, password } = req.body;
+      const { nombre, telefono, activo, email, password, fotoDNI } = req.body;
       if (!nombre) {
         res.status(400).json({ error: 'El nombre es requerido' });
         return;
@@ -68,6 +95,7 @@ export class DeliveryController {
         activo: activo !== undefined ? activo : true,
         createdAt: new Date(),
         updatedAt: new Date(),
+        ...(fotoDNI && { fotoDNI }),
       };
 
       await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
@@ -120,7 +148,7 @@ export class DeliveryController {
 async update(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      const { nombre, telefono, activo, email, password } = req.body;
+      const { nombre, telefono, activo, email, password, fotoDNI } = req.body;
 
       const deliveryPersonAnterior = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: req.params.id });
       if (!deliveryPersonAnterior) {
@@ -134,6 +162,7 @@ async update(req: Request, res: Response): Promise<void> {
       if (nombre !== undefined) updateData.nombre = nombre;
       if (telefono !== undefined) updateData.telefono = telefono;
       if (activo !== undefined) updateData.activo = activo;
+      if (fotoDNI !== undefined) updateData.fotoDNI = fotoDNI;
 
       const result = await database
         .getCollection<DeliveryPerson>('deliveryPersons')
@@ -260,6 +289,29 @@ async update(req: Request, res: Response): Promise<void> {
     } catch (error) {
       console.error('Error updating delivery person location:', error);
       res.status(500).json({ error: 'Error al actualizar ubicación' });
+    }
+  }
+
+  async updateDNI(req: Request, res: Response, fotoDNI: string): Promise<void> {
+    try {
+      const deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: req.params.id });
+      if (!deliveryPerson) {
+        res.status(404).json({ error: 'Repartidor no encontrado' });
+        return;
+      }
+
+      const result = await database
+        .getCollection<DeliveryPerson>('deliveryPersons')
+        .findOneAndUpdate(
+          { id: req.params.id },
+          { $set: { fotoDNI, updatedAt: new Date() } },
+          { returnDocument: 'after' },
+        );
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error updating DNI photo:', error);
+      res.status(500).json({ error: 'Error al actualizar foto de DNI' });
     }
   }
 
