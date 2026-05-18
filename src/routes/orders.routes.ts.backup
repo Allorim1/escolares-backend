@@ -439,12 +439,6 @@ router.put('/:id/accept', authenticateToken, async (req: Request, res: Response)
       return;
     }
 
-    const user = await database.getCollection('users').findOne({ id: userId });
-    if (!user || user.deliveryPersonId !== order.deliveryPersonId) {
-      res.status(403).json({ error: 'No tienes permiso para aceptar este pedido' });
-      return;
-    }
-
     const statusLabels: Record<OrderStatus, string> = {
       confirmar: 'Esperando confirmación',
       pendiente: 'Pedido recibido',
@@ -483,70 +477,6 @@ router.put('/:id/accept', authenticateToken, async (req: Request, res: Response)
   } catch (error) {
     console.error('Error accepting order:', error);
     res.status(500).json({ error: 'Error al aceptar pedido' });
-  }
-});
-
-router.put('/:id/reject', authenticateToken, async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { motivo } = req.body;
-    const userId = req.user?.userId;
-
-    if (!userId) {
-      res.status(401).json({ error: 'No autorizado' });
-      return;
-    }
-
-    const order = await database.getCollection<Order>('orders').findOne({ id });
-
-    if (!order) {
-      res.status(404).json({ error: 'Pedido no encontrado' });
-      return;
-    }
-
-    if (order.status !== 'procesado') {
-      res.status(400).json({ error: 'Solo se pueden rechazar pedidos en estado procesado' });
-      return;
-    }
-
-    const user = await database.getCollection('users').findOne({ id: userId });
-    if (!user || user.deliveryPersonId !== order.deliveryPersonId) {
-      res.status(403).json({ error: 'No tienes permiso para rechazar este pedido' });
-      return;
-    }
-
-    const updatedHistorial = [
-      ...order.historial,
-      {
-        status: 'procesando' as OrderStatus,
-        fecha: new Date(),
-        observaciones: motivo ? `Pedido rechazado por el repartidor: ${motivo}` : 'Pedido rechazado por el repartidor',
-      },
-    ];
-
-    const result = await database.getCollection<Order>('orders').findOneAndUpdate(
-      { id },
-      {
-        $set: {
-          status: 'procesando',
-          historial: updatedHistorial,
-          updatedAt: new Date(),
-        },
-        $unset: {
-          deliveryPersonId: '',
-          deliveryPersonName: '',
-        },
-      },
-      { returnDocument: 'after' }
-    );
-
-    const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
-    await crearRegistro(database, 'Rechazo', 'Pedidos', `Pedido #${id.slice(-8)} rechazado por repartidor`, { pedidoId: id, motivo: motivo || 'Sin motivo' }, usuario);
-
-    res.json(result);
-  } catch (error) {
-    console.error('Error rejecting order:', error);
-    res.status(500).json({ error: 'Error al rechazar pedido' });
   }
 });
 
