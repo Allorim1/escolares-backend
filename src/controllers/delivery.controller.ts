@@ -48,6 +48,19 @@ export class DeliveryController {
     }
   }
 
+  async getByUserId(req: Request, res: Response): Promise<void> {
+    try {
+      const deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ userId: req.params.userId });
+      if (!deliveryPerson) {
+        res.status(404).json({ error: 'Repartidor no encontrado' });
+        return;
+      }
+      res.json(deliveryPerson);
+    } catch (error) {
+      res.status(500).json({ error: 'Error al obtener repartidor' });
+    }
+  }
+
   async create(req: Request, res: Response): Promise<void> {
     try {
       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';

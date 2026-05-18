@@ -58,6 +58,29 @@ router.get('/:id', authenticateToken, (req: Request, res: Response) => deliveryC
 
 /**
  * @swagger
+ * /api/delivery/by-user/{userId}:
+ *   get:
+ *     summary: Obtener un repartidor por ID de usuario
+ *     tags: [Repartidores]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID del usuario
+ *     responses:
+ *       200:
+ *         description: Repartidor encontrado
+ *       404:
+ *         description: Repartidor no encontrado
+ */
+router.get('/by-user/:userId', authenticateToken, (req: Request, res: Response) => deliveryController.getByUserId(req, res));
+
+/**
+ * @swagger
  * /api/delivery:
  *   post:
  *     summary: Crear un nuevo repartidor
