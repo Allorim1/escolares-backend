@@ -6,7 +6,7 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
-RUN npm run build && mkdir -p uploads/dni
+RUN npm run build
 
 EXPOSE 3000
 

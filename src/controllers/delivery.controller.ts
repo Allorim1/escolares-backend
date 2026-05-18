@@ -3,33 +3,6 @@ import { database } from '../config/database';
 import { DeliveryPerson, Order } from '../models';
 import { googleMapsService } from '../services/google-maps.service';
 import argon2 from 'argon2';
-import multer from 'multer';
-import path from 'path';
-
-// Configurar multer para subida de fotos de DNI
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '../../uploads/dni');
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'dni-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const uploadDNI = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB límite
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Tipo de archivo no permitido. Solo imágenes y PDF'));
-    }
-  }
-});
 
 const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
   const db = database.db;

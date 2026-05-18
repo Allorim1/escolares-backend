@@ -191,14 +191,14 @@ export interface CategoriaMenu {
 }
 
 export interface DeliveryPerson {
-   _id?: string;
-   id: string;
-   nombre: string;
-   telefono?: string;
-   activo: boolean;
-   userId?: string;
-   fotoDNI?: string;
-   // Google Maps fields
+    _id?: string;
+    id: string;
+    nombre: string;
+    telefono?: string;
+    activo: boolean;
+    userId?: string;
+    fotoDNI?: string; // Base64 data URI (data:image/...;base64,...)
+    // Google Maps fields
    placeId?: string;
    direccionCompleta?: string;
    latitud?: number;

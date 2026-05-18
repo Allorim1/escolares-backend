@@ -3,23 +3,10 @@ import { deliveryController } from '../controllers/delivery.controller';
 import { googleMapsService } from '../services/google-maps.service';
 import { authenticateToken } from '../middlewares/auth.middleware';
 import multer from 'multer';
-import path from 'path';
-
-// Configurar multer para subida de fotos de DNI
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '../../uploads/dni');
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'dni-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
 
 const uploadDNI = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB límite
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
     if (allowedTypes.includes(file.mimetype)) {
@@ -206,8 +193,10 @@ router.post('/:id/dni', authenticateToken, (req: Request, res: Response) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No se proporcionó archivo' });
     }
-    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/dni/${req.file.filename}`;
-    deliveryController.updateDNI(req, res, fileUrl);
+    const base64Data = req.file.buffer.toString('base64');
+    const mimeType = req.file.mimetype;
+    const fileData = `data:${mimeType};base64,${base64Data}`;
+    deliveryController.updateDNI(req, res, fileData);
   });
 });
 
