@@ -118,9 +118,9 @@ export class NoticiasController {
 
        const noticiaAnterior = await database.getCollection<Noticia>('noticias').findOne({ id });
 
-       const updateData = {
-         updatedAt: new Date() as Date,
-       } as Partial<Noticia> & { updatedAt: Date };
+        let updateData: Partial<Noticia> & { updatedAt: Date } = {
+          updatedAt: new Date(),
+        };
 
        if (titulo !== undefined) updateData.titulo = titulo;
        if (contenido !== undefined) updateData.contenido = contenido;
