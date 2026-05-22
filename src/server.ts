@@ -1845,6 +1845,7 @@ app.use('/api/ratings', ratingsRoutes);
 app.use('/api/producto-categorias', productCategoriasRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/redes-sociales', redesSocialesRoutes);
+app.use('/api/noticias', noticiasRoutes);
 
 // Categorías de Productos - Endpoints para compatibilidad con módulo de productos
 app.get('/api/productos-categorias', async (req: Request, res: Response) => {
