@@ -8,6 +8,7 @@ interface Noticia {
   fecha: Date;
   activa: boolean;
   importante: boolean;
+  updatedAt?: Date;
 }
 
 const crearRegistro = async (accion: string, modulo: string, descripcion: string, datos: any, usuario: string) => {
@@ -108,41 +109,41 @@ export class NoticiasController {
     }
   }
 
-  async update(req: Request, res: Response): Promise<void> {
-    try {
-      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
-      const idParam = req.params.id;
-      const id = Array.isArray(idParam) ? idParam[0] : idParam;
-      const { titulo, contenido, activa, importante } = req.body;
+   async update(req: Request, res: Response): Promise<void> {
+     try {
+       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
+       const idParam = req.params.id;
+       const id = Array.isArray(idParam) ? idParam[0] : idParam;
+       const { titulo, contenido, activa, importante } = req.body;
 
-      const noticiaAnterior = await database.getCollection<Noticia>('noticias').findOne({ id });
+       const noticiaAnterior = await database.getCollection<Noticia>('noticias').findOne({ id });
 
-      const updateData: Partial<Noticia> = {
-        updatedAt: new Date(),
-      };
+       const updateData = {
+         updatedAt: new Date() as Date,
+       } as Partial<Noticia> & { updatedAt: Date };
 
-      if (titulo !== undefined) updateData.titulo = titulo;
-      if (contenido !== undefined) updateData.contenido = contenido;
-      if (activa !== undefined) updateData.activa = activa;
-      if (importante !== undefined) updateData.importante = importante;
+       if (titulo !== undefined) updateData.titulo = titulo;
+       if (contenido !== undefined) updateData.contenido = contenido;
+       if (activa !== undefined) updateData.activa = activa;
+       if (importante !== undefined) updateData.importante = importante;
 
-      const result = await database
-        .getCollection<Noticia>('noticias')
-        .findOneAndUpdate({ id }, { $set: updateData }, { returnDocument: 'after' });
+       const result = await database
+         .getCollection<Noticia>('noticias')
+         .findOneAndUpdate({ id }, { $set: updateData }, { returnDocument: 'after' });
 
-      if (!result) {
-        res.status(404).json({ error: 'Noticia no encontrada' });
-        return;
-      }
+       if (!result) {
+         res.status(404).json({ error: 'Noticia no encontrada' });
+         return;
+       }
 
-      await crearRegistro('Modificación', 'Noticias', `Noticia modificada: ${titulo || noticiaAnterior?.titulo}`, { noticiaAnterior, noticiaNueva: result }, usuario);
+       await crearRegistro('Modificación', 'Noticias', `Noticia modificada: ${titulo || noticiaAnterior?.titulo}`, { noticiaAnterior, noticiaNueva: result }, usuario);
 
-      res.json(result);
-    } catch (error) {
-      console.error('Error al actualizar noticia:', error);
-      res.status(500).json({ error: 'Error al actualizar noticia' });
-    }
-  }
+       res.json(result);
+     } catch (error) {
+       console.error('Error al actualizar noticia:', error);
+       res.status(500).json({ error: 'Error al actualizar noticia' });
+     }
+   }
 
   async delete(req: Request, res: Response): Promise<void> {
     try {

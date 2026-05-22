@@ -33,6 +33,7 @@ import ratingsRoutes from './routes/ratings.routes';
 import productCategoriasRoutes from './routes/product-categorias.routes';
 import deliveryRoutes from './routes/delivery.routes';
 import redesSocialesRoutes from './routes/redes-sociales.routes';
+import noticiasRoutes from './routes/noticias.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
