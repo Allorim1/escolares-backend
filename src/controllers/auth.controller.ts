@@ -364,15 +364,18 @@ export class AuthController {
 
       const usuarioActual = await database.getCollection<User>('users').findOne({ id: targetUserId });
 
-      const updateData: Partial<User> = {};
-      if (rol) {
-        updateData.rol = rol as 'owner' | 'usuario';
-        updateData.isAdmin = rol === 'owner';
-        updateData.isOwner = rol === 'owner';
-      }
-      if (rolId !== undefined) {
-        updateData.rolId = rolId;
-      }
+const updateData: Partial<User> = {};
+       if (rol) {
+         updateData.rol = rol as 'owner' | 'usuario';
+         updateData.isAdmin = rol === 'owner';
+         updateData.isOwner = rol === 'owner';
+       }
+       if (rolId !== undefined) {
+         updateData.rolId = rolId;
+         if (!updateData.isAdmin) {
+           updateData.isAdmin = true;
+         }
+       }
 
       const result = await database
         .getCollection<User>('users')
