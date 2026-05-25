@@ -18,11 +18,11 @@ export interface TokenPayload {
 export const jwtConfig = {
   secret: JWT_SECRET,
   refreshSecret: JWT_REFRESH_SECRET,
-  expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+  expiresIn: process.env.JWT_EXPIRES_IN || '24h',
   refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
 
   generateTokens(payload: TokenPayload): { accessToken: string; refreshToken: string } {
-    const accessOptions: SignOptions = { expiresIn: '1h' };
+    const accessOptions: SignOptions = { expiresIn: '24h' };
     const refreshOptions: SignOptions = { expiresIn: '7d' };
 
     const accessToken = jwt.sign(payload, this.secret, accessOptions);

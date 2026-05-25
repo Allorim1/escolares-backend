@@ -64,10 +64,10 @@ export class AuthController {
         nombre: newUser.nombreCompleto || newUser.username,
       });
 
-      res.cookie('accessToken', tokens.accessToken, {
+res.cookie('accessToken', tokens.accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: 'strict',
         maxAge: 24 * 60 * 60 * 1000,
       });
 
@@ -189,21 +189,21 @@ export class AuthController {
         nombre: user.nombreCompleto || user.username,
       });
 
-      res.cookie('accessToken', tokens.accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 15 * 60 * 1000,
-      });
+res.cookie('accessToken', tokens.accessToken, {
+         httpOnly: true,
+         secure: process.env.NODE_ENV === 'production',
+         sameSite: 'strict',
+         maxAge: 24 * 60 * 60 * 1000,
+       });
 
-      res.cookie('refreshToken', tokens.refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
+       res.cookie('refreshToken', tokens.refreshToken, {
+         httpOnly: true,
+         secure: process.env.NODE_ENV === 'production',
+         sameSite: 'strict',
+         maxAge: 7 * 24 * 60 * 60 * 1000,
+       });
 
-      const { password: _, ...userWithoutPassword } = user;
+       const { password: _, ...userWithoutPassword } = user;
       res.json({ ...userWithoutPassword, accessToken: tokens.accessToken });
     } catch (error) {
       console.error('Error en login:', error);
@@ -251,21 +251,21 @@ export class AuthController {
         nombre: user.nombreCompleto || user.username,
       });
 
-      res.cookie('accessToken', tokens.accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 15 * 60 * 1000,
-      });
+res.cookie('accessToken', tokens.accessToken, {
+         httpOnly: true,
+         secure: process.env.NODE_ENV === 'production',
+         sameSite: 'strict',
+         maxAge: 24 * 60 * 60 * 1000,
+       });
 
-      res.cookie('refreshToken', tokens.refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
+       res.cookie('refreshToken', tokens.refreshToken, {
+         httpOnly: true,
+         secure: process.env.NODE_ENV === 'production',
+         sameSite: 'strict',
+         maxAge: 7 * 24 * 60 * 60 * 1000,
+       });
 
-      res.json({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
+       res.json({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
     } catch (error) {
       res.status(500).json({ error: 'Error al refresh token' });
     }
