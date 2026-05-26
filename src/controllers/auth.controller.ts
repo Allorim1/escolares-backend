@@ -220,8 +220,13 @@ res.cookie('accessToken', tokens.accessToken, {
          maxAge: 7 * 24 * 60 * 60 * 1000,
        });
 
-       const { password: _, ...userWithoutPassword } = user;
-      res.json({ ...userWithoutPassword, accessToken: tokens.accessToken });
+const { password: _, ...userWithoutPassword } = user;
+       const responseData: any = { ...userWithoutPassword, accessToken: tokens.accessToken };
+       // Include deliveryPersonId if user has one
+       if (user.deliveryPersonId) {
+         responseData.deliveryPersonId = user.deliveryPersonId;
+       }
+       res.json(responseData);
     } catch (error) {
       console.error('Error en login:', error);
       res.status(500).json({ error: 'Error al iniciar sesión' });
@@ -395,12 +400,13 @@ const updateData: Partial<User> = {};
             updateData.isOwner = false;
           }
         }
-       if (rolId !== undefined) {
-         updateData.rolId = rolId;
-         if (!updateData.isAdmin) {
-           updateData.isAdmin = true;
-         }
-       }
+if (rolId !== undefined) {
+          updateData.rolId = rolId;
+          // Only set isAdmin for non-repartidor roles
+          if (rol !== 'repartidor' && !updateData.isAdmin) {
+            updateData.isAdmin = true;
+          }
+        }
 
       const result = await database
         .getCollection<User>('users')
