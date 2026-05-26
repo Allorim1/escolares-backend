@@ -1,7 +1,7 @@
 ﻿import { Request, Response } from 'express';
 import argon2 from 'argon2';
 import { database } from '../config/database';
-import { User } from '../models';
+import { User, DeliveryPerson } from '../models';
 import { jwtConfig } from '../config/jwt';
 import { AuthRequest } from '../middlewares/auth.middleware';
 import nodemailer from 'nodemailer';
@@ -126,6 +126,21 @@ res.cookie('accessToken', tokens.accessToken, {
       }
 
       await database.getCollection<User>('users').insertOne(newUser);
+
+      // Create delivery person record if rol is 'repartidor'
+      if (rol === 'repartidor') {
+        const newDeliveryPerson = {
+          id: Date.now().toString(),
+          nombre: nombreCompleto || username || 'Repartidor',
+          telefono: telefono || '',
+          activo: true,
+          userId: newUser.id,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
+        newUser.deliveryPersonId = newDeliveryPerson.id;
+      }
 
       const { password: _, ...userWithoutPassword } = newUser;
       res.status(201).json(userWithoutPassword);
@@ -400,6 +415,26 @@ const updateData: Partial<User> = {};
         return;
       }
 
+      // Create delivery person record if rol is 'repartidor' and user doesn't have one
+      let responseUser = result;
+      if (rol === 'repartidor' && !result.deliveryPersonId) {
+        const newDeliveryPerson = {
+          id: Date.now().toString(),
+          nombre: result.nombreCompleto || result.username || 'Repartidor',
+          telefono: result.telefono || '',
+          activo: true,
+          userId: result.id,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
+        await database.getCollection<User>('users').updateOne(
+          { id: targetUserId },
+          { $set: { deliveryPersonId: newDeliveryPerson.id } }
+        );
+        responseUser = { ...result, deliveryPersonId: newDeliveryPerson.id };
+      }
+
       const db = database.db;
       if (db) {
         let registrosCollection = db.collection('registros');
@@ -419,7 +454,7 @@ const updateData: Partial<User> = {};
         });
       }
 
-      const { password: _, ...userWithoutPassword } = result;
+      const { password: _, ...userWithoutPassword } = responseUser;
       res.json(userWithoutPassword);
     } catch (error) {
       res.status(500).json({ error: 'Error al actualizar rol' });
