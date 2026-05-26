@@ -93,20 +93,22 @@ async markAsRead(req: Request, res: Response): Promise<void> {
          return;
        }
 
-       const result = await database
-         .getCollection('user-notificaciones')
-         .findOneAndUpdate(
-           { id: notificacionId, userId },
-           { $set: { leido: true, updatedAt: new Date() } },
-           { returnDocument: 'after' }
-         );
+const result = await database
+          .getCollection('user-notificaciones')
+          .findOneAndUpdate(
+            { id: notificacionId, userId },
+            { $set: { leido: true, updatedAt: new Date() } },
+            { returnDocument: 'after' }
+          );
 
-       if (!result) {
-         res.status(404).json({ error: 'Notificación no encontrada' });
-         return;
-       }
+        // MongoDB findOneAndUpdate returns { value: <document>, ok: 1 }
+        const updated = (result as any)?.value || result;
+        if (!updated) {
+          res.status(404).json({ error: 'Notificación no encontrada' });
+          return;
+        }
 
-       res.json(result);
+        res.json(updated);
      } catch (error) {
        console.error('Error al marcar notificación como leída:', error);
        res.status(500).json({ error: 'Error al marcar notificación como leída' });
@@ -231,18 +233,20 @@ for (const user of usuarios) {
        if (activa !== undefined) updateData.activa = activa;
        if (importante !== undefined) updateData.importante = importante;
 
-       const result = await database
-         .getCollection<Noticia>('noticias')
-         .findOneAndUpdate({ id }, { $set: updateData }, { returnDocument: 'after' });
+const result = await database
+          .getCollection<Noticia>('noticias')
+          .findOneAndUpdate({ id }, { $set: updateData }, { returnDocument: 'after' });
 
-       if (!result) {
-         res.status(404).json({ error: 'Noticia no encontrada' });
-         return;
-       }
+        // MongoDB findOneAndUpdate returns { value: <document>, ok: 1 }
+        const noticiaActualizada = (result as any)?.value || result;
+        if (!noticiaActualizada) {
+          res.status(404).json({ error: 'Noticia no encontrada' });
+          return;
+        }
 
-       await crearRegistro('Modificación', 'Noticias', `Noticia modificada: ${titulo || noticiaAnterior?.titulo}`, { noticiaAnterior, noticiaNueva: result }, usuario);
+        await crearRegistro('Modificación', 'Noticias', `Noticia modificada: ${titulo || noticiaAnterior?.titulo}`, { noticiaAnterior, noticiaNueva: noticiaActualizada }, usuario);
 
-       res.json(result);
+        res.json(noticiaActualizada);
      } catch (error) {
        console.error('Error al actualizar noticia:', error);
        res.status(500).json({ error: 'Error al actualizar noticia' });
