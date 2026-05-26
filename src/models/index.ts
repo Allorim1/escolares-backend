@@ -258,11 +258,21 @@ export interface RespuestaAutomatica {
 }
 
 export interface NotificacionRedSocial {
-  _id?: string;
-  id: string;
-  tipo: string;
-  canal: string;
-  activa: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}
+   _id?: string;
+   id: string;
+   tipo: string;
+   canal: string;
+   activa: boolean;
+   createdAt: Date;
+   updatedAt: Date;
+ }
+
+ export interface UserNotificacion {
+   _id?: string;
+   id: string;
+   userId: string;
+   noticiaId: string;
+   leido: boolean;
+   createdAt: Date;
+   updatedAt: Date;
+ }

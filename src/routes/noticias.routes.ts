@@ -133,4 +133,9 @@ router.put('/:id', authenticateToken, (req: Request, res: Response) => noticiasC
 */
 router.delete('/:id', authenticateToken, (req: Request, res: Response) => noticiasController.delete(req, res));
 
+// User Notifications
+router.get('/user-notifications', authenticateToken, (req: Request, res: Response) => noticiasController.getUserNotifications(req, res));
+router.put('/user-notifications/:id/read', authenticateToken, (req: Request, res: Response) => noticiasController.markAsRead(req, res));
+router.get('/user-notifications/unread-count', authenticateToken, (req: Request, res: Response) => noticiasController.getUnreadCount(req, res));
+
 export default router;
