@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+﻿import { Request, Response } from 'express';
 import argon2 from 'argon2';
 import { database } from '../config/database';
 import { User } from '../models';
@@ -121,6 +121,8 @@ res.cookie('accessToken', tokens.accessToken, {
       if (rol === 'owner') {
         newUser.isAdmin = true;
         newUser.isOwner = true;
+      } else if (rol === 'repartidor') {
+        newUser.isOwner = false;
       }
 
       await database.getCollection<User>('users').insertOne(newUser);
@@ -365,11 +367,19 @@ res.cookie('accessToken', tokens.accessToken, {
       const usuarioActual = await database.getCollection<User>('users').findOne({ id: targetUserId });
 
 const updateData: Partial<User> = {};
-       if (rol) {
-         updateData.rol = rol as 'owner' | 'usuario';
-         updateData.isAdmin = rol === 'owner';
-         updateData.isOwner = rol === 'owner';
-       }
+        if (rol) {
+          updateData.rol = rol as 'owner' | 'usuario' | 'repartidor' | 'root';
+          if (rol === 'owner') {
+            updateData.isAdmin = true;
+            updateData.isOwner = true;
+          } else if (rol === 'repartidor') {
+            updateData.isAdmin = false;
+            updateData.isOwner = false;
+          } else {
+            updateData.isAdmin = false;
+            updateData.isOwner = false;
+          }
+        }
        if (rolId !== undefined) {
          updateData.rolId = rolId;
          if (!updateData.isAdmin) {
