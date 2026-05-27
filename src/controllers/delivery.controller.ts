@@ -27,7 +27,9 @@ const crearRegistro = async (accion: string, modulo: string, descripcion: string
 export class DeliveryController {
   async getAll(req: Request, res: Response): Promise<void> {
     try {
+      console.log('DeliveryController.getAll - user:', req.user);
       const deliveryPersons = await database.getCollection<DeliveryPerson>('deliveryPersons').find({}).toArray();
+      console.log('DeliveryController.getAll - found:', deliveryPersons.length);
       res.json(deliveryPersons);
     } catch (error) {
       console.error('Error getting delivery persons:', error);
