@@ -77,7 +77,7 @@ export class DeliveryController {
       }
 
       const newDeliveryPerson: DeliveryPerson = {
-        id: Date.now().toString(),
+        id: `${Date.now().toString()}-dp`,
         nombre,
         telefono: telefono || '',
         activo: activo !== undefined ? activo : true,

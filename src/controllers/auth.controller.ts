@@ -103,7 +103,7 @@ res.cookie('accessToken', tokens.accessToken, {
         parallelism: 4,
       });
 
-      const newUser: User = {
+const newUser: User = {
         id: Date.now().toString(),
         username: username.toLowerCase().trim(),
         email: normalizedEmail,
@@ -128,9 +128,10 @@ res.cookie('accessToken', tokens.accessToken, {
       await database.getCollection<User>('users').insertOne(newUser);
 
       // Create delivery person record if rol is 'repartidor'
+      let deliveryPersonIdForResponse: string | undefined;
       if (rol === 'repartidor') {
         const newDeliveryPerson = {
-          id: Date.now().toString(),
+          id: `${Date.now().toString()}-dp`,
           nombre: nombreCompleto || username || 'Repartidor',
           telefono: telefono || '',
           activo: true,
@@ -139,11 +140,18 @@ res.cookie('accessToken', tokens.accessToken, {
           updatedAt: new Date(),
         };
         await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
-        newUser.deliveryPersonId = newDeliveryPerson.id;
+        await database.getCollection<User>('users').updateOne(
+          { id: newUser.id },
+          { $set: { deliveryPersonId: newDeliveryPerson.id } }
+        );
+        deliveryPersonIdForResponse = newDeliveryPerson.id;
       }
 
       const { password: _, ...userWithoutPassword } = newUser;
-      res.status(201).json(userWithoutPassword);
+      const response = deliveryPersonIdForResponse
+        ? { ...userWithoutPassword, deliveryPersonId: deliveryPersonIdForResponse }
+        : userWithoutPassword;
+      res.status(201).json(response);
     } catch (error) {
       console.error('Error en registro simple:', error);
       res.status(500).json({ error: 'Error al registrar usuario' });
@@ -421,21 +429,21 @@ const result = await database
          return;
        }
 
-       // Create delivery person record if rol is 'repartidor' and user doesn't have one
-       let deliveryPersonId: string | undefined = result.deliveryPersonId;
-       if (rol === 'repartidor' && !deliveryPersonId) {
-         const newDeliveryPerson = {
-           id: Date.now().toString(),
-           nombre: result.nombreCompleto || result.username || 'Repartidor',
-           telefono: result.telefono || '',
-           activo: true,
-           userId: result.id,
-           createdAt: new Date(),
-           updatedAt: new Date(),
-         };
-         await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
-         deliveryPersonId = newDeliveryPerson.id;
-       }
+// Create delivery person record if rol is 'repartidor' and user doesn't have one
+        let deliveryPersonId: string | undefined = result.deliveryPersonId;
+        if (rol === 'repartidor' && !deliveryPersonId) {
+          const newDeliveryPerson = {
+            id: `${Date.now().toString()}-dp`,
+            nombre: result.nombreCompleto || result.username || 'Repartidor',
+            telefono: result.telefono || '',
+            activo: true,
+            userId: result.id,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
+          deliveryPersonId = newDeliveryPerson.id;
+        }
 
        // Update user with deliveryPersonId if we just created one
        if (deliveryPersonId && !result.deliveryPersonId) {
