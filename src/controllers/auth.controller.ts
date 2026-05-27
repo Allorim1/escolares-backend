@@ -221,12 +221,12 @@ res.cookie('accessToken', tokens.accessToken, {
        });
 
 const { password: _, ...userWithoutPassword } = user;
-       const responseData: any = { ...userWithoutPassword, accessToken: tokens.accessToken };
-       // Include deliveryPersonId if user has one
-       if (user.deliveryPersonId) {
-         responseData.deliveryPersonId = user.deliveryPersonId;
-       }
-       res.json(responseData);
+        const responseData: any = { ...userWithoutPassword, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+        // Include deliveryPersonId if user has one
+        if (user.deliveryPersonId) {
+          responseData.deliveryPersonId = user.deliveryPersonId;
+        }
+        res.json(responseData);
     } catch (error) {
       console.error('Error en login:', error);
       res.status(500).json({ error: 'Error al iniciar sesión' });
