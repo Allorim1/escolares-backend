@@ -408,38 +408,42 @@ if (rolId !== undefined) {
           }
         }
 
-      const result = await database
-        .getCollection<User>('users')
-        .findOneAndUpdate(
-          { id: targetUserId },
-          { $set: updateData },
-          { returnDocument: 'after' },
-        );
+const result = await database
+         .getCollection<User>('users')
+         .findOneAndUpdate(
+           { id: targetUserId },
+           { $set: updateData },
+           { returnDocument: 'after' },
+         );
 
-      if (!result) {
-        res.status(404).json({ error: 'Usuario no encontrado' });
-        return;
-      }
+       if (!result) {
+         res.status(404).json({ error: 'Usuario no encontrado' });
+         return;
+       }
 
-      // Create delivery person record if rol is 'repartidor' and user doesn't have one
-      let responseUser = result;
-      if (rol === 'repartidor' && !result.deliveryPersonId) {
-        const newDeliveryPerson = {
-          id: Date.now().toString(),
-          nombre: result.nombreCompleto || result.username || 'Repartidor',
-          telefono: result.telefono || '',
-          activo: true,
-          userId: result.id,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
-        await database.getCollection<User>('users').updateOne(
-          { id: targetUserId },
-          { $set: { deliveryPersonId: newDeliveryPerson.id } }
-        );
-        responseUser = { ...result, deliveryPersonId: newDeliveryPerson.id };
-      }
+       // Create delivery person record if rol is 'repartidor' and user doesn't have one
+       let deliveryPersonId: string | undefined = result.deliveryPersonId;
+       if (rol === 'repartidor' && !deliveryPersonId) {
+         const newDeliveryPerson = {
+           id: Date.now().toString(),
+           nombre: result.nombreCompleto || result.username || 'Repartidor',
+           telefono: result.telefono || '',
+           activo: true,
+           userId: result.id,
+           createdAt: new Date(),
+           updatedAt: new Date(),
+         };
+         await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
+         deliveryPersonId = newDeliveryPerson.id;
+       }
+
+       // Update user with deliveryPersonId if we just created one
+       if (deliveryPersonId && !result.deliveryPersonId) {
+         await database.getCollection<User>('users').updateOne(
+           { id: targetUserId },
+           { $set: { deliveryPersonId } }
+         );
+       }
 
       const db = database.db;
       if (db) {
@@ -455,13 +459,14 @@ if (rolId !== undefined) {
           modulo: 'Usuarios',
           descripcion: `Rol de usuario modificado: ${usuarioActual?.username || targetUserId}`,
           datos: { usuarioId: targetUserId, rolAnterior: usuarioActual?.rol, rolNuevo: rol },
-          usuario,
-          fecha: new Date(),
-        });
-      }
+usuario,
+           fecha: new Date(),
+         });
+       }
 
-      const { password: _, ...userWithoutPassword } = responseUser;
-      res.json(userWithoutPassword);
+       const responseUser = deliveryPersonId ? { ...result, deliveryPersonId } : result;
+       const { password: _, ...userWithoutPassword } = responseUser;
+       res.json(userWithoutPassword);
     } catch (error) {
       res.status(500).json({ error: 'Error al actualizar rol' });
     }
