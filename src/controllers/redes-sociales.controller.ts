@@ -1033,10 +1033,11 @@ await database
                     .insertOne(nuevoMensaje);
                   console.log('💾 Mensaje alternativo de Instagram guardado:', nuevoMensaje);
 
-                  // Emitir evento
+                  // Emitir eventos
                   if (global.io) {
                     global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
                   }
+                  this.emitMessageToSSEClients(nuevoMensaje);
                 }
               }
 
@@ -1072,6 +1073,7 @@ await database
                       .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
                       .insertOne(nuevoMensaje);
                     console.log('💾 Imagen alternativa de Instagram guardada:', nuevoMensaje);
+                    this.emitMessageToSSEClients(nuevoMensaje);
                   }
                 }
               }
