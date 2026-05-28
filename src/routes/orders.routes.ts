@@ -70,13 +70,26 @@ router.get('/admin/all', authenticateToken, async (req: Request, res: Response) 
 router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
+    const userRole = req.user?.rol;
+    
     if (!userId) {
       res.status(401).json({ error: 'No autorizado' });
       return;
     }
 
+    let query = {};
+    if (userRole === 'repartidor') {
+      query = { deliveryPersonId: userId };
+    } else if (userRole !== 'admin' && userRole !== 'owner' && userRole !== 'root') {
+      query = { userId };
+    } else {
+      // Admins should use /admin/all for full access
+      res.status(403).json({ error: 'Use /admin/all para ver todos los pedidos' });
+      return;
+    }
+
     const orders = await database.getCollection<Order>('orders')
-      .find({ userId })
+      .find(query)
       .sort({ createdAt: -1 })
       .toArray();
 
