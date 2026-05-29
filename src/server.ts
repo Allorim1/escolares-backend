@@ -1845,8 +1845,27 @@ app.use('/api/categorias', categoriasRoutes);
 app.use('/api/ratings', ratingsRoutes);
 app.use('/api/producto-categorias', productCategoriasRoutes);
 app.use('/api/delivery', deliveryRoutes);
-app.use('/api/redes-sociales', redesSocialesRoutes);
-app.use('/api/noticias', noticiasRoutes);
+ app.use('/api/redes-sociales', redesSocialesRoutes);
+ app.use('/api/noticias', noticiasRoutes);
+
+// Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
+app.get('/api/users', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { role } = req.query;
+    if (role === 'repartidor') {
+      const users = await database.getCollection('users').find({ rol: 'repartidor' }).toArray();
+      const usersWithoutPassword = users.map(({ password, ...user }) => user);
+      res.json(usersWithoutPassword);
+      return;
+    }
+    const users = await database.getCollection('users').find({}).toArray();
+    const usersWithoutPassword = users.map(({ password, ...user }) => user);
+    res.json(usersWithoutPassword);
+  } catch (error) {
+    console.error('Error getting users:', error);
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
 
 // Categorías de Productos - Endpoints para compatibilidad con módulo de productos
 app.get('/api/productos-categorias', async (req: Request, res: Response) => {

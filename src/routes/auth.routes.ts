@@ -139,12 +139,12 @@ router.post('/refresh', (req: Request, res: Response) => authController.refreshT
  *         description: Lista de usuarios
  */
 router.get('/users', authenticateToken, async (req: Request, res: Response) => {
-  try {
-    await authController.getAll(req, res);
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener usuarios' });
-  }
-});
+   try {
+     await authController.getAll(req, res);
+   } catch (error) {
+     res.status(500).json({ error: 'Error al obtener usuarios' });
+   }
+ });
 
 /**
  * @swagger
