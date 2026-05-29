@@ -76,6 +76,13 @@ export class DeliveryController {
         return;
       }
 
+      // Verificar si el email ya existe ANTES de crear el repartidor
+      const existingUser = await database.getCollection('users').findOne({ $or: [{ username: email }, { email }] });
+      if (existingUser) {
+        res.status(400).json({ error: 'Email ya existe' });
+        return;
+      }
+
       const newDeliveryPerson: DeliveryPerson = {
         id: `${Date.now().toString()}-dp`,
         nombre,
@@ -89,12 +96,6 @@ export class DeliveryController {
       await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
 
       await crearRegistro('Creación', 'Repartidores', `Repartidor creado: ${nombre}`, { repartidor: newDeliveryPerson }, usuario);
-
-      const existingUser = await database.getCollection('users').findOne({ $or: [{ username: email }, { email }] });
-      if (existingUser) {
-        res.status(400).json({ error: 'Email ya existe' });
-        return;
-      }
 
       const repartidorRol = await database.getCollection('roles').findOne({ nombre: 'repartidor' });
       const rolId = repartidorRol?.id || '';
