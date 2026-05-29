@@ -50,7 +50,7 @@ router.get('/admin/all', authenticateToken, async (req: Request, res: Response) 
     }
 
     const user = await database.getCollection('users').findOne({ id: userId });
-    if (!user || (user.rol !== 'root' && user.rol !== 'owner')) {
+    if (!user || (user.rol !== 'root' && user.rol !== 'owner' && user.rol !== 'admin')) {
       res.status(403).json({ error: 'Acceso denegado' });
       return;
     }
