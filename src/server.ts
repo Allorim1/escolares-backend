@@ -4089,30 +4089,6 @@ app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Res
   }
 });
 
-// Upload endpoints for manual videos and images
-const manualVideoStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, 'uploads', 'manual-videos');
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
-    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-
-const uploadManualVideo = multer({
-  storage: manualVideoStorage,
-  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB limit for videos
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Solo se permiten archivos de video'));
-    }
-  }
-});
-
 app.post('/api/manuales/upload-video', authenticateToken, (req: Request, res: Response) => {
   uploadManualVideo.single('video')(req, res, (err) => {
     if (err) {
@@ -4132,28 +4108,6 @@ app.post('/api/manuales/upload-video', authenticateToken, (req: Request, res: Re
   });
 });
 
-const manualImageStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, 'uploads', 'manual-images');
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
-    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-
-const uploadManualImage = multer({
-  storage: manualImageStorage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit for images
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Solo se permiten archivos de imagen'));
-    }
-  }
-});
 
 app.post('/api/manuales/upload-image', authenticateToken, (req: Request, res: Response) => {
   uploadManualImage.single('image')(req, res, (err) => {
