@@ -596,6 +596,9 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'OK', message: 'API Escolares funcionando' });
 });
 
+// Serve static files for uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 app.post('/api/registros', async (req: Request, res: Response) => {
   try {
     const { accion, modulo, descripcion, usuario, datos } = req.body;
@@ -3983,6 +3986,8 @@ app.post('/api/manuales', authenticateToken, async (req: Request, res: Response)
     const collection = database.getCollection('manuales');
     const result = await collection.insertOne(manual);
     
+    cacheDeletePattern('req:/api/manuales*');
+    
     res.json({ 
       success: true, 
       id: result.insertedId.toString()
@@ -4052,6 +4057,8 @@ app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Respon
       { $set: updateData }
     );
     
+    cacheDeletePattern('req:/api/manuales*');
+    
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating manual:', error);
@@ -4073,11 +4080,98 @@ app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Res
     
     await collection.deleteOne({ _id: new ObjectId(id) });
     
+    cacheDeletePattern('req:/api/manuales*');
+    
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting manual:', error);
     res.status(500).json({ error: 'Error al eliminar manual' });
   }
+});
+
+// Upload endpoints for manual videos and images
+const manualVideoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, 'uploads', 'manual-videos');
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const uploadManualVideo = multer({
+  storage: manualVideoStorage,
+  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB limit for videos
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos de video'));
+    }
+  }
+});
+
+app.post('/api/manuales/upload-video', authenticateToken, (req: Request, res: Response) => {
+  uploadManualVideo.single('video')(req, res, (err) => {
+    if (err) {
+      console.error('Error uploading video:', err);
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'El video no puede pesar más de 30MB' });
+      }
+      return res.status(400).json({ error: err.message || 'Error al subir el video' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se proporcionó ningún video' });
+    }
+    
+    const videoUrl = `${req.protocol}://${req.get('host')}/uploads/manual-videos/${req.file.filename}`;
+    res.json({ url: videoUrl, filename: req.file.originalname, size: req.file.size });
+  });
+});
+
+const manualImageStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, 'uploads', 'manual-images');
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const uploadManualImage = multer({
+  storage: manualImageStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit for images
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos de imagen'));
+    }
+  }
+});
+
+app.post('/api/manuales/upload-image', authenticateToken, (req: Request, res: Response) => {
+  uploadManualImage.single('image')(req, res, (err) => {
+    if (err) {
+      console.error('Error uploading image:', err);
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'La imagen no puede pesar más de 5MB' });
+      }
+      return res.status(400).json({ error: err.message || 'Error al subir la imagen' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se proporcionó ninguna imagen' });
+    }
+    
+    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/manual-images/${req.file.filename}`;
+    res.json({ url: imageUrl, filename: req.file.originalname, size: req.file.size });
+  });
 });
 
 // ============ API RETENCIONES ============
