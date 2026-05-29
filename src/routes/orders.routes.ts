@@ -82,10 +82,6 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       query = { deliveryPersonId: userId };
     } else if (userRole !== 'admin' && userRole !== 'owner' && userRole !== 'root') {
       query = { userId };
-    } else {
-      // Admins should use /admin/all for full access
-      res.status(403).json({ error: 'Use /admin/all para ver todos los pedidos' });
-      return;
     }
 
     const orders = await database.getCollection<Order>('orders')
@@ -337,9 +333,9 @@ router.put('/:id/factura', authenticateToken, async (req: Request, res: Response
       return;
     }
 
-    // Solo usuarios con permisos de admin/owner pueden subir facturas
+    // Solo usuarios con permisos de admin/owner/root pueden subir facturas
     const user = await database.getCollection('users').findOne({ id: req.user?.userId });
-    if (!user || (user.rol !== 'root' && user.rol !== 'owner' && user.rol !== 'usuario')) {
+    if (!user || (user.rol !== 'root' && user.rol !== 'owner' && user.rol !== 'admin')) {
       res.status(403).json({ error: 'No tiene permisos para subir facturas' });
       return;
     }
