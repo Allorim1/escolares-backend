@@ -11,31 +11,32 @@ const DB_NAME = process.env['mongodb_dbname'] || 'main';
 let dbInstance: Db | null = null;
 
 class Database {
-  private client: MongoClient | null = null;
-  private _db: Db | null = null;
+   private client: MongoClient | null = null;
+   private _db: Db | null = null;
 
-  get db(): Db | null {
-    return this._db;
-  }
+   get db(): Db | null {
+     return this._db;
+   }
 
-  async connect(): Promise<boolean> {
-    if (this._db) return true;
+   async connect(): Promise<boolean> {
+     if (this._db) return true;
 
-    try {
-      this.client = new MongoClient(mongoUrl, { family: 4, connectTimeoutMS: 10000 });
-      await this.client.connect();
-      this._db = this.client.db(DB_NAME);
-      dbInstance = this._db;
-      console.log('Conectado a MongoDB');
+     try {
+       const connectionString = process.env.DB_URL || 'mongodb://admin:password123@db:27017/main';
+       this.client = new MongoClient(connectionString, { family: 4, connectTimeoutMS: 10000 });
+       await this.client.connect();
+       this._db = this.client.db(DB_NAME);
+       dbInstance = this._db;
+       console.log('Conectado a MongoDB');
 
-      await this.initCollections();
-      return true;
-    } catch (error) {
-      console.error('Error conectando a MongoDB:', error);
-      console.warn('Iniciando servidor sin conexión a MongoDB (modo desarrollo)');
-      return false;
-    }
-  }
+       await this.initCollections();
+       return true;
+     } catch (error) {
+       console.error('Error conectando a MongoDB:', error);
+       console.warn('Iniciando servidor sin conexión a MongoDB (modo desarrollo)');
+       return false;
+     }
+   }
 
   private async initCollections(): Promise<void> {
     if (!this._db) return;
@@ -43,7 +44,7 @@ class Database {
     const collections = await this._db.listCollections().toArray();
     const collectionNames = collections.map((c) => c.name);
 
-    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home'];
+    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones'];
 
     for (const name of requiredCollections) {
       if (!collectionNames.includes(name)) {

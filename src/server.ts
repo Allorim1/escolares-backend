@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Express, Request, Response } from 'express';
 import path from 'path';
 import cors from 'cors';
@@ -14,6 +15,8 @@ import { randomBytes } from 'crypto';
 import multer from 'multer';
 import Tesseract from 'tesseract.js';
 import Redis from 'ioredis';
+import { Server } from 'socket.io';
+import http from 'http';
 
 import marcasRoutes from './routes/marcas.routes';
 import lineasRoutes from './routes/lineas.routes';
@@ -23,6 +26,14 @@ import productsRoutes from './routes/products.routes';
 import homeRoutes from './routes/home.routes';
 import ordersRoutes from './routes/orders.routes';
 import rolesRoutes from './routes/roles.routes';
+import chatRoutes from './routes/chat.routes';
+import cierreCajaRoutes from './routes/cierre-caja.routes';
+import categoriasRoutes from './routes/categorias.routes';
+import ratingsRoutes from './routes/ratings.routes';
+import productCategoriasRoutes from './routes/product-categorias.routes';
+import deliveryRoutes from './routes/delivery.routes';
+import redesSocialesRoutes from './routes/redes-sociales.routes';
+import noticiasRoutes from './routes/noticias.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -34,11 +45,12 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const swaggerSpec = swaggerJsdoc(swaggerConfig);
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisUrl = process.env.REDIS_URL || 'redis://redis_shared:6379';
 let redis: Redis | null = null;
 
 try {
   redis = new Redis(redisUrl, {
+    family: 4,
     lazyConnect: true,
     maxRetriesPerRequest: 3,
     retryStrategy: (times) => {
@@ -59,6 +71,56 @@ try {
 }
 
 const CACHE_TTL = 300;
+
+// Create HTTP server
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.ALLOWED_ORIGINS 
+      ? process.env.ALLOWED_ORIGINS.split(',')
+      : ['http://localhost:4200', 'http://localhost:3000', 'https://test.escolaresonline.com', 'https://escolaresonline.com'],
+    methods: ['GET', 'POST']
+  }
+});
+
+// Attach io to app for access in routes
+app.set('io', io);
+
+// Initialize global SSE clients
+(global as any).sseClients = new Set();
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('Usuario conectado:', socket.id);
+  
+  socket.on('disconnect', () => {
+    console.log('Usuario desconectado:', socket.id);
+  });
+  
+  // Join a room for order updates
+  socket.on('join-orders-room', (userId) => {
+    socket.join(`orders-${userId}`);
+    console.log(`Usuario ${userId} se unió a la sala de órdenes`);
+  });
+  
+  // Leave room
+  socket.on('leave-orders-room', (userId) => {
+    socket.leave(`orders-${userId}`);
+    console.log(`Usuario ${userId} salió de la sala de órdenes`);
+  });
+
+  // Join messages room
+  socket.on('join-messages-room', (userId) => {
+    socket.join(`messages-${userId}`);
+    console.log(`Usuario ${userId} se unió a la sala de mensajes`);
+  });
+
+  // Leave messages room
+  socket.on('leave-messages-room', (userId) => {
+    socket.leave(`messages-${userId}`);
+    console.log(`Usuario ${userId} salió de la sala de mensajes`);
+  });
+});
 
 const cacheGet = async (key: string): Promise<string | null> => {
   if (!redis) return null;
@@ -183,7 +245,6 @@ app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
-app.use(generalLimiter);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
@@ -330,7 +391,7 @@ app.put('/api/settings/dolar-api-key', authenticateToken, async (req: Request, r
 
     await database.getCollection('settings').updateOne(
       { key: 'dolarApiKey' },
-      { $set: { key: 'dolarApiKey', value: apiKey.trim(), updatedAt: new Date() } },
+      { $set: { key: 'dolarApiKey', value: apiKey.trim(), updatedAt: new Date(), lastRenewalDate: new Date() } },
       { upsert: true }
     );
 
@@ -338,6 +399,25 @@ app.put('/api/settings/dolar-api-key', authenticateToken, async (req: Request, r
   } catch (error) {
     console.error('Error saving dolar API key:', error);
     res.status(500).json({ error: 'Error al guardar la API key' });
+  }
+});
+
+app.get('/api/settings/api-key-renewal-info', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede acceder a esta información' });
+      return;
+    }
+
+    const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
+    const hasApiKey = !!apiKeySettings?.value;
+    const lastRenewalDate = apiKeySettings?.lastRenewalDate || null;
+
+    res.json({ hasApiKey, lastRenewalDate });
+  } catch (error) {
+    console.error('Error getting API key renewal info:', error);
+    res.status(500).json({ error: 'Error al obtener información de renovación' });
   }
 });
 
@@ -422,6 +502,83 @@ app.put('/api/settings/compras-deshabilitadas', authenticateToken, async (req: R
   }
 });
 
+app.get('/api/settings/ocultar-precios', async (req: Request, res: Response) => {
+  try {
+    const settings = await database.getCollection('settings').findOne({ key: 'ocultarPrecios' });
+    res.json({ hidden: settings?.value === true });
+  } catch (error) {
+    console.error('Error getting ocultar precios setting:', error);
+    res.status(500).json({ error: 'Error al obtener la configuración' });
+  }
+});
+
+app.put('/api/settings/ocultar-precios', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const userRol = (req.user as any)?.rol;
+    if (userRol !== 'root') {
+      res.status(403).json({ error: 'Solo el root puede modificar esta configuración' });
+      return;
+    }
+
+    const { hidden } = req.body;
+    await database.getCollection('settings').updateOne(
+      { key: 'ocultarPrecios' },
+      { $set: { key: 'ocultarPrecios', value: hidden, updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, hidden });
+  } catch (error) {
+    console.error('Error saving ocultar precios setting:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración' });
+  }
+});
+
+// Mantenimiento Mode Settings
+app.get('/api/settings/mantenimiento', async (req: Request, res: Response) => {
+  try {
+    const settings = await database.getCollection('settings').findOne({ key: 'mantenimiento' });
+    const enabled = settings?.value?.enabled === true;
+    const tipo = settings?.value?.tipo || 'parcial';
+    res.json({ enabled, tipo });
+  } catch (error) {
+    console.error('Error getting mantenimiento setting:', error);
+    res.status(500).json({ error: 'Error al obtener la configuración de mantenimiento' });
+  }
+});
+
+app.put('/api/settings/mantenimiento', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede modificar esta configuración' });
+      return;
+    }
+
+    const { enabled, tipo } = req.body;
+    if (typeof enabled !== 'boolean') {
+      res.status(400).json({ error: 'Se requiere un valor booleano para enabled' });
+      return;
+    }
+
+    if (tipo && tipo !== 'absoluto' && tipo !== 'parcial') {
+      res.status(400).json({ error: 'El tipo debe ser "absoluto" o "parcial"' });
+      return;
+    }
+
+    await database.getCollection('settings').updateOne(
+      { key: 'mantenimiento' },
+      { $set: { key: 'mantenimiento', value: { enabled, tipo: tipo || 'parcial' }, updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, enabled, tipo: tipo || 'parcial' });
+  } catch (error) {
+    console.error('Error saving mantenimiento setting:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración de mantenimiento' });
+  }
+});
+
 app.use(
   '/api-docs',
   swaggerUi.serve,
@@ -468,6 +625,19 @@ app.post('/api/registros', async (req: Request, res: Response) => {
 app.get('/api/registros', async (req: Request, res: Response) => {
   try {
     const { modulo, limit = 100 } = req.query;
+    const db = database.db;
+    if (!db) {
+      res.json([]);
+      return;
+    }
+    
+    const exists = await db.listCollections().toArray();
+    const names = exists.map((c: any) => c.name);
+    if (!names.includes('registros')) {
+      res.json([]);
+      return;
+    }
+    
     const collection = database.getCollection('registros');
 
     const filter: any = {};
@@ -479,6 +649,7 @@ app.get('/api/registros', async (req: Request, res: Response) => {
       .find(filter)
       .sort({ fecha: -1 })
       .limit(Number(limit))
+      .allowDiskUse(true)
       .toArray();
 
     res.json(registros);
@@ -524,7 +695,7 @@ app.post('/api/costos', async (req: Request, res: Response) => {
 app.get('/api/costos', async (req: Request, res: Response) => {
   try {
     const collection = database.getCollection('costos');
-    const grupos = await collection.find().sort({ fecha: -1 }).toArray();
+    const grupos = await collection.find().sort({ fecha: -1 }).allowDiskUse(true).toArray();
     res.json(grupos);
   } catch (error) {
     console.error('Error obteniendo grupos:', error);
@@ -654,7 +825,7 @@ app.post('/api/facturas', async (req: Request, res: Response) => {
 app.get('/api/facturas', async (req: Request, res: Response) => {
   try {
     const collection = database.getCollection('facturas');
-    const facturas = await collection.find().sort({ fecha: -1 }).toArray();
+    const facturas = await collection.find().sort({ fecha: -1 }).allowDiskUse(true).toArray();
     res.json(facturas);
   } catch (error) {
     console.error('Error obteniendo facturas:', error);
@@ -1660,6 +1831,9 @@ app.put('/api/proveedores/:id/factura/:index/comentario', async (req: Request, r
 app.use(invalidateCache);
 app.use(withCache(300));
 
+// Servir archivos estáticos desde el directorio uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 app.use('/api/marcas', marcasRoutes);
 app.use('/api/lineas', lineasRoutes);
 app.use('/api/ofertas', ofertasRoutes);
@@ -1668,6 +1842,350 @@ app.use('/api/products', productsRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/roles', rolesRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/cierre-caja', cierreCajaRoutes);
+app.use('/api/categorias', categoriasRoutes);
+app.use('/api/ratings', ratingsRoutes);
+app.use('/api/producto-categorias', productCategoriasRoutes);
+app.use('/api/delivery', deliveryRoutes);
+ app.use('/api/redes-sociales', redesSocialesRoutes);
+ app.use('/api/noticias', noticiasRoutes);
+
+// Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
+app.get('/api/users', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { role } = req.query;
+    if (role === 'repartidor') {
+      const users = await database.getCollection('users').find({ rol: 'repartidor' }).toArray();
+      const usersWithoutPassword = users.map(({ password, ...user }) => user);
+      res.json(usersWithoutPassword);
+      return;
+    }
+    const users = await database.getCollection('users').find({}).toArray();
+    const usersWithoutPassword = users.map(({ password, ...user }) => user);
+    res.json(usersWithoutPassword);
+  } catch (error) {
+    console.error('Error getting users:', error);
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
+
+// Categorías de Productos - Endpoints para compatibilidad con módulo de productos
+app.get('/api/productos-categorias', async (req: Request, res: Response) => {
+  try {
+    const categorias = await database
+      .getCollection<any>('producto-categorias')
+      .find({})
+      .sort({ nombre: 1 })
+      .toArray();
+    res.json(categorias);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener categorías' });
+  }
+});
+
+app.post('/api/productos-categorias', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { nombre, descripcion, imagen, orden } = req.body;
+    if (!nombre) {
+      res.status(400).json({ error: 'El nombre es requerido' });
+      return;
+    }
+    const id = `cat-prod-${Date.now()}`;
+    const now = new Date();
+    const categoria = { 
+      id, 
+      nombre, 
+      descripcion: descripcion || '', 
+      imagen: imagen || '', 
+      orden: orden ?? 0, 
+      createdAt: now, 
+      updatedAt: now 
+    };
+    await database.getCollection('producto-categorias').insertOne(categoria);
+    res.status(201).json(categoria);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al crear categoría' });
+  }
+});
+
+app.put('/api/productos-categorias/:id', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { nombre, descripcion, imagen, orden } = req.body;
+    
+    // Obtener la categoría actual para saber el nombre anterior
+    const categoriaActual = await database.getCollection('producto-categorias').findOne({ id });
+    
+    if (!categoriaActual) {
+      res.status(404).json({ error: 'Categoría no encontrada' });
+      return;
+    }
+    
+    const updateData: any = { updatedAt: new Date() };
+    if (nombre !== undefined) updateData.nombre = nombre;
+    if (descripcion !== undefined) updateData.descripcion = descripcion;
+    if (imagen !== undefined) updateData.imagen = imagen;
+    if (orden !== undefined) updateData.orden = orden;
+    
+    const result = await database
+      .getCollection('producto-categorias')
+      .findOneAndUpdate({ id }, { $set: updateData }, { returnDocument: 'after' });
+    
+    if (!result) {
+      res.status(404).json({ error: 'Categoría no encontrada' });
+      return;
+    }
+    
+    // Si se cambió el nombre, actualizar los productos que referencian esta categoría por nombre
+    if (nombre !== undefined && nombre !== categoriaActual.nombre) {
+      await database
+        .getCollection('products')
+        .updateMany(
+          { category: categoriaActual.nombre },
+          { $set: { category: nombre } }
+        );
+    }
+    
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar categoría' });
+  }
+});
+
+app.delete('/api/productos-categorias/:id', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    // Obtener la categoría antes de eliminarla para saber su nombre
+    const categoria = await database.getCollection('producto-categorias').findOne({ id });
+    
+    if (!categoria) {
+      res.status(404).json({ error: 'Categoría no encontrada' });
+      return;
+    }
+    
+    const result = await database.getCollection('producto-categorias').deleteOne({ id });
+    
+    if (result.deletedCount === 0) {
+      res.status(404).json({ error: 'Categoría no encontrada' });
+      return;
+    }
+    
+    // Actualizar productos que tengan esta categoría por nombre
+    // Los productos guardan el nombre de la categoría en el campo 'category'
+    await database
+      .getCollection('products')
+      .updateMany(
+        { category: categoria.nombre },
+        { $set: { category: '' } }
+      );
+    
+    res.json({ message: 'Categoría eliminada correctamente' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al eliminar categoría' });
+  }
+});
+
+// Gastos - Gestión de Gastos
+app.get('/api/gastos', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('gastos');
+    const gastos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
+    res.json(gastos);
+  } catch (error) {
+    console.error('Error obteniendo gastos:', error);
+    res.status(500).json({ error: 'Error al obtener gastos' });
+  }
+});
+
+app.post('/api/gastos', async (req: Request, res: Response) => {
+  try {
+    const { descripcion, monto, categoria, fecha, notas } = req.body;
+    if (!descripcion || !categoria || !monto) {
+      res.status(400).json({ error: 'Descripción, categoría y monto son requeridos' });
+      return;
+    }
+    const gasto = {
+      descripcion,
+      monto,
+      categoria,
+      fecha: fecha ? new Date(fecha) : new Date(),
+      notas: notas || '',
+    };
+    const collection = (database as any).getCollection('gastos');
+    const result = await collection.insertOne(gasto);
+    res.json({ ...gasto, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando gasto:', error);
+    res.status(500).json({ error: 'Error al crear gasto' });
+  }
+});
+
+app.put('/api/gastos/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { descripcion, monto, categoria, fecha, notas } = req.body;
+    const updateData: any = { descripcion, monto, categoria, notas };
+    if (fecha) updateData.fecha = new Date(fecha);
+    const collection = (database as any).getCollection('gastos');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando gasto:', error);
+    res.status(500).json({ error: 'Error al actualizar gasto' });
+  }
+});
+
+app.delete('/api/gastos/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('gastos');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando gasto:', error);
+    res.status(500).json({ error: 'Error al eliminar gasto' });
+  }
+});
+
+// Nómina - Empleados
+app.get('/api/nomina/empleados', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('nomina-empleados');
+    const empleados = await collection.find({}).sort({ nombre: 1 }).toArray();
+    res.json(empleados);
+  } catch (error) {
+    console.error('Error obteniendo empleados:', error);
+    res.status(500).json({ error: 'Error al obtener empleados' });
+  }
+});
+
+app.post('/api/nomina/empleados', async (req: Request, res: Response) => {
+  try {
+    const { nombre, cedula, cargo, salario, fechaIngreso, notas } = req.body;
+    if (!nombre || !cedula) {
+      res.status(400).json({ error: 'Nombre y cédula son requeridos' });
+      return;
+    }
+    const empleado = {
+      nombre,
+      cedula,
+      cargo: cargo || '',
+      salario: salario || 0,
+      fechaIngreso: fechaIngreso ? new Date(fechaIngreso) : new Date(),
+      notas: notas || '',
+    };
+    const collection = (database as any).getCollection('nomina-empleados');
+    const result = await collection.insertOne(empleado);
+    res.json({ ...empleado, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando empleado:', error);
+    res.status(500).json({ error: 'Error al crear empleado' });
+  }
+});
+
+app.put('/api/nomina/empleados/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { nombre, cedula, cargo, salario, fechaIngreso, notas } = req.body;
+    const updateData: any = { nombre, cedula, cargo, salario, notas };
+    if (fechaIngreso) updateData.fechaIngreso = new Date(fechaIngreso);
+    const collection = (database as any).getCollection('nomina-empleados');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando empleado:', error);
+    res.status(500).json({ error: 'Error al actualizar empleado' });
+  }
+});
+
+app.delete('/api/nomina/empleados/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('nomina-empleados');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando empleado:', error);
+    res.status(500).json({ error: 'Error al eliminar empleado' });
+  }
+});
+
+// Nómina - Pagos
+app.get('/api/nomina/pagos', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('nomina-pagos');
+    const pagos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
+    res.json(pagos);
+  } catch (error) {
+    console.error('Error obteniendo pagos:', error);
+    res.status(500).json({ error: 'Error al obtener pagos' });
+  }
+});
+
+app.post('/api/nomina/pagos', async (req: Request, res: Response) => {
+  try {
+    const { empleadoId, empleadoNombre, monto, fecha, tipo, notas } = req.body;
+    if (!empleadoId || !monto) {
+      res.status(400).json({ error: 'Empleado y monto son requeridos' });
+      return;
+    }
+    const pago = {
+      empleadoId,
+      empleadoNombre: empleadoNombre || '',
+      monto,
+      fecha: fecha ? new Date(fecha) : new Date(),
+      tipo: tipo || 'quincena',
+      notas: notas || '',
+    };
+    const collection = (database as any).getCollection('nomina-pagos');
+    const result = await collection.insertOne(pago);
+    res.json({ ...pago, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando pago:', error);
+    res.status(500).json({ error: 'Error al crear pago' });
+  }
+});
+
+app.put('/api/nomina/pagos/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { empleadoId, empleadoNombre, monto, fecha, tipo, notas } = req.body;
+    const updateData: any = { empleadoId, empleadoNombre, monto, tipo, notas };
+    if (fecha) updateData.fecha = new Date(fecha);
+    const collection = (database as any).getCollection('nomina-pagos');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando pago:', error);
+    res.status(500).json({ error: 'Error al actualizar pago' });
+  }
+});
+
+app.delete('/api/nomina/pagos/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('nomina-pagos');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando pago:', error);
+    res.status(500).json({ error: 'Error al eliminar pago' });
+  }
+});
 
 // Galería - Documentos Temporales y Legales
 app.get('/api/galeria/:tipo', async (req: Request, res: Response) => {
@@ -1676,7 +2194,7 @@ app.get('/api/galeria/:tipo', async (req: Request, res: Response) => {
     const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
     const collectionName = tipo === 'temporales' ? 'documentos-temporales' : 'documentos-legales';
     const collection = (database as any).getCollection(collectionName);
-    const docs = await collection.find({}).sort({ fechaSubida: -1 }).toArray();
+    const docs = await collection.find({}).sort({ fechaSubida: -1 }).allowDiskUse(true).toArray();
     res.json(docs);
   } catch (error) {
     console.error('Error obteniendo documentos galería:', error);
@@ -3264,6 +3782,92 @@ app.post('/api/facturas/save-temp-image', async (req: Request, res: Response) =>
 
 // ============ MANUALES API (Paso a Paso) ============
 
+// Upload endpoint for manual videos
+const manualVideoStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, 'uploads', 'manual-videos');
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const uploadManualVideo = multer({
+  storage: manualVideoStorage,
+  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB limit for videos
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos de video'));
+    }
+  }
+});
+
+app.post('/api/manuales/upload-video', authenticateToken, (req: Request, res: Response) => {
+  uploadManualVideo.single('video')(req, res, (err) => {
+    if (err) {
+      console.error('Error uploading video:', err);
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'El video no puede pesar más de 30MB' });
+      }
+      return res.status(400).json({ error: err.message || 'Error al subir el video' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se proporcionó ningún video' });
+    }
+    
+    const videoUrl = `${req.protocol}://${req.get('host')}/uploads/manual-videos/${req.file.filename}`;
+    res.json({ url: videoUrl, filename: req.file.originalname, size: req.file.size });
+  });
+});
+
+// Upload endpoint for manual images
+const manualImageStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, 'uploads', 'manual-images');
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const uploadManualImage = multer({
+  storage: manualImageStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit for images
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos de imagen'));
+    }
+  }
+});
+
+app.post('/api/manuales/upload-image', authenticateToken, (req: Request, res: Response) => {
+  uploadManualImage.single('image')(req, res, (err) => {
+    if (err) {
+      console.error('Error uploading image:', err);
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'La imagen no puede pesar más de 5MB' });
+      }
+      return res.status(400).json({ error: err.message || 'Error al subir la imagen' });
+    }
+    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No se proporcionó ninguna imagen' });
+    }
+    
+    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/manual-images/${req.file.filename}`;
+    res.json({ url: imageUrl, filename: req.file.originalname, size: req.file.size });
+  });
+});
+
 const getManualId = (idParam: string | string[]): string => {
   return Array.isArray(idParam) ? idParam[0] : idParam;
 };
@@ -3345,7 +3949,22 @@ app.post('/api/manuales', authenticateToken, async (req: Request, res: Response)
         return res.status(400).json({ error: `El paso ${i + 1} debe tener una descripción` });
       }
     }
-    
+
+    // Validate estimated document size (MongoDB has 16MB limit)
+    const estimatedSize = JSON.stringify({
+      titulo,
+      descripcion,
+      categoria,
+      pasos
+    }).length;
+
+    const MAX_DOC_SIZE = 14 * 1024 * 1024; // 14MB safety margin (videos/images stored externally now)
+    if (estimatedSize > MAX_DOC_SIZE) {
+      return res.status(400).json({ 
+        error: 'El manual es demasiado grande. Reduce el número de pasos.' 
+      });
+    }
+
     const manual = {
       titulo: titulo.trim(),
       descripcion: descripcion?.trim() || '',
@@ -3400,7 +4019,22 @@ app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Respon
     if (!pasos || !Array.isArray(pasos) || pasos.length === 0) {
       return res.status(400).json({ error: 'Debe agregar al menos un paso' });
     }
-    
+
+    // Validate estimated document size (MongoDB has 16MB limit)
+    const estimatedSize = JSON.stringify({
+      titulo,
+      descripcion,
+      categoria,
+      pasos
+    }).length;
+
+    const MAX_DOC_SIZE = 14 * 1024 * 1024; // 14MB safety margin (videos/images stored externally now)
+    if (estimatedSize > MAX_DOC_SIZE) {
+      return res.status(400).json({ 
+        error: 'El manual es demasiado grande. Reduce el número de pasos.' 
+      });
+    }
+
     const updateData = {
       titulo: titulo.trim(),
       descripcion: descripcion?.trim() || '',
@@ -3644,7 +4278,7 @@ app.use((req: Request, res: Response) => {
 async function startServer() {
   const dbConnected = await database.connect();
 
-  app.listen(PORT, () => {
+  httpServer.listen(PORT, () => {
     if (dbConnected) {
       console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
       console.log(`Swagger UI disponible en http://localhost:${PORT}/api-docs`);

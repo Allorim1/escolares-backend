@@ -139,12 +139,12 @@ router.post('/refresh', (req: Request, res: Response) => authController.refreshT
  *         description: Lista de usuarios
  */
 router.get('/users', authenticateToken, async (req: Request, res: Response) => {
-  try {
-    await authController.getAll(req, res);
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener usuarios' });
-  }
-});
+   try {
+     await authController.getAll(req, res);
+   } catch (error) {
+     res.status(500).json({ error: 'Error al obtener usuarios' });
+   }
+ });
 
 /**
  * @swagger
@@ -189,6 +189,8 @@ router.get('/profile', authenticateToken, (req: Request, res: Response) =>
  *                 type: string
  *               cedula:
  *                 type: string
+ *               supervisorKey:
+ *                 type: string
  *     responses:
  *       200:
  *         description: Perfil actualizado
@@ -214,11 +216,24 @@ router.put('/users/:id', authenticateToken, (req: Request, res: Response) =>
 );
 
 router.delete('/users/:id', authenticateToken, (req: Request, res: Response) =>
-  authController.deleteUser(req, res),
-);
+   authController.deleteUser(req, res),
+ );
 
-router.put('/users/:id/password', authenticateToken, (req: Request, res: Response) =>
-  authController.updateUserPassword(req, res),
-);
+ router.put('/users/:id/password', authenticateToken, (req: Request, res: Response) =>
+   authController.updateUserPassword(req, res),
+ );
 
-export default router;
+ // Recovery routes
+ router.post('/recover-username', (req: Request, res: Response) =>
+   authController.recoverUsername(req, res),
+ );
+
+ router.post('/send-otp', (req: Request, res: Response) =>
+   authController.sendOtpForPasswordReset(req, res),
+ );
+
+ router.post('/reset-password', (req: Request, res: Response) =>
+   authController.verifyOtpAndResetPassword(req, res),
+ );
+
+ export default router;

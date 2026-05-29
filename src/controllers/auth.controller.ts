@@ -1,9 +1,20 @@
-import { Request, Response } from 'express';
+﻿import { Request, Response } from 'express';
 import argon2 from 'argon2';
 import { database } from '../config/database';
-import { User } from '../models';
+import { User, DeliveryPerson } from '../models';
 import { jwtConfig } from '../config/jwt';
 import { AuthRequest } from '../middlewares/auth.middleware';
+import nodemailer from 'nodemailer';
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || ''
+  }
+});
 
 export class AuthController {
   async register(req: Request, res: Response): Promise<void> {
@@ -53,10 +64,10 @@ export class AuthController {
         nombre: newUser.nombreCompleto || newUser.username,
       });
 
-      res.cookie('accessToken', tokens.accessToken, {
+res.cookie('accessToken', tokens.accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: 'strict',
         maxAge: 24 * 60 * 60 * 1000,
       });
 
@@ -70,7 +81,7 @@ export class AuthController {
 
   async registerSimple(req: Request, res: Response): Promise<void> {
     try {
-      const { username, email, password, nombreCompleto, apellido, telefono, direccion, comentarios } = req.body;
+      const { username, email, password, nombreCompleto, apellido, telefono, direccion, comentarios, rol, rolId } = req.body;
 
       if (!username || !email || !password) {
         res.status(400).json({ error: 'Usuario, email y contraseña son requeridos' });
@@ -92,13 +103,14 @@ export class AuthController {
         parallelism: 4,
       });
 
-      const newUser: User = {
+const newUser: User = {
         id: Date.now().toString(),
         username: username.toLowerCase().trim(),
         email: normalizedEmail,
         password: hashedPassword,
         isAdmin: false,
-        rol: 'usuario',
+        rol: rol || 'usuario',
+        rolId: rolId,
         nombreCompleto: nombreCompleto || '',
         apellido: apellido || '',
         telefono: telefono || '',
@@ -106,10 +118,40 @@ export class AuthController {
         comentarios: comentarios || '',
       };
 
+      if (rol === 'owner') {
+        newUser.isAdmin = true;
+        newUser.isOwner = true;
+      } else if (rol === 'repartidor') {
+        newUser.isOwner = false;
+      }
+
       await database.getCollection<User>('users').insertOne(newUser);
 
+      // Create delivery person record if rol is 'repartidor'
+      let deliveryPersonIdForResponse: string | undefined;
+      if (rol === 'repartidor') {
+        const newDeliveryPerson = {
+          id: `${Date.now().toString()}-dp`,
+          nombre: nombreCompleto || username || 'Repartidor',
+          telefono: telefono || '',
+          activo: true,
+          userId: newUser.id,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
+        await database.getCollection<User>('users').updateOne(
+          { id: newUser.id },
+          { $set: { deliveryPersonId: newDeliveryPerson.id } }
+        );
+        deliveryPersonIdForResponse = newDeliveryPerson.id;
+      }
+
       const { password: _, ...userWithoutPassword } = newUser;
-      res.status(201).json(userWithoutPassword);
+      const response = deliveryPersonIdForResponse
+        ? { ...userWithoutPassword, deliveryPersonId: deliveryPersonIdForResponse }
+        : userWithoutPassword;
+      res.status(201).json(response);
     } catch (error) {
       console.error('Error en registro simple:', error);
       res.status(500).json({ error: 'Error al registrar usuario' });
@@ -170,24 +212,30 @@ export class AuthController {
         rol: user.rol || 'usuario',
         username: user.username,
         nombre: user.nombreCompleto || user.username,
+        deliveryPersonId: user.deliveryPersonId,
       });
 
-      res.cookie('accessToken', tokens.accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 15 * 60 * 1000,
-      });
+res.cookie('accessToken', tokens.accessToken, {
+         httpOnly: true,
+         secure: process.env.NODE_ENV === 'production',
+         sameSite: 'strict',
+         maxAge: 24 * 60 * 60 * 1000,
+       });
 
-      res.cookie('refreshToken', tokens.refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
+       res.cookie('refreshToken', tokens.refreshToken, {
+         httpOnly: true,
+         secure: process.env.NODE_ENV === 'production',
+         sameSite: 'strict',
+         maxAge: 7 * 24 * 60 * 60 * 1000,
+       });
 
-      const { password: _, ...userWithoutPassword } = user;
-      res.json({ ...userWithoutPassword, accessToken: tokens.accessToken });
+const { password: _, ...userWithoutPassword } = user;
+        const responseData: any = { ...userWithoutPassword, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+        // Include deliveryPersonId if user has one
+        if (user.deliveryPersonId) {
+          responseData.deliveryPersonId = user.deliveryPersonId;
+        }
+        res.json(responseData);
     } catch (error) {
       console.error('Error en login:', error);
       res.status(500).json({ error: 'Error al iniciar sesión' });
@@ -226,29 +274,30 @@ export class AuthController {
         return;
       }
 
-      const tokens = jwtConfig.generateTokens({
+const tokens = jwtConfig.generateTokens({
         userId: user.id,
         email: user.email,
         rol: user.rol || 'usuario',
         username: user.username,
         nombre: user.nombreCompleto || user.username,
+        deliveryPersonId: user.deliveryPersonId,
       });
 
-      res.cookie('accessToken', tokens.accessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 15 * 60 * 1000,
-      });
+res.cookie('accessToken', tokens.accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict',
+          maxAge: 24 * 60 * 60 * 1000,
+        });
 
-      res.cookie('refreshToken', tokens.refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
+        res.cookie('refreshToken', tokens.refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict',
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
 
-      res.json({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
+        res.json({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
     } catch (error) {
       res.status(500).json({ error: 'Error al refresh token' });
     }
@@ -285,24 +334,28 @@ export class AuthController {
     }
   }
 
-  async update(req: AuthRequest, res: Response): Promise<void> {
-    try {
-      const userId = req.user?.userId;
-      const { username, email, nombreCompleto, direccion, telefono, cedula, direcciones } = req.body;
+   async update(req: AuthRequest, res: Response): Promise<void> {
+     try {
+       const userId = req.user?.userId;
+      const { username, email, nombreCompleto, direccion, telefono, cedula, tipoPersona, comentarios, direcciones, metodosPago, supervisorKey } = req.body;
 
-      if (!userId) {
-        res.status(401).json({ error: 'No autorizado' });
-        return;
-      }
+       if (!userId) {
+         res.status(401).json({ error: 'No autorizado' });
+         return;
+       }
 
-      const updateData: Partial<User> = {};
-      if (username) updateData.username = username;
-      if (email) updateData.email = email;
-      if (nombreCompleto !== undefined) updateData.nombreCompleto = nombreCompleto;
-      if (direccion !== undefined) updateData.direccion = direccion;
-      if (telefono !== undefined) updateData.telefono = telefono;
-      if (cedula !== undefined) updateData.cedula = cedula;
-      if (direcciones !== undefined) updateData.direcciones = direcciones;
+       const updateData: Partial<User> = {};
+       if (username) updateData.username = username;
+       if (email) updateData.email = email;
+       if (nombreCompleto !== undefined) updateData.nombreCompleto = nombreCompleto;
+       if (direccion !== undefined) updateData.direccion = direccion;
+       if (telefono !== undefined) updateData.telefono = telefono;
+       if (cedula !== undefined) updateData.cedula = cedula;
+       if (tipoPersona !== undefined) updateData.tipoPersona = tipoPersona;
+       if (comentarios !== undefined) updateData.comentarios = comentarios;
+       if (direcciones !== undefined) updateData.direcciones = direcciones;
+       if (metodosPago !== undefined) updateData.metodosPago = metodosPago;
+       if (supervisorKey !== undefined) updateData.supervisorKey = supervisorKey;
 
       const result = await database
         .getCollection<User>('users')
@@ -343,28 +396,64 @@ export class AuthController {
 
       const usuarioActual = await database.getCollection<User>('users').findOne({ id: targetUserId });
 
-      const updateData: Partial<User> = {};
-      if (rol) {
-        updateData.rol = rol as 'owner' | 'usuario';
-        updateData.isAdmin = rol === 'owner';
-        updateData.isOwner = rol === 'owner';
-      }
-      if (rolId !== undefined) {
-        updateData.rolId = rolId;
-      }
+const updateData: Partial<User> = {};
+        if (rol) {
+          updateData.rol = rol as 'owner' | 'usuario' | 'repartidor' | 'root';
+          if (rol === 'owner') {
+            updateData.isAdmin = true;
+            updateData.isOwner = true;
+          } else if (rol === 'repartidor') {
+            updateData.isAdmin = false;
+            updateData.isOwner = false;
+          } else {
+            updateData.isAdmin = false;
+            updateData.isOwner = false;
+          }
+        }
+if (rolId !== undefined) {
+          updateData.rolId = rolId;
+          // Only set isAdmin for non-repartidor roles
+          if (rol !== 'repartidor' && !updateData.isAdmin) {
+            updateData.isAdmin = true;
+          }
+        }
 
-      const result = await database
-        .getCollection<User>('users')
-        .findOneAndUpdate(
-          { id: targetUserId },
-          { $set: updateData },
-          { returnDocument: 'after' },
-        );
+const result = await database
+         .getCollection<User>('users')
+         .findOneAndUpdate(
+           { id: targetUserId },
+           { $set: updateData },
+           { returnDocument: 'after' },
+         );
 
-      if (!result) {
-        res.status(404).json({ error: 'Usuario no encontrado' });
-        return;
-      }
+       if (!result) {
+         res.status(404).json({ error: 'Usuario no encontrado' });
+         return;
+       }
+
+// Create delivery person record if rol is 'repartidor' and user doesn't have one
+        let deliveryPersonId: string | undefined = result.deliveryPersonId;
+        if (rol === 'repartidor' && !deliveryPersonId) {
+          const newDeliveryPerson = {
+            id: `${Date.now().toString()}-dp`,
+            nombre: result.nombreCompleto || result.username || 'Repartidor',
+            telefono: result.telefono || '',
+            activo: true,
+            userId: result.id,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
+          deliveryPersonId = newDeliveryPerson.id;
+        }
+
+       // Update user with deliveryPersonId if we just created one
+       if (deliveryPersonId && !result.deliveryPersonId) {
+         await database.getCollection<User>('users').updateOne(
+           { id: targetUserId },
+           { $set: { deliveryPersonId } }
+         );
+       }
 
       const db = database.db;
       if (db) {
@@ -380,13 +469,14 @@ export class AuthController {
           modulo: 'Usuarios',
           descripcion: `Rol de usuario modificado: ${usuarioActual?.username || targetUserId}`,
           datos: { usuarioId: targetUserId, rolAnterior: usuarioActual?.rol, rolNuevo: rol },
-          usuario,
-          fecha: new Date(),
-        });
-      }
+usuario,
+           fecha: new Date(),
+         });
+       }
 
-      const { password: _, ...userWithoutPassword } = result;
-      res.json(userWithoutPassword);
+       const responseUser = deliveryPersonId ? { ...result, deliveryPersonId } : result;
+       const { password: _, ...userWithoutPassword } = responseUser;
+       res.json(userWithoutPassword);
     } catch (error) {
       res.status(500).json({ error: 'Error al actualizar rol' });
     }
@@ -655,6 +745,162 @@ export class AuthController {
       res.json({ message: 'Contraseña actualizada correctamente' });
     } catch (error) {
       res.status(500).json({ error: 'Error al actualizar contraseña' });
+    }
+  }
+
+  async recoverUsername(req: Request, res: Response): Promise<void> {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        res.status(400).json({ error: 'El email o usuario es requerido' });
+        return;
+      }
+
+      const identifier = email.toLowerCase().trim();
+      const user = await database.getCollection<User>('users').findOne({
+        $or: [
+          { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${identifier}$`, 'i') } }
+        ]
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'No se encontró ningún usuario con ese email o usuario' });
+        return;
+      }
+
+      res.json({ username: user.username, message: 'Usuario encontrado' });
+    } catch (error) {
+      console.error('Error al recuperar usuario:', error);
+      res.status(500).json({ error: 'Error al recuperar usuario' });
+    }
+  }
+
+  async sendOtpForPasswordReset(req: Request, res: Response): Promise<void> {
+    try {
+      const { usernameOrEmail } = req.body;
+
+      if (!usernameOrEmail) {
+        res.status(400).json({ error: 'Usuario o email son requeridos' });
+        return;
+      }
+
+      const identifier = usernameOrEmail.toLowerCase().trim();
+      const user = await database.getCollection<User>('users').findOne({
+        $or: [
+          { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${identifier}$`, 'i') } }
+        ],
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+      await database.getCollection('passwordResetOtp').updateOne(
+        { userId: user.id },
+        { $set: { otp, expiresAt, userId: user.id, used: false } },
+        { upsert: true }
+      );
+
+      // Send email if SMTP is configured
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        try {
+          await transporter.sendMail({
+            from: process.env.SMTP_FROM || process.env.SMTP_USER,
+            to: user.email,
+            subject: 'Código de recuperación de contraseña',
+            html: `
+              <h2>Recuperación de contraseña</h2>
+              <p>Tu código de verificación es: <strong>${otp}</strong></p>
+              <p>Este código expira en 10 minutos.</p>
+            `,
+          });
+        } catch (emailError) {
+          console.error('Error sending email:', emailError);
+          // Continue even if email fails - OTP is still valid
+        }
+      } else {
+        console.log(`OTP for ${user.email}: ${otp}`);
+      }
+
+      res.json({ message: 'OTP enviado al correo', email: user.email });
+    } catch (error) {
+      console.error('Error al enviar OTP:', error);
+      res.status(500).json({ error: 'Error al enviar OTP' });
+    }
+  }
+
+  async verifyOtpAndResetPassword(req: Request, res: Response): Promise<void> {
+    try {
+      const { usernameOrEmail, otp, newPassword } = req.body;
+
+      if (!usernameOrEmail || !otp || !newPassword) {
+        res.status(400).json({ error: 'Usuario/email, OTP y nueva contraseña son requeridos', received: { usernameOrEmail: !!usernameOrEmail, otp: !!otp, newPassword: !!newPassword } });
+        return;
+      }
+
+      const identifier = usernameOrEmail.toLowerCase().trim();
+      const user = await database.getCollection<User>('users').findOne({
+        $or: [
+          { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
+          { username: { $regex: new RegExp(`^${identifier}$`, 'i') } }
+        ],
+      });
+
+      if (!user) {
+        res.status(404).json({ error: 'Usuario no encontrado', identifier });
+        return;
+      }
+
+      const otpRecord = await database.getCollection('passwordResetOtp').findOne({ userId: user.id });
+
+      if (!otpRecord) {
+        res.status(400).json({ error: 'OTP no encontrado', userId: user.id });
+        return;
+      }
+
+      if (otpRecord.used) {
+        res.status(400).json({ error: 'OTP ya utilizado' });
+        return;
+      }
+
+      if (new Date() > otpRecord.expiresAt) {
+        res.status(400).json({ error: 'OTP expirado', expiresAt: otpRecord.expiresAt });
+        return;
+      }
+
+      if (otpRecord.otp !== otp) {
+        res.status(400).json({ error: 'OTP inválido', expected: otpRecord.otp, received: otp });
+        return;
+      }
+
+      const hashedPassword = await argon2.hash(newPassword, {
+        type: argon2.argon2id,
+        memoryCost: 65536,
+        timeCost: 3,
+        parallelism: 4,
+      });
+
+      await database.getCollection<User>('users').updateOne(
+        { id: user.id },
+        { $set: { password: hashedPassword } }
+      );
+
+      await database.getCollection('passwordResetOtp').updateOne(
+        { userId: user.id },
+        { $set: { used: true } }
+      );
+
+      res.json({ message: 'Contraseña actualizada correctamente' });
+    } catch (error) {
+      console.error('Error al restablecer contraseña:', error);
+      res.status(500).json({ error: 'Error al restablecer contraseña' });
     }
   }
 }
