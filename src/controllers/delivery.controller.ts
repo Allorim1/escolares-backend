@@ -52,7 +52,18 @@ export class DeliveryController {
 
   async getByUserId(req: Request, res: Response): Promise<void> {
     try {
-      const deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ userId: req.params.userId });
+      const userId = req.params.userId;
+      // Try to find by userId first, then by user having this deliveryPersonId
+      let deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ userId });
+      
+      if (!deliveryPerson) {
+        // Fallback: find the user and check if they have a deliveryPersonId
+        const user = await database.getCollection('users').findOne({ id: userId });
+        if (user?.deliveryPersonId) {
+          deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: user.deliveryPersonId });
+        }
+      }
+      
       if (!deliveryPerson) {
         res.status(404).json({ error: 'Repartidor no encontrado' });
         return;
@@ -76,18 +87,24 @@ export class DeliveryController {
         return;
       }
 
-      // Verificar si el email ya existe ANTES de crear el repartidor
       const existingUser = await database.getCollection('users').findOne({ $or: [{ username: email }, { email }] });
       if (existingUser) {
         res.status(400).json({ error: 'Email ya existe' });
         return;
       }
 
+      const repartidorRol = await database.getCollection('roles').findOne({ nombre: 'repartidor' });
+      const rolId = repartidorRol?.id || '';
+
+      const userId = Date.now().toString() + '-user';
+      const deliveryPersonId = `${Date.now().toString()}-dp`;
+
       const newDeliveryPerson: DeliveryPerson = {
-        id: `${Date.now().toString()}-dp`,
+        id: deliveryPersonId,
         nombre,
         telefono: telefono || '',
         activo: activo !== undefined ? activo : true,
+        userId: userId,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...(fotoDNI && { fotoDNI }),
@@ -95,13 +112,8 @@ export class DeliveryController {
 
       await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
 
-      await crearRegistro('Creación', 'Repartidores', `Repartidor creado: ${nombre}`, { repartidor: newDeliveryPerson }, usuario);
-
-      const repartidorRol = await database.getCollection('roles').findOne({ nombre: 'repartidor' });
-      const rolId = repartidorRol?.id || '';
-
       const newUser = {
-        id: Date.now().toString() + '-user',
+        id: userId,
         username: email,
         email,
         password: await argon2.hash(password, {
@@ -113,7 +125,7 @@ export class DeliveryController {
         isAdmin: false,
         rol: 'repartidor',
         rolId,
-        deliveryPersonId: newDeliveryPerson.id,
+        deliveryPersonId: deliveryPersonId,
         nombreCompleto: nombre,
         telefono: telefono || '',
         createdAt: new Date(),
@@ -121,11 +133,8 @@ export class DeliveryController {
       };
 
       await database.getCollection('users').insertOne(newUser);
-      newDeliveryPerson.userId = newUser.id;
-      await database.getCollection<DeliveryPerson>('deliveryPersons').updateOne(
-        { id: newDeliveryPerson.id },
-        { $set: { userId: newUser.id } }
-      );
+
+      await crearRegistro('Creación', 'Repartidores', `Repartidor creado: ${nombre}`, { repartidor: newDeliveryPerson }, usuario);
 
       res.status(201).json(newDeliveryPerson);
     } catch (error) {

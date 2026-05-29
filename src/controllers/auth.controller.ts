@@ -212,6 +212,7 @@ const newUser: User = {
         rol: user.rol || 'usuario',
         username: user.username,
         nombre: user.nombreCompleto || user.username,
+        deliveryPersonId: user.deliveryPersonId,
       });
 
 res.cookie('accessToken', tokens.accessToken, {
@@ -273,29 +274,30 @@ const { password: _, ...userWithoutPassword } = user;
         return;
       }
 
-      const tokens = jwtConfig.generateTokens({
+const tokens = jwtConfig.generateTokens({
         userId: user.id,
         email: user.email,
         rol: user.rol || 'usuario',
         username: user.username,
         nombre: user.nombreCompleto || user.username,
+        deliveryPersonId: user.deliveryPersonId,
       });
 
 res.cookie('accessToken', tokens.accessToken, {
-         httpOnly: true,
-         secure: process.env.NODE_ENV === 'production',
-         sameSite: 'strict',
-         maxAge: 24 * 60 * 60 * 1000,
-       });
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict',
+          maxAge: 24 * 60 * 60 * 1000,
+        });
 
-       res.cookie('refreshToken', tokens.refreshToken, {
-         httpOnly: true,
-         secure: process.env.NODE_ENV === 'production',
-         sameSite: 'strict',
-         maxAge: 7 * 24 * 60 * 60 * 1000,
-       });
+        res.cookie('refreshToken', tokens.refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'strict',
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
 
-       res.json({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
+        res.json({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
     } catch (error) {
       res.status(500).json({ error: 'Error al refresh token' });
     }

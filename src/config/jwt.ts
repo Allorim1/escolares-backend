@@ -8,12 +8,13 @@ if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
 }
 
 export interface TokenPayload {
-  userId: string;
-  email: string;
-  rol: string;
-  username?: string;
-  nombre?: string;
-}
+   userId: string;
+   email: string;
+   rol: string;
+   username?: string;
+   nombre?: string;
+   deliveryPersonId?: string;
+ }
 
 export const jwtConfig = {
   secret: JWT_SECRET,
