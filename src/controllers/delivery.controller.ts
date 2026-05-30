@@ -251,44 +251,63 @@ async update(req: Request, res: Response): Promise<void> {
     }
   }
 
-  async updateLocation(req: Request, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const { lat, lng } = req.body;
+async updateLocation(req: Request, res: Response): Promise<void> {
+     try {
+       const { id } = req.params;
+       const { lat, lng } = req.body;
 
-      if (typeof lat !== 'number' || typeof lng !== 'number') {
-        res.status(400).json({ error: 'Latitud y longitud son requeridas' });
-        return;
-      }
+       if (typeof lat !== 'number' || typeof lng !== 'number') {
+         res.status(400).json({ error: 'Latitud y longitud son requeridas' });
+         return;
+       }
 
-      const updateData = {
-        ultimaUbicacion: {
-          lat,
-          lng,
-          timestamp: new Date(),
-        },
-        updatedAt: new Date(),
-      };
+       const updateData = {
+         ultimaUbicacion: {
+           lat,
+           lng,
+           timestamp: new Date(),
+         },
+         updatedAt: new Date(),
+       };
 
-      const result = await database
-        .getCollection<DeliveryPerson>('deliveryPersons')
-        .findOneAndUpdate(
-          { id },
-          { $set: updateData },
-          { returnDocument: 'after' },
-        );
+       const result = await database
+         .getCollection<DeliveryPerson>('deliveryPersons')
+         .findOneAndUpdate(
+           { id },
+           { $set: updateData },
+           { returnDocument: 'after' },
+         );
 
-      if (!result) {
-        res.status(404).json({ error: 'Repartidor no encontrado' });
-        return;
-      }
+       if (!result) {
+         res.status(404).json({ error: 'Repartidor no encontrado' });
+         return;
+       }
 
-      res.json(result);
-    } catch (error) {
-      console.error('Error updating delivery person location:', error);
-      res.status(500).json({ error: 'Error al actualizar ubicación' });
-    }
-  }
+       // Emit location update via WebSocket to all admin users
+       const io = (req as any).app.get('io');
+       if (io) {
+         // Find all orders with this delivery person and notify admins
+         const ordersWithDelivery = await database.getCollection('orders')
+           .find({ deliveryPersonId: id })
+           .toArray();
+         
+         for (const order of ordersWithDelivery) {
+           io.emit('ubicacion_repartidor', {
+             deliveryPersonId: id,
+             lat,
+             lng,
+             orderId: order.id,
+             timestamp: new Date()
+           });
+         }
+       }
+
+       res.json(result);
+     } catch (error) {
+       console.error('Error updating delivery person location:', error);
+       res.status(500).json({ error: 'Error al actualizar ubicación' });
+     }
+   }
 
   async updateDNI(req: Request, res: Response, fotoDNI: string): Promise<void> {
     try {
