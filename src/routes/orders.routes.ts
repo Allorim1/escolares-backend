@@ -42,30 +42,52 @@ const emitirNotificacionCompra = (io: any, order: any) => {
 };
 
 router.get('/admin/all', authenticateToken, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user?.userId;
-    if (!userId) {
-      res.status(401).json({ error: 'No autorizado' });
-      return;
-    }
+   try {
+     const userId = req.user?.userId;
+     if (!userId) {
+       res.status(401).json({ error: 'No autorizado' });
+       return;
+     }
 
-    const user = await database.getCollection('users').findOne({ id: userId });
-    if (!user || (user.rol !== 'root' && user.rol !== 'owner' && user.rol !== 'admin')) {
-      res.status(403).json({ error: 'Acceso denegado' });
-      return;
-    }
+     const user = await database.getCollection('users').findOne({ id: userId });
+     if (!user || (user.rol !== 'root' && user.rol !== 'owner' && user.rol !== 'admin')) {
+       res.status(403).json({ error: 'Acceso denegado' });
+       return;
+     }
 
-    const orders = await database.getCollection<Order>('orders')
-      .find({})
-      .sort({ createdAt: -1 })
-      .toArray();
+     // Use aggregation to include delivery person location
+     const orders = await database.getCollection('orders')
+       .aggregate([
+         { $sort: { createdAt: -1 } },
+         {
+           $lookup: {
+             from: 'deliveryPersons',
+             localField: 'deliveryPersonId',
+             foreignField: 'id',
+             as: 'deliveryPersonInfo'
+           }
+         },
+         {
+           $addFields: {
+             repartidorUbicacion: {
+               $cond: [
+                 { $gt: [{ $size: '$deliveryPersonInfo' }, 0] },
+                 { $arrayElemAt: ['$deliveryPersonInfo.ultimaUbicacion', 0] },
+                 null
+               ]
+             }
+           }
+         },
+         { $project: { deliveryPersonInfo: 0 } }
+       ])
+       .toArray();
 
-    res.json(orders);
-  } catch (error) {
-    console.error('Error getting all orders:', error);
-    res.status(500).json({ error: 'Error al obtener pedidos' });
-  }
-});
+     res.json(orders);
+   } catch (error) {
+     console.error('Error getting all orders:', error);
+     res.status(500).json({ error: 'Error al obtener pedidos' });
+   }
+ });
 
 router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
@@ -84,9 +106,32 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       query = { userId };
     }
 
-    const orders = await database.getCollection<Order>('orders')
-      .find(query)
-      .sort({ createdAt: -1 })
+    // Agregar lookup del repartidor para obtener su ubicación
+    const orders = await database.getCollection('orders')
+      .aggregate([
+        { $match: query },
+        { $sort: { createdAt: -1 } },
+        {
+          $lookup: {
+            from: 'deliveryPersons',
+            localField: 'deliveryPersonId',
+            foreignField: 'id',
+            as: 'deliveryPersonInfo'
+          }
+        },
+        {
+          $addFields: {
+            repartidorUbicacion: {
+              $cond: [
+                { $gt: [{ $size: '$deliveryPersonInfo' }, 0] },
+                { $arrayElemAt: ['$deliveryPersonInfo.ultimaUbicacion', 0] },
+                null
+              ]
+            }
+          }
+        },
+        { $project: { deliveryPersonInfo: 0 } }
+      ])
       .toArray();
 
     res.json(orders);
