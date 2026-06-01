@@ -432,7 +432,7 @@ const result = await database
        }
 
 // Create delivery person record if rol is 'repartidor' and user doesn't have one
-        let deliveryPersonId: string | undefined = result.deliveryPersonId;
+        let deliveryPersonId = result.deliveryPersonId;
         if (rol === 'repartidor' && !deliveryPersonId) {
           const newDeliveryPerson = {
             id: `${Date.now().toString()}-dp`,
@@ -445,38 +445,20 @@ const result = await database
           };
           await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
           deliveryPersonId = newDeliveryPerson.id;
+          await database.getCollection<User>('users').updateOne(
+            { id: targetUserId },
+            { $set: { deliveryPersonId } }
+          );
         }
 
-       // Update user with deliveryPersonId if we just created one
-       if (deliveryPersonId && !result.deliveryPersonId) {
-         await database.getCollection<User>('users').updateOne(
-           { id: targetUserId },
-           { $set: { deliveryPersonId } }
-         );
-       }
-
-      const db = database.db;
-      if (db) {
-        let registrosCollection = db.collection('registros');
-        const exists = await db.listCollections().toArray();
-        const names = exists.map((c: any) => c.name);
-        if (!names.includes('registros')) {
-          await db.createCollection('registros');
-          registrosCollection = db.collection('registros');
+        // Fetch fresh user data to include the deliveryPersonId
+        const updatedUser = await database.getCollection<User>('users').findOne({ id: targetUserId });
+        if (!updatedUser) {
+          res.status(404).json({ error: 'Usuario no encontrado' });
+          return;
         }
-        await registrosCollection.insertOne({
-          accion: 'Modificación',
-          modulo: 'Usuarios',
-          descripcion: `Rol de usuario modificado: ${usuarioActual?.username || targetUserId}`,
-          datos: { usuarioId: targetUserId, rolAnterior: usuarioActual?.rol, rolNuevo: rol },
-usuario,
-           fecha: new Date(),
-         });
-       }
-
-       const responseUser = deliveryPersonId ? { ...result, deliveryPersonId } : result;
-       const { password: _, ...userWithoutPassword } = responseUser;
-       res.json(userWithoutPassword);
+        const { password: _, ...userWithoutPassword } = updatedUser;
+        res.json(userWithoutPassword);
     } catch (error) {
       res.status(500).json({ error: 'Error al actualizar rol' });
     }
