@@ -223,17 +223,9 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['http://localhost:4200', 'http://localhost:3000', 'https://escolares.vercel.app', 'https://escolares-ng.vercel.app'];
-
 const corsOptions = {
-  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'), false);
-    }
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

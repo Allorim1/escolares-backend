@@ -488,14 +488,22 @@ router.put('/:id/accept', authenticateToken, async (req: Request, res: Response)
       return;
     }
 
-    if (order.status !== 'procesando') {
-      res.status(400).json({ error: 'Solo se pueden aceptar pedidos en estado procesando' });
+    // Get delivery person info
+    const user = await database.getCollection('users').findOne({ id: userId });
+    if (!user || !user.deliveryPersonId) {
+      res.status(403).json({ error: 'No estás vinculado a un repartidor' });
       return;
     }
 
-    const user = await database.getCollection('users').findOne({ id: userId });
-    if (!user || user.deliveryPersonId !== order.deliveryPersonId) {
-      res.status(403).json({ error: 'No tienes permiso para aceptar este pedido' });
+    const deliveryPerson = await database.getCollection('deliveryPersons').findOne({ id: user.deliveryPersonId });
+    if (!deliveryPerson) {
+      res.status(403).json({ error: 'Repartidor no encontrado' });
+      return;
+    }
+
+    // Only accept orders in 'procesando' status
+    if (order.status !== 'procesando') {
+      res.status(400).json({ error: 'Solo se pueden aceptar pedidos en estado procesando' });
       return;
     }
 
@@ -518,15 +526,24 @@ router.put('/:id/accept', authenticateToken, async (req: Request, res: Response)
       },
     ];
 
+    // If order is unassigned, assign it to this delivery person
+    const updateData: any = {
+      status: 'procesado',
+      historial: updatedHistorial,
+      updatedAt: new Date(),
+    };
+
+    if (!order.deliveryPersonId) {
+      updateData.deliveryPersonId = user.deliveryPersonId;
+      updateData.deliveryPersonName = deliveryPerson.nombre;
+    } else if (user.deliveryPersonId !== order.deliveryPersonId) {
+      res.status(403).json({ error: 'No tienes permiso para aceptar este pedido' });
+      return;
+    }
+
     const result = await database.getCollection<Order>('orders').findOneAndUpdate(
       { id },
-      {
-        $set: {
-          status: 'procesado',
-          historial: updatedHistorial,
-          updatedAt: new Date(),
-        },
-      },
+      { $set: updateData },
       { returnDocument: 'after' }
     );
 
@@ -605,40 +622,65 @@ router.put('/:id/reject', authenticateToken, async (req: Request, res: Response)
 });
 
 router.get('/delivery/assigned', authenticateToken, async (req: Request, res: Response) => {
-  try {
-    const { status, deliveryPersonId } = req.query;
-    const userId = req.user?.userId;
-    const userRol = req.user?.rol;
-    
-    let filter: any = {};
-    
-    // Si es repartidor, solo ver sus propios pedidos
-    if (userRol === 'repartidor') {
-      const user = await database.getCollection('users').findOne({ id: userId });
-      if (!user?.deliveryPersonId) {
-        res.status(403).json({ error: 'No estás vinculado a un repartidor' });
-        return;
-      }
-      filter.deliveryPersonId = user.deliveryPersonId;
-    } else if (deliveryPersonId) {
-      filter.deliveryPersonId = deliveryPersonId;
-    } else {
-      filter.deliveryPersonId = { $exists: true, $ne: null };
-    }
-    
-    if (status) {
-      filter.status = status;
-    }
-    
-    const orders = await database.getCollection<Order>('orders')
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .toArray();
-    res.json(orders);
-  } catch (error) {
-    console.error('Error fetching assigned orders:', error);
-    res.status(500).json({ error: 'Error al obtener pedidos asignados' });
-  }
-});
+   try {
+     const { status, deliveryPersonId } = req.query;
+     const userId = req.user?.userId;
+     const userRol = req.user?.rol;
+     
+     let filter: any = {};
+     
+     // Si es repartidor, solo ver sus propios pedidos
+     if (userRol === 'repartidor') {
+       const user = await database.getCollection('users').findOne({ id: userId });
+       if (!user?.deliveryPersonId) {
+         res.status(403).json({ error: 'No estás vinculado a un repartidor' });
+         return;
+       }
+       filter.deliveryPersonId = user.deliveryPersonId;
+     } else if (deliveryPersonId) {
+       filter.deliveryPersonId = deliveryPersonId;
+     } else {
+       filter.deliveryPersonId = { $exists: true, $ne: null };
+     }
+     
+     if (status) {
+       filter.status = status;
+     }
+     
+     const orders = await database.getCollection<Order>('orders')
+       .find(filter)
+       .sort({ createdAt: -1 })
+       .toArray();
+     res.json(orders);
+   } catch (error) {
+     console.error('Error fetching assigned orders:', error);
+     res.status(500).json({ error: 'Error al obtener pedidos asignados' });
+   }
+  });
+
+  // Get available orders for delivery person to accept
+  router.get('/delivery/available', authenticateToken, async (req: Request, res: Response) => {
+   try {
+     const userId = req.user?.userId;
+     const user = await database.getCollection('users').findOne({ id: userId });
+     
+     if (!user || user.rol !== 'repartidor') {
+       res.status(403).json({ error: 'Solo los repartidores pueden ver pedidos disponibles' });
+       return;
+     }
+     
+     const orders = await database.getCollection<Order>('orders')
+       .find({ 
+         status: 'procesando',
+         deliveryPersonId: { $exists: false }
+       })
+       .sort({ createdAt: -1 })
+       .toArray();
+     res.json(orders);
+   } catch (error) {
+     console.error('Error fetching available orders:', error);
+     res.status(500).json({ error: 'Error al obtener pedidos disponibles' });
+   }
+  });
 
 export default router;
