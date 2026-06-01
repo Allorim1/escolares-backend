@@ -377,4 +377,62 @@ router.get('/maps/geocode/place/:placeId', authenticateToken, async (req: Reques
   }
 });
 
+/**
+ * @swagger
+ * /api/delivery/orders/assigned:
+ *   get:
+ *     summary: Obtener pedidos asignados al repartidor autenticado
+ *     tags: [Repartidores]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: Filtrar por estado
+ *     responses:
+ *       200:
+ *         description: Lista de pedidos asignados
+ */
+router.get('/orders/assigned', authenticateToken, (req: Request, res: Response) =>
+  deliveryController.getAssignedOrders(req, res)
+);
+
+/**
+ * @swagger
+ * /api/delivery/orders/{orderId}/status:
+ *   put:
+ *     summary: Actualizar estado de un pedido (repartidor)
+ *     tags: [Repartidores]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: orderId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID del pedido
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *               observaciones:
+ *                 type: string
+ *               facturaImage:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Estado actualizado
+ */
+router.put('/orders/:orderId/status', authenticateToken, (req: Request, res: Response) =>
+  deliveryController.updateOrderStatus(req, res)
+);
+
 export default router;

@@ -332,7 +332,7 @@ async updateLocation(req: Request, res: Response): Promise<void> {
     }
   }
 
-  async getOrderTracking(req: Request, res: Response): Promise<void> {
+async getOrderTracking(req: Request, res: Response): Promise<void> {
     try {
       const { orderId } = req.params;
 
@@ -359,32 +359,137 @@ async updateLocation(req: Request, res: Response): Promise<void> {
       }
 
 res.json({
-         order: {
-           id: order.id,
-           nombre: order.nombre,
-           telefono: order.telefono,
-           direccion: order.direccion,
-           direccionCompleta: order.direccionCompleta,
-           latitud: order.latitud,
-           longitud: order.longitud,
-           status: order.status,
-           items: order.items,
-           total: order.total,
-           referencia: order.referencia,
-           createdAt: order.createdAt,
-         },
-         deliveryPerson: deliveryPerson
-           ? {
-               id: deliveryPerson.id,
-               nombre: deliveryPerson.nombre,
-               ultimaUbicacion: deliveryPerson.ultimaUbicacion,
-             }
-           : null,
-         directions,
-       });
+        order: {
+          id: order.id,
+          nombre: order.nombre,
+          telefono: order.telefono,
+          direccion: order.direccion,
+          direccionCompleta: order.direccionCompleta,
+          latitud: order.latitud,
+          longitud: order.longitud,
+          status: order.status,
+          items: order.items,
+          total: order.total,
+          referencia: order.referencia,
+          createdAt: order.createdAt,
+        },
+        deliveryPerson: deliveryPerson
+          ? {
+              id: deliveryPerson.id,
+              nombre: deliveryPerson.nombre,
+              ultimaUbicacion: deliveryPerson.ultimaUbicacion,
+            }
+          : null,
+        directions,
+      });
     } catch (error) {
       console.error('Error getting order tracking:', error);
       res.status(500).json({ error: 'Error al obtener seguimiento' });
+    }
+  }
+
+  async getAssignedOrders(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId;
+      const user = await database.getCollection('users').findOne({ id: userId });
+
+      if (!user || !user.deliveryPersonId) {
+        res.status(403).json({ error: 'No estás vinculado a un repartidor' });
+        return;
+      }
+
+      const status = req.query.status as string | undefined;
+      const filter: any = { deliveryPersonId: user.deliveryPersonId };
+      if (status) filter.status = status;
+
+      const orders = await database.getCollection<Order>('orders')
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.json(orders);
+    } catch (error) {
+      console.error('Error getting assigned orders:', error);
+      res.status(500).json({ error: 'Error al obtener pedidos asignados' });
+    }
+  }
+
+  async updateOrderStatus(req: Request, res: Response): Promise<void> {
+    try {
+      const { orderId } = req.params;
+      const { status, observaciones } = req.body;
+      const userId = req.user?.userId;
+
+      if (!status) {
+        res.status(400).json({ error: 'Estado requerido' });
+        return;
+      }
+
+      const validDeliveryStatuses: Order['status'][] = ['enviado', 'entregado', 'procesado'];
+      if (!validDeliveryStatuses.includes(status)) {
+        res.status(400).json({ error: 'Estado inválido para repartidor' });
+        return;
+      }
+
+      const order = await database.getCollection<Order>('orders').findOne({ id: orderId });
+      if (!order) {
+        res.status(404).json({ error: 'Pedido no encontrado' });
+        return;
+      }
+
+      const user = await database.getCollection('users').findOne({ id: userId });
+      if (!user || user.deliveryPersonId !== order.deliveryPersonId) {
+        res.status(403).json({ error: 'No tienes permiso para este pedido' });
+        return;
+      }
+
+      const statusLabels: Record<string, string> = {
+        enviado: 'Pedido enviado',
+        entregado: 'Pedido entregado',
+        procesado: 'Pedido aceptado por repartidor',
+      };
+
+      const updatedHistorial = [
+        ...order.historial,
+        {
+          status: status as any,
+          fecha: new Date(),
+          observaciones: observaciones || statusLabels[status],
+        },
+      ];
+
+      const updateData: any = {
+        status: status as any,
+        historial: updatedHistorial,
+        updatedAt: new Date(),
+      };
+
+      if (status === 'entregado' && req.body.facturaImage) {
+        updateData.facturaImage = req.body.facturaImage;
+      }
+
+      const result = await database.getCollection<Order>('orders').findOneAndUpdate(
+        { id: orderId },
+        { $set: updateData },
+        { returnDocument: 'after' }
+      );
+
+      const io = (req as any).app.get('io');
+      if (io) {
+        io.emit('pedido-estado-cambiado', {
+          orderId,
+          status,
+          deliveryPersonId: user.deliveryPersonId,
+        });
+      }
+
+      await crearRegistro('Modificación', 'Pedidos', `Pedido #${orderId.slice(-8)} ${status}`, 
+        { pedidoId: orderId, estadoNuevo: status }, user.nombreCompleto || user.username || 'Sistema');
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      res.status(500).json({ error: 'Error al actualizar estado' });
     }
   }
 }
