@@ -470,7 +470,6 @@ router.delete('/:id', authenticateToken, async (req: Request, res: Response) => 
   }
 });
 
-// Obtener pedidos asignados a repartidor (autenticado) o por deliveryPersonId
 router.put('/:id/accept', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -651,15 +650,27 @@ router.get('/delivery/assigned', authenticateToken, async (req: Request, res: Re
        .find(filter)
        .sort({ createdAt: -1 })
        .toArray();
-     res.json(orders);
+     
+     const ordersWithProducts = orders.map(order => ({
+       ...order,
+       products: order.items?.map(item => ({
+         id: item.productId,
+         name: item.title,
+         price: item.price,
+         quantity: item.quantity,
+         image: item.image
+       })) || []
+     }));
+     
+     res.json(ordersWithProducts);
    } catch (error) {
      console.error('Error fetching assigned orders:', error);
      res.status(500).json({ error: 'Error al obtener pedidos asignados' });
    }
   });
 
-  // Get available orders for delivery person to accept
-  router.get('/delivery/available', authenticateToken, async (req: Request, res: Response) => {
+// Get available orders for delivery person to accept
+router.get('/delivery/available', authenticateToken, async (req: Request, res: Response) => {
    try {
      const userId = req.user?.userId;
      const user = await database.getCollection('users').findOne({ id: userId });
@@ -676,7 +687,19 @@ router.get('/delivery/assigned', authenticateToken, async (req: Request, res: Re
        })
        .sort({ createdAt: -1 })
        .toArray();
-     res.json(orders);
+     
+     const ordersWithProducts = orders.map(order => ({
+       ...order,
+       products: order.items?.map(item => ({
+         id: item.productId,
+         name: item.title,
+         price: item.price,
+         quantity: item.quantity,
+         image: item.image
+       })) || []
+     }));
+     
+     res.json(ordersWithProducts);
    } catch (error) {
      console.error('Error fetching available orders:', error);
      res.status(500).json({ error: 'Error al obtener pedidos disponibles' });

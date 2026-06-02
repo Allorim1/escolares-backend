@@ -407,7 +407,18 @@ res.json({
         .sort({ createdAt: -1 })
         .toArray();
 
-      res.json(orders);
+      const ordersWithProducts = orders.map(order => ({
+        ...order,
+        products: order.items?.map(item => ({
+          id: item.productId,
+          name: item.title,
+          price: item.price,
+          quantity: item.quantity,
+          image: item.image
+        })) || []
+      }));
+
+      res.json(ordersWithProducts);
     } catch (error) {
       console.error('Error getting assigned orders:', error);
       res.status(500).json({ error: 'Error al obtener pedidos asignados' });
