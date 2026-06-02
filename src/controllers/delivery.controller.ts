@@ -407,6 +407,8 @@ res.json({
         .sort({ createdAt: -1 })
         .toArray();
 
+      const deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: user.deliveryPersonId });
+
       const ordersWithProducts = orders.map(order => ({
         ...order,
         products: order.items?.map(item => ({
@@ -415,7 +417,8 @@ res.json({
           price: item.price,
           quantity: item.quantity,
           image: item.image
-        })) || []
+        })) || [],
+        deliveryPersonLocation: deliveryPerson?.ultimaUbicacion
       }));
 
       res.json(ordersWithProducts);

@@ -401,6 +401,23 @@ router.get('/orders/assigned', authenticateToken, (req: Request, res: Response) 
 
 /**
  * @swagger
+ * /api/delivery/google-maps-key:
+ *   get:
+ *     summary: Obtener API key de Google Maps
+ *     tags: [Repartidores]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: API key
+ */
+router.get('/google-maps-key', authenticateToken, (req: Request, res: Response) => {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY || '';
+  res.json({ apiKey });
+});
+
+/**
+ * @swagger
  * /api/delivery/orders/{orderId}/status:
  *   put:
  *     summary: Actualizar estado de un pedido (repartidor)
