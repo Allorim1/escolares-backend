@@ -81,6 +81,27 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const pageParam = req.query.page as string | undefined;
     const limitParam = req.query.limit as string | undefined;
+    const allParam = req.query.all as string | undefined;
+
+    // If 'all' parameter is set, return all products without pagination
+    if (allParam === 'true') {
+      const cacheKey = 'products:all';
+      const cached = await cacheGet(cacheKey);
+      if (cached) {
+        res.header('X-Cache', 'HIT');
+        return res.json(JSON.parse(cached));
+      }
+
+      const products = await database.getCollection('products').find({}).toArray();
+      const result = {
+        products,
+        total: products.length
+      };
+
+      await cacheSet(cacheKey, JSON.stringify(result), CACHE_TTL);
+      res.header('X-Cache', 'MISS');
+      return res.json(result);
+    }
 
     const page = parseInt(pageParam || '1');
     const limit = parseInt(limitParam || '50');
