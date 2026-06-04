@@ -42,7 +42,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const id = req.params.id;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const collection = database.getCollection('tasasGuardadas');
     const tasa = await collection.findOne({ _id: new ObjectId(id) });
     res.json(tasa);
@@ -55,7 +55,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
-    const id = req.params.id;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const collection = database.getCollection('tasasGuardadas');
     await collection.deleteOne({ _id: new ObjectId(id) });
     res.json({ success: true });
