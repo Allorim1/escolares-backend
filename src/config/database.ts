@@ -123,6 +123,76 @@ class Database {
         },
       ]);
     }
+
+    const productsCount = await this._db.collection('products').countDocuments();
+    if (productsCount === 0) {
+      await this._db.collection('products').insertMany([
+        {
+          id: '1',
+          title: 'Mochila Escolar 15"',
+          price: 45.99,
+          description: 'Mochila resistente para estudiantes',
+          category: 'Bolsos y Cartuchera',
+          image: '/products/mochila1.jpg',
+          rating: { rate: 4.5, count: 120 },
+          marca: null,
+          iva: false,
+          ivaPercentage: 16,
+          estado: 'disponible',
+          enOferta: false,
+          ofertaPorcentaje: 0,
+          ofertaPrecio: 0,
+        },
+        {
+          id: '2',
+          title: 'Cartuchera Metálica',
+          price: 12.50,
+          description: 'Cartuchera con compartimentos múltiples',
+          category: 'Bolsos y Cartuchera',
+          image: '/products/cartuchera1.jpg',
+          rating: { rate: 4.2, count: 85 },
+          marca: null,
+          iva: false,
+          ivaPercentage: 16,
+          estado: 'disponible',
+          enOferta: false,
+          ofertaPorcentaje: 0,
+          ofertaPrecio: 0,
+        },
+        {
+          id: '3',
+          title: 'Cuaderno Universitario 100 hojas',
+          price: 8.99,
+          description: 'Cuaderno de tapeo dura con 100 hojas',
+          category: 'Línea de Papelería',
+          image: '/products/cuaderno1.jpg',
+          rating: { rate: 4.7, count: 200 },
+          marca: null,
+          iva: false,
+          ivaPercentage: 16,
+          estado: 'disponible',
+          enOferta: true,
+          ofertaPorcentaje: 10,
+          ofertaPrecio: 8.09,
+        },
+        {
+          id: '4',
+          title: 'Juego de Geometría 12 piezas',
+          price: 22.00,
+          description: 'Juego didáctico de geometría completo',
+          category: 'Línea de Geometría',
+          image: '/products/geometria1.jpg',
+          rating: { rate: 4.8, count: 65 },
+          marca: null,
+          iva: false,
+          ivaPercentage: 16,
+          estado: 'disponible',
+          enOferta: false,
+          ofertaPorcentaje: 0,
+          ofertaPrecio: 0,
+        },
+      ]);
+    }
   }
 
   getCollection<T extends Document>(name: string): Collection<T> {
