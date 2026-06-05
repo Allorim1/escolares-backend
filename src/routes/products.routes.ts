@@ -249,6 +249,11 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (allParam === 'true') {
       const products = await database.getCollection('products').find(query).toArray();
+      products.sort((a: any, b: any) => {
+        const left = Number(a.id);
+        const right = Number(b.id);
+        return Number.isNaN(left) || Number.isNaN(right) ? String(a.id).localeCompare(String(b.id)) : left - right;
+      });
       const result = {
         products,
         total: products.length
@@ -263,6 +268,11 @@ router.get('/', async (req: Request, res: Response) => {
       database.getCollection('products').find(query).skip(skip).limit(limit).toArray(),
       database.getCollection('products').countDocuments(query)
     ]);
+    products.sort((a: any, b: any) => {
+      const left = Number(a.id);
+      const right = Number(b.id);
+      return Number.isNaN(left) || Number.isNaN(right) ? String(a.id).localeCompare(String(b.id)) : left - right;
+    });
 
     const result = {
       products,
@@ -285,7 +295,7 @@ router.get('/', async (req: Request, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     
     const cacheKey = `product:${id}`;
     const cached = await cacheGet(cacheKey);
@@ -444,7 +454,7 @@ router.put('/:id', authenticateToken, (req: Request, res: Response) => {
 
 async function handleUpdateProduct(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     
     // Process uploaded images
     let { image, images } = processRequestImages(req);
@@ -528,7 +538,7 @@ async function handleUpdateProduct(req: Request, res: Response) {
 
 router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     const productoEliminado = await database.getCollection('products').findOne({ id });
