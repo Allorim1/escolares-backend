@@ -84,15 +84,20 @@ const crearRegistro = async (database: any, accion: string, modulo: string, desc
 };
 
 // Storage configuration for product images
+const uploadsRoot = process.env.UPLOADS_PATH
+  ? path.resolve(process.env.UPLOADS_PATH)
+  : path.resolve(__dirname, '../../uploads');
+const productUploadPath = path.join(uploadsRoot, 'products');
+if (!fs.existsSync(productUploadPath)) {
+  fs.mkdirSync(productUploadPath, { recursive: true });
+}
+console.log('Multer product upload root:', productUploadPath);
+
 const productImagesStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '..', '..', 'uploads', 'products');
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-    cb(null, uploadPath);
+  destination: (_req, _file, cb) => {
+    cb(null, productUploadPath);
   },
-  filename: (req, file, cb) => {
+  filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
     cb(null, uniqueName);
@@ -112,50 +117,49 @@ const uploadProductImage = multer({
 });
 
 // Upload main image for a product
-router.post('/upload-image', authenticateToken, (req: Request, res: Response) => {
-  uploadProductImage.single('image')(req, res, (err) => {
-    if (err) {
-      console.error('Error uploading product image:', err);
-      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'La imagen no puede pesar más de 5MB' });
-      }
-      return res.status(400).json({ error: err.message || 'Error al subir la imagen' });
-    }
-
+router.post(
+  '/upload-image',
+  authenticateToken,
+  uploadProductImage.single('image'),
+  (req: Request, res: Response) => {
     if (!req.file) {
       return res.status(400).json({ error: 'No se proporcionó ninguna imagen' });
     }
 
+    console.log('Product image uploaded:', {
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      size: req.file.size,
+      path: req.file.path,
+    });
+
     const imageUrl = `/api/uploads/products/${req.file.filename}`;
     res.json({ url: imageUrl, filename: req.file.originalname, size: req.file.size });
-  });
-});
+  }
+);
 
 // Upload additional images for a product
-router.post('/upload-images', authenticateToken, (req: Request, res: Response) => {
-  uploadProductImage.array('images', 4)(req, res, (err) => {
-    if (err) {
-      console.error('Error uploading product images:', err);
-      if (err instanceof multer.MulterError) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(400).json({ error: 'Alguna imagen excede el límite de 5MB' });
-        }
-        if (err.code === 'LIMIT_FILE_COUNT') {
-          return res.status(400).json({ error: 'Máximo 4 imágenes adicionales permitidas' });
-        }
-      }
-      return res.status(400).json({ error: err.message || 'Error al subir las imágenes' });
-    }
-
+router.post(
+  '/upload-images',
+  authenticateToken,
+  uploadProductImage.array('images', 4),
+  (req: Request, res: Response) => {
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
       return res.status(400).json({ error: 'No se proporcionaron imágenes' });
     }
 
+    console.log('Additional product images uploaded:', files.map(f => ({
+      filename: f.filename,
+      originalname: f.originalname,
+      size: f.size,
+      path: f.path,
+    })));
+
     const urls = files.map(f => `/api/uploads/products/${f.filename}`);
     res.json({ urls, files: files.map(f => ({ filename: f.originalname, size: f.size })) });
-  });
-});
+  }
+);
 
 // Helper to process images from request
 function processRequestImages(req: Request): { image: string; images: string[] } {
