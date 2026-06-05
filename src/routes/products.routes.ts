@@ -86,7 +86,7 @@ const crearRegistro = async (database: any, accion: string, modulo: string, desc
 // Storage configuration for product images
 const uploadsRoot = process.env.UPLOADS_PATH
   ? path.resolve(process.env.UPLOADS_PATH)
-  : path.resolve(__dirname, '../../uploads');
+  : path.resolve(process.cwd(), 'src/uploads');
 const productUploadPath = path.join(uploadsRoot, 'products');
 if (!fs.existsSync(productUploadPath)) {
   fs.mkdirSync(productUploadPath, { recursive: true });
