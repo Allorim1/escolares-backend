@@ -126,7 +126,7 @@ router.post('/upload-image', authenticateToken, (req: Request, res: Response) =>
       return res.status(400).json({ error: 'No se proporcionó ninguna imagen' });
     }
 
-    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/products/${req.file.filename}`;
+    const imageUrl = `/api/uploads/products/${req.file.filename}`;
     res.json({ url: imageUrl, filename: req.file.originalname, size: req.file.size });
   });
 });
@@ -152,7 +152,7 @@ router.post('/upload-images', authenticateToken, (req: Request, res: Response) =
       return res.status(400).json({ error: 'No se proporcionaron imágenes' });
     }
 
-    const urls = files.map(f => `${req.protocol}://${req.get('host')}/uploads/products/${f.filename}`);
+    const urls = files.map(f => `/api/uploads/products/${f.filename}`);
     res.json({ urls, files: files.map(f => ({ filename: f.originalname, size: f.size })) });
   });
 });
@@ -166,10 +166,10 @@ function processRequestImages(req: Request): { image: string; images: string[] }
   
   if (files) {
     if (files.image && files.image.length > 0) {
-      image = `${req.protocol}://${req.get('host')}/uploads/products/${files.image[0].filename}`;
+      image = `/api/uploads/products/${files.image[0].filename}`;
     }
     if (files.images && files.images.length > 0) {
-      images = files.images.map(f => `${req.protocol}://${req.get('host')}/uploads/products/${f.filename}`);
+      images = files.images.map(f => `/api/uploads/products/${f.filename}`);
     }
   }
   
