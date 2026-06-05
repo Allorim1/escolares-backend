@@ -134,7 +134,7 @@ router.post(
     });
 
     const imageUrl = `/api/uploads/products/${req.file.filename}`;
-    res.json({ url: imageUrl, filename: req.file.originalname, size: req.file.size });
+    res.json({ url: imageUrl, filename: req.file.filename, originalname: req.file.originalname, size: req.file.size });
   }
 );
 
@@ -157,7 +157,7 @@ router.post(
     })));
 
     const urls = files.map(f => `/api/uploads/products/${f.filename}`);
-    res.json({ urls, files: files.map(f => ({ filename: f.originalname, size: f.size })) });
+    res.json({ urls, files: files.map(f => ({ filename: f.filename, originalname: f.originalname, size: f.size })) });
   }
 );
 
@@ -184,7 +184,7 @@ function processRequestImages(req: Request): { image: string; images: string[] }
         const parsed = JSON.parse(req.body.images);
         if (Array.isArray(parsed)) {
           images = [...images, ...parsed.filter((img: string) => 
-            img.startsWith('http') || img.startsWith('https') || img.startsWith('data:image')
+            img.startsWith('http') || img.startsWith('https') || img.startsWith('data:image') || img.startsWith('/api/uploads') || img.indexOf('/api/uploads') !== -1
           )];
         }
       } catch (e) {
@@ -192,7 +192,7 @@ function processRequestImages(req: Request): { image: string; images: string[] }
       }
     } else if (Array.isArray(req.body.images)) {
       images = [...images, ...req.body.images.filter((img: string) => 
-        img.startsWith('http') || img.startsWith('https') || img.startsWith('data:image')
+        img.startsWith('http') || img.startsWith('https') || img.startsWith('data:image') || img.startsWith('/api/uploads') || img.indexOf('/api/uploads') !== -1
       )];
     }
   }
@@ -334,7 +334,20 @@ router.post('/', authenticateToken, (req: Request, res: Response) => {
 
 async function handleCreateProduct(req: Request, res: Response) {
   try {
-    const { image, images } = processRequestImages(req);
+    let { image, images } = processRequestImages(req);
+    // Normalize incoming image URLs/paths to consistent /api/uploads/products/... or keep data URLs
+    const normalizeImg = (img: string) => {
+      if (!img) return '';
+      if (img.startsWith('data:') || img.startsWith('http')) return img;
+      const idx = img.indexOf('/api/uploads/products/');
+      if (idx !== -1) return img.slice(idx);
+      if (img.startsWith('/api/uploads/products/')) return img;
+      // If it's a plain filename, map to uploads path
+      if (!img.includes('/')) return `/api/uploads/products/${img}`;
+      return img;
+    };
+    image = normalizeImg(image || '');
+    images = (images || []).map(normalizeImg).filter(Boolean);
     const body = req.body as any;
     const title = (body.title || '').toString().trim();
     const category = (body.category || '').toString().trim();
@@ -383,6 +396,7 @@ async function handleCreateProduct(req: Request, res: Response) {
     };
 
     await database.getCollection('products').insertOne(newProduct);
+      console.log('Product created in DB:', { id: newProduct.id, title: newProduct.title, image: image });
 
     if (lineaId) {
       await database.getCollection('lineas').updateOne(
@@ -434,6 +448,17 @@ async function handleUpdateProduct(req: Request, res: Response) {
     
     // Process uploaded images
     let { image, images } = processRequestImages(req);
+    const normalizeImg = (img: string) => {
+      if (!img) return '';
+      if (img.startsWith('data:') || img.startsWith('http')) return img;
+      const idx = img.indexOf('/api/uploads/products/');
+      if (idx !== -1) return img.slice(idx);
+      if (img.startsWith('/api/uploads/products/')) return img;
+      if (!img.includes('/')) return `/api/uploads/products/${img}`;
+      return img;
+    };
+    image = normalizeImg(image || '');
+    images = (images || []).map(normalizeImg).filter(Boolean);
     const body = req.body as any;
     const title = (body.title || '').toString().trim();
     const category = (body.category || '').toString().trim();
@@ -479,10 +504,11 @@ async function handleUpdateProduct(req: Request, res: Response) {
       colores: colores && colores.length > 0 ? colores : defaultColors,
     };
 
-    await database.getCollection('products').updateOne(
+    const updateResult = await database.getCollection('products').updateOne(
       { id },
       { $set: updateData }
     );
+    console.log('Product update result:', { id, matchedCount: updateResult.matchedCount, modifiedCount: updateResult.modifiedCount });
 
     const updated = await database.getCollection('products').findOne({ id });
 
