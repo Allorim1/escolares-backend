@@ -48,6 +48,10 @@ const cacheDeletePattern = async (pattern: string): Promise<void> => {
   } catch {}
 };
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const router = express.Router();
 
 const defaultColors = [
@@ -304,14 +308,21 @@ router.post('/', authenticateToken, (req: Request, res: Response) => {
 async function handleCreateProduct(req: Request, res: Response) {
   try {
     const { image, images } = processRequestImages(req);
-    const body = req.body;
-    const { title, price, description, category, marca, lineaId, iva, ivaPercentage, estado, enOferta, ofertaPorcentaje, ofertaPrecio, rating, colorido, colores } = body;
+    const body = req.body as any;
+    const title = (body.title || '').toString().trim();
+    const category = (body.category || '').toString().trim();
+    const { price, description, marca, lineaId, iva, ivaPercentage, estado, enOferta, ofertaPorcentaje, ofertaPrecio, rating, colorido, colores } = body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
 
-    // Check for duplicate product name
-    const existingProduct = await database.getCollection('products').findOne({ title: { $regex: `^${title}$`, $options: 'i' } });
+    if (!title) {
+      return res.status(400).json({ error: 'El título del producto es obligatorio' });
+    }
+
+    const existingProduct = await database.getCollection('products').findOne({
+      title: { $regex: `^${escapeRegExp(title)}$`, $options: 'i' }
+    });
     if (existingProduct) {
-      return res.status(400).json({ error: `Ya existe un producto con el nombre "${title}"` });
+      return res.status(409).json({ error: `Ya existe un producto con el nombre "${title}"` });
     }
 
     const lastProduct = await database.getCollection('products')
@@ -397,19 +408,27 @@ async function handleUpdateProduct(req: Request, res: Response) {
     // Process uploaded images
     let { image, images } = processRequestImages(req);
     const body = req.body as any;
-    const { title, price, description, category, marca, iva, ivaPercentage, estado, lineaId, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores, rating } = body;
+    const title = (body.title || '').toString().trim();
+    const category = (body.category || '').toString().trim();
+    const { price, description, marca, iva, ivaPercentage, estado, lineaId, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores, rating } = body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
 
     const productoAnterior = await database.getCollection('products').findOne({ id });
+    if (!productoAnterior) {
+      return res.status(404).json({ error: 'Producto no encontrado' });
+    }
 
-    // Check for duplicate product name (excluding current product)
-    if (title !== productoAnterior?.title) {
+    if (!title) {
+      return res.status(400).json({ error: 'El título del producto es obligatorio' });
+    }
+
+    if (title !== productoAnterior.title?.toString().trim()) {
       const existingProduct = await database.getCollection('products').findOne({ 
-        title: { $regex: `^${title}$`, $options: 'i' },
+        title: { $regex: `^${escapeRegExp(title)}$`, $options: 'i' },
         id: { $ne: id }
       });
       if (existingProduct) {
-        return res.status(400).json({ error: `Ya existe un producto con el nombre "${title}"` });
+        return res.status(409).json({ error: `Ya existe un producto con el nombre "${title}"` });
       }
     }
 
@@ -417,7 +436,7 @@ async function handleUpdateProduct(req: Request, res: Response) {
       title,
       price: Number(price),
       description,
-      category,
+      category: category || ' ',
       image,
       marca: marca || null,
       iva: iva || false,
