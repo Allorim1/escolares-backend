@@ -86,7 +86,7 @@ const crearRegistro = async (database: any, accion: string, modulo: string, desc
 // Storage configuration for product images
 const productImagesStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '..', 'uploads', 'products');
+    const uploadPath = path.join(process.cwd(), 'uploads', 'products');
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
     }
