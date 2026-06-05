@@ -205,16 +205,50 @@ router.get('/', async (req: Request, res: Response) => {
     const pageParam = req.query.page as string | undefined;
     const limitParam = req.query.limit as string | undefined;
     const allParam = req.query.all as string | undefined;
+    const searchParam = (req.query.search as string | undefined)?.trim();
+    const categoryParam = (req.query.category as string | undefined)?.trim();
+    const brandParam = (req.query.brand as string | undefined)?.trim() || (req.query.marca as string | undefined)?.trim();
+
+    const query: any = {};
+    const filters: any[] = [];
+
+    if (searchParam) {
+      const searchRegex = new RegExp(escapeRegExp(searchParam), 'i');
+      filters.push({
+        $or: [
+          { title: searchRegex },
+          { description: searchRegex },
+          { category: searchRegex },
+          { marca: searchRegex }
+        ]
+      });
+    }
+
+    if (categoryParam) {
+      filters.push({ category: categoryParam });
+    }
+
+    if (brandParam) {
+      filters.push({ marca: brandParam });
+    }
+
+    if (filters.length > 0) {
+      query.$and = filters;
+    }
+
+    const page = parseInt(pageParam || '1');
+    const limit = parseInt(limitParam || '50');
+    const skip = (page - 1) * limit;
+
+    const cacheKey = `products:${page}:${limit}:${String(searchParam)}:${String(categoryParam)}:${String(brandParam)}:${String(allParam)}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      res.header('X-Cache', 'HIT');
+      return res.json(JSON.parse(cached));
+    }
 
     if (allParam === 'true') {
-      const cacheKey = 'products:all';
-      const cached = await cacheGet(cacheKey);
-      if (cached) {
-        res.header('X-Cache', 'HIT');
-        return res.json(JSON.parse(cached));
-      }
-
-      const products = await database.getCollection('products').find({}).toArray();
+      const products = await database.getCollection('products').find(query).toArray();
       const result = {
         products,
         total: products.length
@@ -225,20 +259,9 @@ router.get('/', async (req: Request, res: Response) => {
       return res.json(result);
     }
 
-    const page = parseInt(pageParam || '1');
-    const limit = parseInt(limitParam || '50');
-    const skip = (page - 1) * limit;
-
-    const cacheKey = `products:${page}:${limit}`;
-    const cached = await cacheGet(cacheKey);
-    if (cached) {
-      res.header('X-Cache', 'HIT');
-      return res.json(JSON.parse(cached));
-    }
-
     const [products, total] = await Promise.all([
-      database.getCollection('products').find({}).skip(skip).limit(limit).toArray(),
-      database.getCollection('products').countDocuments()
+      database.getCollection('products').find(query).skip(skip).limit(limit).toArray(),
+      database.getCollection('products').countDocuments(query)
     ]);
 
     const result = {
