@@ -48,9 +48,10 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
    { id: 'tasas_gestionar', nombre: 'Gestionar Tasas', descripcion: 'Puede gestionar costos y tasas', modulo: 'panel_admin' },
    { id: 'tasas_ver', nombre: 'Ver Tasas', descripcion: 'Puede ver histórico de costos', modulo: 'panel_admin' },
    
-   // Panel Admin - Registro/Facturación
-   { id: 'facturas_registrar', nombre: 'Registrar Facturas', descripcion: 'Puede registrar facturas', modulo: 'panel_admin' },
-   { id: 'facturas_gestionar', nombre: 'Gestionar Facturas', descripcion: 'Puede gestionar facturación', modulo: 'panel_admin' },
+// Panel Admin - Registro/Facturación
+    { id: 'facturas_registrar', nombre: 'Registrar Facturas', descripcion: 'Puede registrar facturas', modulo: 'panel_admin' },
+    { id: 'facturas_gestionar', nombre: 'Gestionar Facturas', descripcion: 'Puede gestionar facturación', modulo: 'panel_admin' },
+    { id: 'cotizaciones_gestionar', nombre: 'Gestionar Cotizaciones', descripcion: 'Puede gestionar cotizaciones Alcadía', modulo: 'panel_admin' },
    
    // Panel Admin - Otros
    { id: 'gastos_gestionar', nombre: 'Gestionar Gastos', descripcion: 'Puede gestionar gastos', modulo: 'panel_admin' },
