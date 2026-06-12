@@ -375,13 +375,21 @@ async function handleCreateProduct(req: Request, res: Response) {
       return res.status(409).json({ error: `Ya existe un producto con el nombre "${title}"` });
     }
 
-    const lastProduct = await database.getCollection('products')
-      .find({})
-      .sort({ id: - 1 })
-      .limit(1)
-      .toArray();
-
-    const newId = lastProduct.length > 0 ? String(Number(lastProduct[0].id) + 1) : '1';
+    const allProductIds = await database.getCollection('products')
+      .distinct('id');
+    
+    let maxId = 0;
+    if (allProductIds.length > 0) {
+      const numericIds = allProductIds
+        .map(id => Number(id))
+        .filter(id => !isNaN(id));
+      maxId = numericIds.length > 0 ? Math.max(...numericIds) : 0;
+    }
+    
+    let newId = String(maxId + 1);
+    while (allProductIds.includes(newId)) {
+      newId = String(Number(newId) + 1);
+    }
 
     const newProduct: any = {
       id: newId,
