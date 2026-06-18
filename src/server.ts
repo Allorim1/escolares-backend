@@ -2172,11 +2172,78 @@ app.delete('/api/nomina/pagos/:id', async (req: Request, res: Response) => {
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const collection = (database as any).getCollection('nomina-pagos');
-    await collection.deleteOne({ _id: new ObjectId(id) });
-    res.json({ success: true });
+await collection.deleteOne({ _id: new ObjectId(id) });
+     res.json({ success: true });
   } catch (error) {
     console.error('Error eliminando pago:', error);
     res.status(500).json({ error: 'Error al eliminar pago' });
+  }
+});
+
+// Control de Asistencias
+app.get('/api/asistencias', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('asistencias');
+    const asistencias = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
+    res.json(asistencias);
+  } catch (error) {
+    console.error('Error obteniendo asistencias:', error);
+    res.status(500).json({ error: 'Error al obtener asistencias' });
+  }
+});
+
+app.post('/api/asistencias', async (req: Request, res: Response) => {
+  try {
+    const { empleadoId, empleadoNombre, fecha, tipo, hora, justificacion } = req.body;
+    if (!empleadoId) {
+      res.status(400).json({ error: 'Empleado es requerido' });
+      return;
+    }
+    const asistencia = {
+      empleadoId,
+      empleadoNombre: empleadoNombre || '',
+      fecha: fecha ? new Date(fecha) : new Date(),
+      tipo: tipo || 'entrada',
+      hora: hora || '',
+      justificacion: justificacion || '',
+    };
+    const collection = (database as any).getCollection('asistencias');
+    const result = await collection.insertOne(asistencia);
+    res.json({ ...asistencia, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando asistencia:', error);
+    res.status(500).json({ error: 'Error al crear asistencia' });
+  }
+});
+
+app.put('/api/asistencias/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { empleadoId, empleadoNombre, fecha, tipo, hora, justificacion } = req.body;
+    const updateData: any = { empleadoId, empleadoNombre, tipo, hora, justificacion };
+    if (fecha) updateData.fecha = new Date(fecha);
+    const collection = (database as any).getCollection('asistencias');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando asistencia:', error);
+    res.status(500).json({ error: 'Error al actualizar asistencia' });
+  }
+});
+
+app.delete('/api/asistencias/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('asistencias');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando asistencia:', error);
+    res.status(500).json({ error: 'Error al eliminar asistencia' });
   }
 });
 
