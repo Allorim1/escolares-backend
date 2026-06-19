@@ -36,6 +36,7 @@ import redesSocialesRoutes from './routes/redes-sociales.routes';
 import noticiasRoutes from './routes/noticias.routes';
 import tasasGuardadasRoutes from './routes/tasas-guardadas.routes';
 import cotizacionesRoutes from './routes/cotizaciones.routes';
+import notasEntregaRoutes from './routes/notas-entrega.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -1843,6 +1844,7 @@ app.use('/api/redes-sociales', redesSocialesRoutes);
 app.use('/api/noticias', noticiasRoutes);
 app.use('/api/tasas-guardadas', tasasGuardadasRoutes);
 app.use('/api/cotizaciones', cotizacionesRoutes);
+app.use('/api/notas-entrega', notasEntregaRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: Response) => {
