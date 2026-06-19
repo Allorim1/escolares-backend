@@ -204,6 +204,8 @@ const invalidateCache = (req: Request, res: Response, next: () => void) => {
       cacheDeletePattern('req:/api/roles*');
     } else if (path.includes('/manuales')) {
       cacheDeletePattern('req:/api/manuales*');
+    } else if (path.includes('/notas-entrega')) {
+      cacheDeletePattern('req:/api/notas-entrega*');
     }
   }
   next();
