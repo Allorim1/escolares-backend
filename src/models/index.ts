@@ -40,7 +40,7 @@ export interface User {
    direcciones?: Direccion[];
    metodosPago?: MetodoPago[];
    supervisorKey?: string;
- }
+  }
 
 export interface Direccion {
    id: string;

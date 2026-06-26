@@ -373,52 +373,51 @@ res.cookie('accessToken', tokens.accessToken, {
     }
   }
 
-  async updateRol(req: Request, res: Response): Promise<void> {
-    try {
-      const { targetUserId, rol, rolId } = req.body;
-      const solicitanteRol = (req as any).userRol;
-      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
+async updateRol(req: Request, res: Response): Promise<void> {
+     try {
+       const { targetUserId, rol, rolId } = req.body;
+       const solicitanteRol = (req as any).userRol;
+       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
 
-      if (!targetUserId || (!rol && !rolId)) {
-        res.status(400).json({ error: 'ID de usuario y rol requeridos' });
-        return;
-      }
+       if (!targetUserId || (!rol && !rolId)) {
+         res.status(400).json({ error: 'ID de usuario y rol requeridos' });
+         return;
+       }
 
-      if (rol === 'root') {
-        res.status(403).json({ error: 'No se puede asignar rol de root' });
-        return;
-      }
+       if (rol === 'root') {
+         res.status(403).json({ error: 'No se puede asignar rol de root' });
+         return;
+       }
 
-      if (rol === 'owner' && solicitanteRol !== 'root') {
-        res.status(403).json({ error: 'Solo el usuario root puede asignar rol de owner' });
-        return;
-      }
+       if (rol === 'owner' && solicitanteRol !== 'root') {
+         res.status(403).json({ error: 'Solo el usuario root puede asignar rol de owner' });
+         return;
+       }
 
-      const usuarioActual = await database.getCollection<User>('users').findOne({ id: targetUserId });
+       const usuarioActual = await database.getCollection<User>('users').findOne({ id: targetUserId });
 
 const updateData: Partial<User> = {};
-        if (rol) {
-          updateData.rol = rol as 'owner' | 'usuario' | 'repartidor' | 'root';
-          if (rol === 'owner') {
-            updateData.isAdmin = true;
-            updateData.isOwner = true;
-          } else if (rol === 'repartidor') {
-            updateData.isAdmin = false;
-            updateData.isOwner = false;
-          } else {
-            updateData.isAdmin = false;
-            updateData.isOwner = false;
-          }
-        }
-if (rolId !== undefined) {
-          updateData.rolId = rolId;
-          // Only set isAdmin for non-repartidor roles
-          if (rol !== 'repartidor' && !updateData.isAdmin) {
-            updateData.isAdmin = true;
-          }
-        }
+         if (rol) {
+           updateData.rol = rol as 'owner' | 'usuario' | 'repartidor' | 'root';
+           if (rol === 'owner') {
+             updateData.isAdmin = true;
+             updateData.isOwner = true;
+           } else if (rol === 'repartidor') {
+             updateData.isOwner = false;
+           } else {
+             updateData.isAdmin = false;
+             updateData.isOwner = false;
+           }
+         }
+       if (rolId !== undefined) {
+         updateData.rolId = rolId;
+         // Only set isAdmin for non-repartidor roles
+         if (rol !== 'repartidor' && !updateData.isAdmin) {
+           updateData.isAdmin = true;
+         }
+       }
 
-const result = await database
+       const result = await database
          .getCollection<User>('users')
          .findOneAndUpdate(
            { id: targetUserId },
@@ -431,38 +430,38 @@ const result = await database
          return;
        }
 
-// Create delivery person record if rol is 'repartidor' and user doesn't have one
-        let deliveryPersonId = result.deliveryPersonId;
-        if (rol === 'repartidor' && !deliveryPersonId) {
-          const newDeliveryPerson = {
-            id: `${Date.now().toString()}-dp`,
-            nombre: result.nombreCompleto || result.username || 'Repartidor',
-            telefono: result.telefono || '',
-            activo: true,
-            userId: result.id,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-          await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
-          deliveryPersonId = newDeliveryPerson.id;
-          await database.getCollection<User>('users').updateOne(
-            { id: targetUserId },
-            { $set: { deliveryPersonId } }
-          );
-        }
+       // Create delivery person record if rol is 'repartidor' and user doesn't have one
+       let deliveryPersonId = result.deliveryPersonId;
+       if (rol === 'repartidor' && !deliveryPersonId) {
+         const newDeliveryPerson = {
+           id: `${Date.now().toString()}-dp`,
+           nombre: result.nombreCompleto || result.username || 'Repartidor',
+           telefono: result.telefono || '',
+           activo: true,
+           userId: result.id,
+           createdAt: new Date(),
+           updatedAt: new Date(),
+         };
+         await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
+         deliveryPersonId = newDeliveryPerson.id;
+         await database.getCollection<User>('users').updateOne(
+           { id: targetUserId },
+           { $set: { deliveryPersonId } }
+         );
+       }
 
-        // Fetch fresh user data to include the deliveryPersonId
-        const updatedUser = await database.getCollection<User>('users').findOne({ id: targetUserId });
-        if (!updatedUser) {
-          res.status(404).json({ error: 'Usuario no encontrado' });
-          return;
-        }
-        const { password: _, ...userWithoutPassword } = updatedUser;
-        res.json(userWithoutPassword);
-    } catch (error) {
-      res.status(500).json({ error: 'Error al actualizar rol' });
-    }
-  }
+       // Fetch fresh user data to include the deliveryPersonId
+       const updatedUser = await database.getCollection<User>('users').findOne({ id: targetUserId });
+       if (!updatedUser) {
+         res.status(404).json({ error: 'Usuario no encontrado' });
+         return;
+       }
+       const { password: _, ...userWithoutPassword } = updatedUser;
+       res.json(userWithoutPassword);
+     } catch (error) {
+       res.status(500).json({ error: 'Error al actualizar rol' });
+     }
+   }
 
   async updateEmail(req: AuthRequest, res: Response): Promise<void> {
     try {
