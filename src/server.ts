@@ -2185,7 +2185,7 @@ await collection.deleteOne({ _id: new ObjectId(id) });
 });
 
 // Control de Asistencias
-app.get('/api/asistencias', async (req: Request, res: Response) => {
+app.get('/api/asistencias', authenticateToken, async (req: Request, res: Response) => {
   try {
     const collection = (database as any).getCollection('asistencias');
     const asistencias = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
@@ -2196,7 +2196,7 @@ app.get('/api/asistencias', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/asistencias', async (req: Request, res: Response) => {
+app.post('/api/asistencias', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { empleadoId, empleadoNombre, fecha, tipo, hora, justificacion } = req.body;
     if (!empleadoId) {
@@ -2220,7 +2220,7 @@ app.post('/api/asistencias', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/asistencias/:id', async (req: Request, res: Response) => {
+app.put('/api/asistencias/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2237,7 +2237,7 @@ app.put('/api/asistencias/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/asistencias/:id', async (req: Request, res: Response) => {
+app.delete('/api/asistencias/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
