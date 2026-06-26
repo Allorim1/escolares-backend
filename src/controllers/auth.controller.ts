@@ -327,7 +327,10 @@ res.cookie('accessToken', tokens.accessToken, {
   async getAll(req: Request, res: Response): Promise<void> {
     try {
       const users = await database.getCollection<User>('users').find({}).toArray();
-      const usersWithoutPassword = users.map(({ password, ...user }) => user);
+      const usersWithoutPassword = users.map(({ password, _id, ...user }) => ({
+        ...user,
+        id: _id ? _id.toString() : user.id,
+      }));
       res.json(usersWithoutPassword);
     } catch (error) {
       res.status(500).json({ error: 'Error al obtener usuarios' });

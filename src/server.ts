@@ -2187,9 +2187,15 @@ await collection.deleteOne({ _id: new ObjectId(id) });
 // Control de Asistencias
 app.get('/api/asistencias', authenticateToken, async (req: Request, res: Response) => {
   try {
+    const { ObjectId } = await import('mongodb');
     const collection = (database as any).getCollection('asistencias');
     const asistencias = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
-    res.json(asistencias);
+    const asistenciasFormatted = asistencias.map((a: any) => ({
+      ...a,
+      _id: a._id?.toString(),
+      empleadoId: a.empleadoId?.toString(),
+    }));
+    res.json(asistenciasFormatted);
   } catch (error) {
     console.error('Error obteniendo asistencias:', error);
     res.status(500).json({ error: 'Error al obtener asistencias' });
@@ -2203,6 +2209,7 @@ app.post('/api/asistencias', authenticateToken, async (req: Request, res: Respon
       res.status(400).json({ error: 'Empleado es requerido' });
       return;
     }
+    const { ObjectId } = await import('mongodb');
     const asistencia = {
       empleadoId,
       empleadoNombre: empleadoNombre || '',
@@ -2213,7 +2220,7 @@ app.post('/api/asistencias', authenticateToken, async (req: Request, res: Respon
     };
     const collection = (database as any).getCollection('asistencias');
     const result = await collection.insertOne(asistencia);
-    res.json({ ...asistencia, _id: result.insertedId });
+    res.json({ ...asistencia, _id: result.insertedId.toString() });
   } catch (error) {
     console.error('Error creando asistencia:', error);
     res.status(500).json({ error: 'Error al crear asistencia' });
@@ -2226,7 +2233,8 @@ app.put('/api/asistencias/:id', authenticateToken, async (req: Request, res: Res
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const { empleadoId, empleadoNombre, fecha, tipo, hora, justificacion } = req.body;
-    const updateData: any = { empleadoId, empleadoNombre, tipo, hora, justificacion };
+    const updateData: any = { empleadoNombre, tipo, hora, justificacion };
+    if (empleadoId) updateData.empleadoId = new ObjectId(empleadoId);
     if (fecha) updateData.fecha = new Date(fecha);
     const collection = (database as any).getCollection('asistencias');
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
