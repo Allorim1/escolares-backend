@@ -123,6 +123,7 @@ const newUser: User = {
         newUser.isOwner = true;
       } else if (rol === 'repartidor') {
         newUser.isOwner = false;
+        newUser.activo = true;
       }
 
       await database.getCollection<User>('users').insertOne(newUser);

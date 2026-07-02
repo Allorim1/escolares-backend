@@ -20,26 +20,27 @@ export interface Oferta {
 }
 
 export interface User {
-   _id?: string;
-   id: string;
-   username: string;
-   email: string;
-   password?: string;
-   isAdmin: boolean;
-   isOwner?: boolean;
-   rol?: 'root' | 'owner' | 'usuario' | 'repartidor';
-   rolId?: string;
-   deliveryPersonId?: string;
-   nombreCompleto?: string;
-   apellido?: string;
-   direccion?: string;
-   telefono?: string;
-   cedula?: string;
-   tipoPersona?: 'natural' | 'juridica';
-   comentarios?: string;
-   direcciones?: Direccion[];
-   metodosPago?: MetodoPago[];
-   supervisorKey?: string;
+    _id?: string;
+    id: string;
+    username: string;
+    email: string;
+    password?: string;
+    isAdmin: boolean;
+    isOwner?: boolean;
+    rol?: 'root' | 'owner' | 'usuario' | 'repartidor';
+    rolId?: string;
+    deliveryPersonId?: string;
+    nombreCompleto?: string;
+    apellido?: string;
+    direccion?: string;
+    telefono?: string;
+    cedula?: string;
+    tipoPersona?: 'natural' | 'juridica';
+    comentarios?: string;
+    direcciones?: Direccion[];
+    metodosPago?: MetodoPago[];
+    supervisorKey?: string;
+    activo?: boolean;
   }
 
 export interface Direccion {
