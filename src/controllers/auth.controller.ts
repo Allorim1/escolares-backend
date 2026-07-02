@@ -397,36 +397,38 @@ async updateRol(req: Request, res: Response): Promise<void> {
          return;
        }
 
-       const usuarioActual = await database.getCollection<User>('users').findOne({ id: targetUserId });
+const usuarioActual = await database.getCollection<User>('users').findOne({
+        $or: [{ id: targetUserId }, { _id: targetUserId }]
+      });
 
 const updateData: Partial<User> = {};
-         if (rol) {
-           updateData.rol = rol as 'owner' | 'usuario' | 'repartidor' | 'root';
-           if (rol === 'owner') {
-             updateData.isAdmin = true;
-             updateData.isOwner = true;
-           } else if (rol === 'repartidor') {
-             updateData.isOwner = false;
-           } else {
-             updateData.isAdmin = false;
-             updateData.isOwner = false;
-           }
-         }
-       if (rolId !== undefined) {
-         updateData.rolId = rolId;
-         // Only set isAdmin for non-repartidor roles
-         if (rol !== 'repartidor' && !updateData.isAdmin) {
-           updateData.isAdmin = true;
-         }
-       }
+          if (rol) {
+            updateData.rol = rol as 'owner' | 'usuario' | 'repartidor' | 'root';
+            if (rol === 'owner') {
+              updateData.isAdmin = true;
+              updateData.isOwner = true;
+            } else if (rol === 'repartidor') {
+              updateData.isOwner = false;
+            } else {
+              updateData.isAdmin = false;
+              updateData.isOwner = false;
+            }
+          }
+        if (rolId !== undefined) {
+          updateData.rolId = rolId;
+          // Only set isAdmin for non-repartidor roles
+          if (rol !== 'repartidor' && !updateData.isAdmin) {
+            updateData.isAdmin = true;
+          }
+        }
 
-       const result = await database
-         .getCollection<User>('users')
-         .findOneAndUpdate(
-           { id: targetUserId },
-           { $set: updateData },
-           { returnDocument: 'after' },
-         );
+        const result = await database
+          .getCollection<User>('users')
+          .findOneAndUpdate(
+            { $or: [{ id: targetUserId }, { _id: targetUserId }] },
+            { $set: updateData },
+            { returnDocument: 'after' },
+          );
 
        if (!result) {
          res.status(404).json({ error: 'Usuario no encontrado' });
@@ -447,18 +449,20 @@ const updateData: Partial<User> = {};
          };
          await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
          deliveryPersonId = newDeliveryPerson.id;
-         await database.getCollection<User>('users').updateOne(
-           { id: targetUserId },
-           { $set: { deliveryPersonId } }
-         );
-       }
+await database.getCollection<User>('users').updateOne(
+            { $or: [{ id: targetUserId }, { _id: targetUserId }] },
+            { $set: { deliveryPersonId } }
+          );
+        }
 
-       // Fetch fresh user data to include the deliveryPersonId
-       const updatedUser = await database.getCollection<User>('users').findOne({ id: targetUserId });
-       if (!updatedUser) {
-         res.status(404).json({ error: 'Usuario no encontrado' });
-         return;
-       }
+        // Fetch fresh user data to include the deliveryPersonId
+        const updatedUser = await database.getCollection<User>('users').findOne({
+          $or: [{ id: targetUserId }, { _id: targetUserId }]
+        });
+        if (!updatedUser) {
+          res.status(404).json({ error: 'Usuario no encontrado' });
+          return;
+        }
        const { password: _, ...userWithoutPassword } = updatedUser;
        res.json(userWithoutPassword);
      } catch (error) {
@@ -617,7 +621,9 @@ const updateData: Partial<User> = {};
       }
 
       const usersCollection = database.getCollection<User>('users');
-      const existingUser = await usersCollection.findOne({ id: userId });
+      const existingUser = await usersCollection.findOne({
+        $or: [{ id: userId }, { _id: userId }]
+      });
       
       if (!existingUser) {
         res.status(404).json({ error: 'Usuario no encontrado' });
@@ -635,7 +641,7 @@ const updateData: Partial<User> = {};
       if (comentarios !== undefined) updateData.comentarios = comentarios;
 
       await usersCollection.updateOne(
-        { id: userId },
+        { $or: [{ id: userId }, { _id: userId }] },
         { $set: updateData }
       );
 
@@ -674,7 +680,9 @@ const updateData: Partial<User> = {};
         return;
       }
 
-      const userToDelete = await database.getCollection<User>('users').findOne({ id: userId });
+      const userToDelete = await database.getCollection<User>('users').findOne({
+        $or: [{ id: userId }, { _id: userId }]
+      });
       if (!userToDelete) {
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
@@ -685,7 +693,9 @@ const updateData: Partial<User> = {};
         return;
       }
 
-      await database.getCollection<User>('users').deleteOne({ id: userId });
+      await database.getCollection<User>('users').deleteOne({
+        $or: [{ id: userId }, { _id: userId }]
+      });
       res.json({ message: 'Usuario eliminado correctamente' });
     } catch (error) {
       res.status(500).json({ error: 'Error al eliminar usuario' });
@@ -708,7 +718,9 @@ const updateData: Partial<User> = {};
         return;
       }
 
-      const user = await database.getCollection<User>('users').findOne({ id: userId });
+      const user = await database.getCollection<User>('users').findOne({
+        $or: [{ id: userId }, { _id: userId }]
+      });
       if (!user) {
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
@@ -721,8 +733,9 @@ const updateData: Partial<User> = {};
         parallelism: 4,
       });
 
+      const updateId = user.id || user._id?.toString();
       await database.getCollection<User>('users').updateOne(
-        { id: userId },
+        { $or: [{ id: userId }, { _id: userId }] },
         { $set: { password: hashedPassword } }
       );
 
