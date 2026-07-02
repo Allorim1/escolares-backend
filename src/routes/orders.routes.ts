@@ -50,12 +50,12 @@ router.get('/admin/all', authenticateToken, async (req: Request, res: Response) 
      }
 
      const user = await database.getCollection('users').findOne({ id: userId });
-     if (!user || (user.rol !== 'root' && user.rol !== 'owner' && user.rol !== 'admin')) {
-       res.status(403).json({ error: 'Acceso denegado' });
-       return;
-     }
+      if (!user || (user.rol !== 'root' && user.rol !== 'admin')) {
+        res.status(403).json({ error: 'Acceso denegado' });
+        return;
+      }
 
-     // Use aggregation to include delivery person location
+      // Use aggregation to include delivery person location
      const orders = await database.getCollection('orders')
        .aggregate([
          { $sort: { createdAt: -1 } },
@@ -102,7 +102,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     let query = {};
     if (userRole === 'repartidor') {
       query = { deliveryPersonId: userId };
-    } else if (userRole !== 'admin' && userRole !== 'owner' && userRole !== 'root') {
+    } else if (userRole !== 'admin' && userRole !== 'root') {
       query = { userId };
     }
 
@@ -378,9 +378,9 @@ router.put('/:id/factura', authenticateToken, async (req: Request, res: Response
       return;
     }
 
-    // Solo usuarios con permisos de admin/owner/root pueden subir facturas
+    // Solo usuarios con permisos de admin/root pueden subir facturas
     const user = await database.getCollection('users').findOne({ id: req.user?.userId });
-    if (!user || (user.rol !== 'root' && user.rol !== 'owner' && user.rol !== 'admin')) {
+    if (!user || (user.rol !== 'root' && user.rol !== 'admin')) {
       res.status(403).json({ error: 'No tiene permisos para subir facturas' });
       return;
     }

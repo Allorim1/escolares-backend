@@ -118,11 +118,7 @@ const newUser: User = {
         comentarios: comentarios || '',
       };
 
-      if (rol === 'owner') {
-        newUser.isAdmin = true;
-        newUser.isOwner = true;
-      } else if (rol === 'repartidor') {
-        newUser.isOwner = false;
+      if (rol === 'repartidor') {
         newUser.activo = true;
       }
 
@@ -388,33 +384,23 @@ async updateRol(req: Request, res: Response): Promise<void> {
          return;
        }
 
-       if (rol === 'root') {
-         res.status(403).json({ error: 'No se puede asignar rol de root' });
-         return;
-       }
+        if (rol === 'root') {
+          res.status(403).json({ error: 'No se puede asignar rol de root' });
+          return;
+        }
 
-       if (rol === 'owner' && solicitanteRol !== 'root') {
-         res.status(403).json({ error: 'Solo el usuario root puede asignar rol de owner' });
-         return;
-       }
-
-const usuarioActual = await database.getCollection<User>('users').findOne({
+ const usuarioActual = await database.getCollection<User>('users').findOne({
         $or: [{ id: targetUserId }, { _id: targetUserId }]
       });
 
-const updateData: Partial<User> = {};
-          if (rol) {
-            updateData.rol = rol as 'owner' | 'usuario' | 'repartidor' | 'root';
-            if (rol === 'owner') {
-              updateData.isAdmin = true;
-              updateData.isOwner = true;
-            } else if (rol === 'repartidor') {
-              updateData.isOwner = false;
-            } else {
-              updateData.isAdmin = false;
-              updateData.isOwner = false;
-            }
-          }
+  const updateData: Partial<User> = {};
+           if (rol) {
+             updateData.rol = rol as 'usuario' | 'repartidor' | 'root';
+             if (rol === 'repartidor') {
+             } else {
+               updateData.isAdmin = false;
+             }
+           }
         if (rolId !== undefined) {
           updateData.rolId = rolId;
           // Only set isAdmin for non-repartidor roles

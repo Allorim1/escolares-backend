@@ -245,7 +245,7 @@ router.put('/:id', authenticateToken, requireRoot, async (req: Request, res: Res
       return;
     }
 
-    if (existingRolById.nombre === 'root' || existingRolById.nombre === 'owner') {
+    if (existingRolById.nombre === 'root') {
       res.status(400).json({ error: 'No puedes editar roles del sistema' });
       return;
     }
@@ -291,8 +291,8 @@ router.delete('/:id', authenticateToken, requireRoot, async (req: Request, res: 
       return;
     }
 
-    if (existingRol.nombre === 'root' || existingRol.nombre === 'owner') {
-      res.status(400).json({ error: 'No puedes eliminar el rol de owner' });
+    if (existingRol.nombre === 'root') {
+      res.status(400).json({ error: 'No puedes eliminar el rol de root' });
       return;
     }
 
