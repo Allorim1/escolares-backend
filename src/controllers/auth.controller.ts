@@ -1,5 +1,6 @@
 ﻿import { Request, Response } from 'express';
 import argon2 from 'argon2';
+import { ObjectId } from 'mongodb';
 import { database } from '../config/database';
 import { User, DeliveryPerson } from '../models';
 import { jwtConfig } from '../config/jwt';
@@ -17,6 +18,19 @@ const transporter = nodemailer.createTransport({
 });
 
 export class AuthController {
+  private getUserSelector(userId: string | string[]): Record<string, any> {
+    const normalizedUserId = Array.isArray(userId) ? userId[0] : userId;
+    const selector: Record<string, any> = { $or: [{ id: normalizedUserId }] };
+
+    try {
+      selector.$or.push({ _id: new ObjectId(normalizedUserId) });
+    } catch {
+      selector.$or.push({ _id: normalizedUserId });
+    }
+
+    return selector;
+  }
+
   async register(req: Request, res: Response): Promise<void> {
     try {
       const { username, email, password, rif, telefono, direccion, tipoPersona } = req.body;
@@ -326,7 +340,7 @@ res.cookie('accessToken', tokens.accessToken, {
       const users = await database.getCollection<User>('users').find({}).toArray();
       const usersWithoutPassword = users.map(({ password, _id, ...user }) => ({
         ...user,
-        id: _id ? _id.toString() : user.id,
+        id: user.id || (_id ? _id.toString() : undefined),
       }));
       res.json(usersWithoutPassword);
     } catch (error) {
@@ -389,9 +403,7 @@ async updateRol(req: Request, res: Response): Promise<void> {
           return;
         }
 
- const usuarioActual = await database.getCollection<User>('users').findOne({
-        $or: [{ id: targetUserId }, { _id: targetUserId }]
-      });
+ const usuarioActual = await database.getCollection<User>('users').findOne(this.getUserSelector(targetUserId));
 
   const updateData: Partial<User> = {};
            if (rol) {
@@ -412,7 +424,7 @@ async updateRol(req: Request, res: Response): Promise<void> {
         const result = await database
           .getCollection<User>('users')
           .findOneAndUpdate(
-            { $or: [{ id: targetUserId }, { _id: targetUserId }] },
+            this.getUserSelector(targetUserId),
             { $set: updateData },
             { returnDocument: 'after' },
           );
@@ -437,15 +449,13 @@ async updateRol(req: Request, res: Response): Promise<void> {
          await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
          deliveryPersonId = newDeliveryPerson.id;
 await database.getCollection<User>('users').updateOne(
-            { $or: [{ id: targetUserId }, { _id: targetUserId }] },
+            this.getUserSelector(targetUserId),
             { $set: { deliveryPersonId } }
           );
         }
 
         // Fetch fresh user data to include the deliveryPersonId
-        const updatedUser = await database.getCollection<User>('users').findOne({
-          $or: [{ id: targetUserId }, { _id: targetUserId }]
-        });
+        const updatedUser = await database.getCollection<User>('users').findOne(this.getUserSelector(targetUserId));
         if (!updatedUser) {
           res.status(404).json({ error: 'Usuario no encontrado' });
           return;
@@ -608,9 +618,7 @@ await database.getCollection<User>('users').updateOne(
       }
 
       const usersCollection = database.getCollection<User>('users');
-      const existingUser = await usersCollection.findOne({
-        $or: [{ id: userId }, { _id: userId }]
-      });
+      const existingUser = await usersCollection.findOne(this.getUserSelector(userId));
       
       if (!existingUser) {
         res.status(404).json({ error: 'Usuario no encontrado' });
@@ -628,7 +636,7 @@ await database.getCollection<User>('users').updateOne(
       if (comentarios !== undefined) updateData.comentarios = comentarios;
 
       await usersCollection.updateOne(
-        { $or: [{ id: userId }, { _id: userId }] },
+        this.getUserSelector(userId),
         { $set: updateData }
       );
 
@@ -667,9 +675,7 @@ await database.getCollection<User>('users').updateOne(
         return;
       }
 
-      const userToDelete = await database.getCollection<User>('users').findOne({
-        $or: [{ id: userId }, { _id: userId }]
-      });
+      const userToDelete = await database.getCollection<User>('users').findOne(this.getUserSelector(userId));
       if (!userToDelete) {
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
@@ -680,9 +686,7 @@ await database.getCollection<User>('users').updateOne(
         return;
       }
 
-      await database.getCollection<User>('users').deleteOne({
-        $or: [{ id: userId }, { _id: userId }]
-      });
+      await database.getCollection<User>('users').deleteOne(this.getUserSelector(userId));
       res.json({ message: 'Usuario eliminado correctamente' });
     } catch (error) {
       res.status(500).json({ error: 'Error al eliminar usuario' });
@@ -705,9 +709,7 @@ await database.getCollection<User>('users').updateOne(
         return;
       }
 
-      const user = await database.getCollection<User>('users').findOne({
-        $or: [{ id: userId }, { _id: userId }]
-      });
+      const user = await database.getCollection<User>('users').findOne(this.getUserSelector(userId));
       if (!user) {
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
@@ -722,7 +724,7 @@ await database.getCollection<User>('users').updateOne(
 
       const updateId = user.id || user._id?.toString();
       await database.getCollection<User>('users').updateOne(
-        { $or: [{ id: userId }, { _id: userId }] },
+        this.getUserSelector(userId),
         { $set: { password: hashedPassword } }
       );
 

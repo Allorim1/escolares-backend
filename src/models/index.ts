@@ -131,6 +131,7 @@ export interface Order {
   referencia: string;
   fotoComprobante?: string;
   facturaImage?: string;
+  productImage?: string;
   bancoEmisor?: string;
   cedulaTitular?: string;
   correo?: string;
@@ -147,6 +148,9 @@ export interface Order {
     timestamp: Date;
   };
   tiempoEstimadoLlegada?: string;
+  // Delivery earnings
+  propina?: number;
+  comision?: number;
   createdAt: Date;
   updatedAt: Date;
 }

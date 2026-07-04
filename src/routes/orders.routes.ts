@@ -679,6 +679,13 @@ router.get('/delivery/available', authenticateToken, async (req: Request, res: R
        res.status(403).json({ error: 'Solo los repartidores pueden ver pedidos disponibles' });
        return;
      }
+
+     // Check if delivery person is active
+     const deliveryPerson = await database.getCollection('deliveryPersons').findOne({ id: user.deliveryPersonId });
+     if (!deliveryPerson || !deliveryPerson.activo) {
+       res.json([]);
+       return;
+     }
      
      const orders = await database.getCollection<Order>('orders')
        .find({ 

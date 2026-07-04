@@ -309,6 +309,52 @@ async updateLocation(req: Request, res: Response): Promise<void> {
      }
    }
 
+  async updateAvailability(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { activo } = req.body;
+      const userId = req.user?.userId;
+
+      if (typeof activo !== 'boolean') {
+        res.status(400).json({ error: 'El campo activo es requerido y debe ser booleano' });
+        return;
+      }
+
+      const user = await database.getCollection('users').findOne({ id: userId });
+      if (!user || user.deliveryPersonId !== id) {
+        res.status(403).json({ error: 'No tienes permiso para cambiar la disponibilidad de este repartidor' });
+        return;
+      }
+
+      const result = await database
+        .getCollection<DeliveryPerson>('deliveryPersons')
+        .findOneAndUpdate(
+          { id },
+          { $set: { activo, updatedAt: new Date() } },
+          { returnDocument: 'after' }
+        );
+
+      if (!result) {
+        res.status(404).json({ error: 'Repartidor no encontrado' });
+        return;
+      }
+
+      const io = (req as any).app.get('io');
+      if (io) {
+        io.emit('repartidor-disponibilidad', {
+          deliveryPersonId: id,
+          activo,
+          timestamp: new Date()
+        });
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error updating delivery person availability:', error);
+      res.status(500).json({ error: 'Error al actualizar disponibilidad' });
+    }
+  }
+
   async updateDNI(req: Request, res: Response, fotoDNI: string): Promise<void> {
     try {
       const deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: req.params.id });
@@ -431,7 +477,7 @@ res.json({
   async updateOrderStatus(req: Request, res: Response): Promise<void> {
     try {
       const { orderId } = req.params;
-      const { status, observaciones } = req.body;
+      const { status, observaciones, facturaImage, productImage } = req.body;
       const userId = req.user?.userId;
 
       if (!status) {
@@ -478,8 +524,12 @@ res.json({
         updatedAt: new Date(),
       };
 
-      if (status === 'entregado' && req.body.facturaImage) {
-        updateData.facturaImage = req.body.facturaImage;
+      if (status === 'entregado' && facturaImage) {
+        updateData.facturaImage = facturaImage;
+      }
+
+      if (status === 'entregado' && productImage) {
+        updateData.productImage = productImage;
       }
 
       const result = await database.getCollection<Order>('orders').findOneAndUpdate(
@@ -504,6 +554,55 @@ res.json({
     } catch (error) {
       console.error('Error updating order status:', error);
       res.status(500).json({ error: 'Error al actualizar estado' });
+    }
+  }
+
+  async getEarnings(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId;
+      const period = (req.query.period as string) || 'daily';
+
+      const user = await database.getCollection('users').findOne({ id: userId });
+      if (!user || user.rol !== 'repartidor' || !user.deliveryPersonId) {
+        res.status(403).json({ error: 'Acceso denegado' });
+        return;
+      }
+
+      const now = new Date();
+      let startDate: Date;
+      
+      if (period === 'weekly') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+      } else {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      }
+
+      const orders = await database.getCollection<Order>('orders')
+        .find({
+          deliveryPersonId: user.deliveryPersonId,
+          status: 'entregado',
+          createdAt: { $gte: startDate }
+        })
+        .toArray();
+
+      const deliveredCount = orders.length;
+      const totalEarnings = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+      const totalPropinas = orders.reduce((sum, order) => sum + (order.propina || 0), 0);
+      const totalComisiones = orders.reduce((sum, order) => sum + (order.comision || 0), 0);
+      const netEarnings = totalEarnings + totalPropinas - totalComisiones;
+
+      res.json({
+        deliveredCount,
+        totalEarnings,
+        totalPropinas,
+        totalComisiones,
+        netEarnings,
+        period,
+        startDate
+      });
+    } catch (error) {
+      console.error('Error getting earnings:', error);
+      res.status(500).json({ error: 'Error al obtener ganancias' });
     }
   }
 }

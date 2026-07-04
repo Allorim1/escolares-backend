@@ -260,6 +260,36 @@ router.put('/:id/location', authenticateToken, (req: Request, res: Response) => 
 
 /**
  * @swagger
+ * /api/delivery/{id}/availability:
+ *   put:
+ *     summary: Actualizar disponibilidad del repartidor
+ *     tags: [Repartidores]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID del repartidor
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               activo:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Disponibilidad actualizada
+ */
+router.put('/:id/availability', authenticateToken, (req: Request, res: Response) => deliveryController.updateAvailability(req, res));
+
+/**
+ * @swagger
  * /api/delivery/order/{orderId}/tracking:
  *   get:
  *     summary: Obtener seguimiento de un pedido
@@ -450,6 +480,29 @@ router.get('/google-maps-key', authenticateToken, (req: Request, res: Response) 
  */
 router.put('/orders/:orderId/status', authenticateToken, (req: Request, res: Response) =>
   deliveryController.updateOrderStatus(req, res)
+);
+
+/**
+ * @swagger
+ * /api/delivery/earnings:
+ *   get:
+ *     summary: Obtener balance de ganancias del repartidor
+ *     tags: [Repartidores]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [daily, weekly]
+ *         description: Período de cálculo (diario o semanal)
+ *     responses:
+ *       200:
+ *         description: Balance de ganancias
+ */
+router.get('/earnings', authenticateToken, (req: Request, res: Response) =>
+  deliveryController.getEarnings(req, res)
 );
 
 export default router;
