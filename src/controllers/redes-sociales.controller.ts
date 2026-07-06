@@ -340,7 +340,7 @@ export class RedesSocialesController {
       to: cleanTo,
     };
 
-    const cleanText = (text || '').trim();
+    const cleanText = (text || '').trim().replace(/(\.{3,}|…)\s*$/u, '').trim();
 
     if (mediaUrl) {
       // Send media message
@@ -349,7 +349,7 @@ export class RedesSocialesController {
         link: mediaUrl,
       };
       if (mediaCaption) {
-        payload[payload.type].caption = mediaCaption.trim();
+        payload[payload.type].caption = mediaCaption.trim().replace(/(\.{3,}|…)\s*$/u, '').trim();
       }
       if (mediaFilename && payload.type === 'document') {
         payload[payload.type].filename = mediaFilename;
@@ -467,7 +467,7 @@ export class RedesSocialesController {
     } else {
       // Enviar mensaje de texto
       requestBody.message = {
-        text: (text || '').trim()
+        text: (text || '').trim().replace(/(\.{3,}|…)\s*$/u, '').trim()
       };
     }
 
