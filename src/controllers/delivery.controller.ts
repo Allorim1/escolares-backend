@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { ObjectId } from 'mongodb';
 import { database } from '../config/database';
 import { DeliveryPerson, Order } from '../models';
 import { googleMapsService } from '../services/google-maps.service';
@@ -53,23 +54,41 @@ export class DeliveryController {
   async getByUserId(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.params.userId;
-      // Try to find by userId first, then by user having this deliveryPersonId
-      let deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ userId });
-      
-      if (!deliveryPerson) {
-        // Fallback: find the user and check if they have a deliveryPersonId
-        const user = await database.getCollection('users').findOne({ id: userId });
-        if (user?.deliveryPersonId) {
-          deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: user.deliveryPersonId });
-        }
+      const deliveryPersonsCollection = database.getCollection<DeliveryPerson>('deliveryPersons');
+      const usersCollection = database.getCollection('users');
+
+      const lookupSelector: Record<string, any> = { $or: [{ id: userId }] };
+      const normalizedUserId = Array.isArray(userId) ? userId[0] : userId;
+
+      try {
+        lookupSelector.$or.push({ _id: new ObjectId(normalizedUserId) });
+      } catch {
+        lookupSelector.$or.push({ _id: normalizedUserId });
       }
-      
+
+      let deliveryPerson = await deliveryPersonsCollection.findOne({
+        $or: [{ userId }, { id: userId }],
+      });
+
+      if (!deliveryPerson) {
+        const user = await usersCollection.findOne(lookupSelector);
+        const candidateIds = [user?.deliveryPersonId, user?.id, userId].filter(Boolean) as string[];
+
+        deliveryPerson = await deliveryPersonsCollection.findOne({
+          $or: candidateIds.flatMap((candidateId) => [
+            { userId: candidateId },
+            { id: candidateId },
+          ]),
+        });
+      }
+
       if (!deliveryPerson) {
         res.status(404).json({ error: 'Repartidor no encontrado' });
         return;
       }
       res.json(deliveryPerson);
     } catch (error) {
+      console.error('Error getting delivery person by user:', error);
       res.status(500).json({ error: 'Error al obtener repartidor' });
     }
   }
