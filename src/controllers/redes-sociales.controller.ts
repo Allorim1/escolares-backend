@@ -340,6 +340,8 @@ export class RedesSocialesController {
       to: cleanTo,
     };
 
+    const cleanText = (text || '').trim();
+
     if (mediaUrl) {
       // Send media message
       payload.type = mediaType || 'image';
@@ -347,7 +349,7 @@ export class RedesSocialesController {
         link: mediaUrl,
       };
       if (mediaCaption) {
-        payload[payload.type].caption = mediaCaption;
+        payload[payload.type].caption = mediaCaption.trim();
       }
       if (mediaFilename && payload.type === 'document') {
         payload[payload.type].filename = mediaFilename;
@@ -355,10 +357,11 @@ export class RedesSocialesController {
     } else {
       // Send text message
       payload.type = 'text';
-      payload.text = {
-        preview_url: false,
-        body: text || ''
-      };
+      // Solo habilitar preview de enlaces si el texto contiene una URL real.
+      const tieneUrl = /https?:\/\/\S+/i.test(cleanText);
+      payload.text = tieneUrl
+        ? { preview_url: true, body: cleanText }
+        : { body: cleanText };
     }
     const logPayload = { ...payload };
     if (logPayload.text?.body) {
@@ -464,7 +467,7 @@ export class RedesSocialesController {
     } else {
       // Enviar mensaje de texto
       requestBody.message = {
-        text: text || ''
+        text: (text || '').trim()
       };
     }
 
