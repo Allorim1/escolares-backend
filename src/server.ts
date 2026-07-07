@@ -4263,6 +4263,78 @@ app.delete('/api/retenciones/:id', async (req: Request, res: Response) => {
   }
 });
 
+// Abonos Polar
+app.get('/api/abonos-polar', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('abonos-polar');
+    const abonos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
+    res.json(abonos);
+  } catch (error) {
+    console.error('Error obteniendo abonos polar:', error);
+    res.status(500).json({ error: 'Error al obtener abonos polar' });
+  }
+});
+
+app.post('/api/abonos-polar', async (req: Request, res: Response) => {
+  try {
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, status } = req.body;
+    if (!fecha || !nombre || !planta || !nFact) {
+      res.status(400).json({ error: 'Fecha, nombre, planta y número de factura son requeridos' });
+      return;
+    }
+    const abono = {
+      fecha: fecha ? new Date(fecha) : new Date(),
+      nombre,
+      planta,
+      cedula: cedula || '',
+      telefono: telefono || '',
+      nFact,
+      montoFactura: montoFactura || 0,
+      iva: iva || 0,
+      diferencia: diferencia || 0,
+      tasa: tasa || 0,
+      status: status || '',
+    };
+    const collection = (database as any).getCollection('abonos-polar');
+    const result = await collection.insertOne(abono);
+    res.json({ ...abono, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando abono polar:', error);
+    res.status(500).json({ error: 'Error al crear abono polar' });
+  }
+});
+
+app.put('/api/abonos-polar/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, status } = req.body;
+    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, status };
+    if (fecha) updateData.fecha = new Date(fecha);
+    const collection = (database as any).getCollection('abonos-polar');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando abono polar:', error);
+    res.status(500).json({ error: 'Error al actualizar abono polar' });
+  }
+});
+
+app.delete('/api/abonos-polar/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('abonos-polar');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando abono polar:', error);
+    res.status(500).json({ error: 'Error al eliminar abono polar' });
+  }
+});
+
 app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });

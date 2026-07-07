@@ -44,7 +44,7 @@ class Database {
     const collections = await this._db.listCollections().toArray();
     const collectionNames = collections.map((c) => c.name);
 
-    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas'];
+    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas', 'abonos-polar'];
 
     for (const name of requiredCollections) {
       if (!collectionNames.includes(name)) {
