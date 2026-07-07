@@ -4277,7 +4277,7 @@ app.get('/api/abonos-polar', async (req: Request, res: Response) => {
 
 app.post('/api/abonos-polar', async (req: Request, res: Response) => {
   try {
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, status } = req.body;
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, diviza, status } = req.body;
     if (!fecha || !nombre || !planta || !nFact) {
       res.status(400).json({ error: 'Fecha, nombre, planta y número de factura son requeridos' });
       return;
@@ -4293,6 +4293,7 @@ app.post('/api/abonos-polar', async (req: Request, res: Response) => {
       iva: iva || 0,
       diferencia: diferencia || 0,
       tasa: tasa || 0,
+      diviza: diviza || 0,
       status: status || '',
     };
     const collection = (database as any).getCollection('abonos-polar');
@@ -4309,8 +4310,8 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: Response) => {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, status } = req.body;
-    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, status };
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, diviza, status } = req.body;
+    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, diviza, status };
     if (fecha) updateData.fecha = new Date(fecha);
     const collection = (database as any).getCollection('abonos-polar');
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
