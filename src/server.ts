@@ -4263,6 +4263,64 @@ app.delete('/api/retenciones/:id', async (req: Request, res: Response) => {
   }
 });
 
+// Empresas
+app.get('/api/empresas', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('empresas');
+    const empresas = await collection.find({}).sort({ nombre: 1 }).allowDiskUse(true).toArray();
+    res.json(empresas);
+  } catch (error) {
+    console.error('Error obteniendo empresas:', error);
+    res.status(500).json({ error: 'Error al obtener empresas' });
+  }
+});
+
+app.post('/api/empresas', async (req: Request, res: Response) => {
+  try {
+    const { nombre, plantas } = req.body;
+    if (!nombre) {
+      res.status(400).json({ error: 'El nombre es requerido' });
+      return;
+    }
+    const empresa = { nombre, plantas: plantas || [] };
+    const collection = (database as any).getCollection('empresas');
+    const result = await collection.insertOne(empresa);
+    res.json({ ...empresa, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando empresa:', error);
+    res.status(500).json({ error: 'Error al crear empresa' });
+  }
+});
+
+app.put('/api/empresas/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { nombre, plantas } = req.body;
+    const collection = (database as any).getCollection('empresas');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: { nombre, plantas: plantas || [] } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando empresa:', error);
+    res.status(500).json({ error: 'Error al actualizar empresa' });
+  }
+});
+
+app.delete('/api/empresas/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('empresas');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando empresa:', error);
+    res.status(500).json({ error: 'Error al eliminar empresa' });
+  }
+});
+
 // Abonos Polar
 app.get('/api/abonos-polar', async (req: Request, res: Response) => {
   try {
@@ -4277,7 +4335,7 @@ app.get('/api/abonos-polar', async (req: Request, res: Response) => {
 
 app.post('/api/abonos-polar', async (req: Request, res: Response) => {
   try {
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status } = req.body;
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa } = req.body;
     if (!fecha || !nombre || !planta || !nFact) {
       res.status(400).json({ error: 'Fecha, nombre, planta y número de factura son requeridos' });
       return;
@@ -4295,6 +4353,7 @@ app.post('/api/abonos-polar', async (req: Request, res: Response) => {
       tasa: tasa || 0,
       divisa: divisa || 0,
       status: status || '',
+      empresa: empresa || '',
     };
     const collection = (database as any).getCollection('abonos-polar');
     const result = await collection.insertOne(abono);
@@ -4310,8 +4369,8 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: Response) => {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status } = req.body;
-    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status };
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa } = req.body;
+    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa };
     if (fecha) updateData.fecha = new Date(fecha);
     const collection = (database as any).getCollection('abonos-polar');
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
