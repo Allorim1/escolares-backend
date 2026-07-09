@@ -337,6 +337,31 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/conversion/triple-anterior', async (req: Request, res: Response) => {
+  try {
+    const settings = await database.getCollection('settings').findOne({ key: 'conversionTripleAnterior' });
+    res.json(settings?.value || { cents: [0, 0, 0], fechas: ['', '', ''] });
+  } catch (error) {
+    console.error('Error getting triple anterior:', error);
+    res.status(500).json({ error: 'Error al obtener valores guardados' });
+  }
+});
+
+app.post('/api/conversion/triple-anterior', async (req: Request, res: Response) => {
+  try {
+    const { cents, fechas } = req.body;
+    await database.getCollection('settings').updateOne(
+      { key: 'conversionTripleAnterior' },
+      { $set: { key: 'conversionTripleAnterior', value: { cents, fechas }, updatedAt: new Date() } },
+      { upsert: true }
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving triple anterior:', error);
+    res.status(500).json({ error: 'Error al guardar valores' });
+  }
+});
+
 app.get('/api/settings/tasas-status', async (req: Request, res: Response) => {
   try {
     const cacheKey = 'tasas:current';

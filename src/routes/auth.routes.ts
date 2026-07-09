@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authController } from '../controllers/auth.controller';
 import { authenticateToken } from '../middlewares/auth.middleware';
+import { trackSession } from '../middlewares/session.middleware';
 import { database } from '../config/database';
 
 const router = Router();
@@ -138,7 +139,7 @@ router.post('/refresh', (req: Request, res: Response) => authController.refreshT
  *       200:
  *         description: Lista de usuarios
  */
-router.get('/users', authenticateToken, async (req: Request, res: Response) => {
+router.get('/users', authenticateToken, trackSession, async (req: Request, res: Response) => {
    try {
      await authController.getAll(req, res);
    } catch (error) {
@@ -146,21 +147,37 @@ router.get('/users', authenticateToken, async (req: Request, res: Response) => {
    }
  });
 
-/**
- * @swagger
- * /api/auth/profile:
- *   get:
- *     summary: Obtener perfil del usuario actual
- *     tags: [Auth]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Perfil del usuario
- */
-router.get('/profile', authenticateToken, (req: Request, res: Response) =>
-  authController.getProfile(req, res),
-);
+ router.get('/profile', authenticateToken, trackSession, (req: Request, res: Response) =>
+   authController.getProfile(req, res),
+ );
+
+ router.put('/profile', authenticateToken, trackSession, (req: Request, res: Response) =>
+   authController.update(req, res),
+ );
+
+ router.put('/users/rol', authenticateToken, trackSession, (req: Request, res: Response) =>
+   authController.updateRol(req, res),
+ );
+
+ router.put('/users/update-email', authenticateToken, trackSession, (req: Request, res: Response) =>
+   authController.updateEmail(req, res),
+ );
+
+ router.put('/users/update-password', authenticateToken, trackSession, (req: Request, res: Response) =>
+   authController.updatePassword(req, res),
+ );
+
+ router.put('/users/:id', authenticateToken, trackSession, (req: Request, res: Response) =>
+   authController.updateUserById(req, res),
+ );
+
+ router.delete('/users/:id', authenticateToken, trackSession, (req: Request, res: Response) =>
+    authController.deleteUser(req, res),
+  );
+
+  router.put('/users/:id/password', authenticateToken, trackSession, (req: Request, res: Response) =>
+    authController.updateUserPassword(req, res),
+  );
 
 /**
  * @swagger
@@ -232,8 +249,24 @@ router.delete('/users/:id', authenticateToken, (req: Request, res: Response) =>
    authController.sendOtpForPasswordReset(req, res),
  );
 
- router.post('/reset-password', (req: Request, res: Response) =>
-   authController.verifyOtpAndResetPassword(req, res),
- );
+  router.post('/reset-password', (req: Request, res: Response) =>
+    authController.verifyOtpAndResetPassword(req, res),
+  );
 
- export default router;
+  router.get('/sessions', authenticateToken, (req: Request, res: Response) =>
+    authController.getAllSessions(req, res),
+  );
+
+  router.get('/sessions/mine', authenticateToken, (req: Request, res: Response) =>
+    authController.getMySessions(req, res),
+  );
+
+  router.delete('/sessions/:sessionId', authenticateToken, (req: Request, res: Response) =>
+    authController.terminateSession(req, res),
+  );
+
+  router.delete('/sessions/user/:userId', authenticateToken, (req: Request, res: Response) =>
+    authController.terminateAllUserSessions(req, res),
+  );
+
+  export default router;

@@ -2,9 +2,10 @@
 import argon2 from 'argon2';
 import { ObjectId } from 'mongodb';
 import { database } from '../config/database';
-import { User, DeliveryPerson } from '../models';
+import { User, DeliveryPerson, UserSession } from '../models';
 import { jwtConfig } from '../config/jwt';
 import { AuthRequest } from '../middlewares/auth.middleware';
+import { createSessionRecord } from '../middlewares/session.middleware';
 import nodemailer from 'nodemailer';
 
 const transporter = nodemailer.createTransport({
@@ -226,7 +227,7 @@ const newUser: User = {
         deliveryPersonId: user.deliveryPersonId,
       });
 
-res.cookie('accessToken', tokens.accessToken, {
+      res.cookie('accessToken', tokens.accessToken, {
          httpOnly: true,
          secure: process.env.NODE_ENV === 'production',
          sameSite: 'strict',
@@ -240,7 +241,12 @@ res.cookie('accessToken', tokens.accessToken, {
          maxAge: 7 * 24 * 60 * 60 * 1000,
        });
 
-const { password: _, ...userWithoutPassword } = user;
+        const sessionId = `sess_${Buffer.from(tokens.accessToken).toString('base64').slice(0, 32)}`;
+        createSessionRecord(user.id, user.username, user.email, user.rol || 'usuario', sessionId, req).catch((err) => {
+          console.error('Error creating session record:', err);
+        });
+
+       const { password: _, ...userWithoutPassword } = user;
         const responseData: any = { ...userWithoutPassword, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
         // Include deliveryPersonId if user has one
         if (user.deliveryPersonId) {
@@ -887,6 +893,118 @@ await database.getCollection<User>('users').updateOne(
     } catch (error) {
       console.error('Error al restablecer contraseña:', error);
       res.status(500).json({ error: 'Error al restablecer contraseña' });
+    }
+  }
+
+  async getAllSessions(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUser = req.user;
+      if (!currentUser || currentUser.rol !== 'root') {
+        res.status(403).json({ error: 'Solo el usuario root puede ver las sesiones' });
+        return;
+      }
+
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      const sessions = await sessionsCollection.find({}).sort({ lastActive: -1 }).allowDiskUse(true).toArray();
+
+      const sessionsWithoutSensitive = sessions.map(({ _id, ...session }) => ({
+        ...session,
+        id: session.id,
+      }));
+
+      res.json(sessionsWithoutSensitive);
+    } catch (error) {
+      console.error('Error al obtener sesiones:', error);
+      res.status(500).json({ error: 'Error al obtener sesiones' });
+    }
+  }
+
+  async getMySessions(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({ error: 'No autorizado' });
+        return;
+      }
+
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      const sessions = await sessionsCollection.find({ userId, active: true }).sort({ lastActive: -1 }).allowDiskUse(true).toArray();
+
+      const sessionsWithoutSensitive = sessions.map(({ _id, ...session }) => ({
+        ...session,
+        id: session.id,
+      }));
+
+      res.json(sessionsWithoutSensitive);
+    } catch (error) {
+      console.error('Error al obtener mis sesiones:', error);
+      res.status(500).json({ error: 'Error al obtener sesiones' });
+    }
+  }
+
+  async terminateSession(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUser = req.user;
+      const sessionId = req.params.sessionId;
+
+      if (!currentUser || !sessionId) {
+        res.status(400).json({ error: 'Datos incompletos' });
+        return;
+      }
+
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      const session = await sessionsCollection.findOne({ id: sessionId });
+
+      if (!session) {
+        res.status(404).json({ error: 'Sesión no encontrada' });
+        return;
+      }
+
+      const isRoot = currentUser.rol === 'root';
+      const isOwnSession = session.userId === currentUser.userId;
+
+      if (!isRoot && !isOwnSession) {
+        res.status(403).json({ error: 'No autorizado para cerrar esta sesión' });
+        return;
+      }
+
+      await sessionsCollection.updateOne(
+        { id: sessionId },
+        { $set: { active: false, lastActive: new Date() } },
+      );
+
+      res.json({ message: 'Sesión cerrada correctamente' });
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+      res.status(500).json({ error: 'Error al cerrar sesión' });
+    }
+  }
+
+  async terminateAllUserSessions(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUser = req.user;
+      const targetUserId = req.params.userId;
+
+      if (!currentUser || !targetUserId) {
+        res.status(400).json({ error: 'Datos incompletos' });
+        return;
+      }
+
+      if (currentUser.rol !== 'root') {
+        res.status(403).json({ error: 'Solo el usuario root puede cerrar todas las sesiones de un usuario' });
+        return;
+      }
+
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      await sessionsCollection.updateMany(
+        { userId: targetUserId, active: true },
+        { $set: { active: false, lastActive: new Date() } },
+      );
+
+      res.json({ message: 'Todas las sesiones del usuario han sido cerradas' });
+    } catch (error) {
+      console.error('Error al cerrar sesiones:', error);
+      res.status(500).json({ error: 'Error al cerrar sesiones' });
     }
   }
 }

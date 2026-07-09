@@ -44,13 +44,20 @@ class Database {
     const collections = await this._db.listCollections().toArray();
     const collectionNames = collections.map((c) => c.name);
 
-    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas', 'abonos-polar', 'empresas'];
+    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas', 'abonos-polar', 'empresas', 'sessions'];
 
     for (const name of requiredCollections) {
       if (!collectionNames.includes(name)) {
         await this._db.createCollection(name);
         console.log(`Colección '${name}' creada`);
       }
+    }
+
+    try {
+      await this._db.collection('sessions').createIndex({ id: 1 }, { unique: true });
+      await this._db.collection('sessions').createIndex({ userId: 1, active: 1 });
+    } catch (indexError) {
+      console.error('Error creando índices de sesiones:', indexError);
     }
 
     await this.seedData();

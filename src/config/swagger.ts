@@ -46,6 +46,24 @@ export const swaggerConfig = {
             precioOferta: { type: 'number', example: 9.99 },
           },
         },
+        UserSession: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', example: 'sess_1234567890_abc123' },
+            userId: { type: 'string', example: 'user_001' },
+            username: { type: 'string', example: 'johndoe' },
+            email: { type: 'string', example: 'john@example.com' },
+            rol: { type: 'string', example: 'usuario' },
+            ip: { type: 'string', example: '192.168.1.1' },
+            userAgent: { type: 'string', example: 'Mozilla/5.0...' },
+            device: { type: 'string', example: 'Escritorio' },
+            browser: { type: 'string', example: 'Chrome' },
+            os: { type: 'string', example: 'Windows' },
+            active: { type: 'boolean', example: true },
+            createdAt: { type: 'string', format: 'date-time', example: '2024-01-01T00:00:00Z' },
+            lastActive: { type: 'string', format: 'date-time', example: '2024-01-01T00:00:00Z' },
+          },
+        },
         User: {
           type: 'object',
           properties: {

@@ -271,12 +271,30 @@ export interface NotificacionRedSocial {
    updatedAt: Date;
  }
 
- export interface UserNotificacion {
-   _id?: string;
-   id: string;
-   userId: string;
-   noticiaId: string;
-   leido: boolean;
-   createdAt: Date;
-   updatedAt: Date;
- }
+  export interface UserNotificacion {
+    _id?: string;
+    id: string;
+    userId: string;
+    noticiaId: string;
+    leido: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }
+
+  export interface UserSession {
+    _id?: string;
+    id: string;
+    userId: string;
+    username: string;
+    email: string;
+    rol: string;
+    ip?: string;
+    userAgent?: string;
+    device?: string;
+    browser?: string;
+    os?: string;
+    location?: string;
+    active: boolean;
+    createdAt: Date;
+    lastActive: Date;
+  }

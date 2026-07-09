@@ -1,16 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
 import { jwtConfig, TokenPayload } from '../config/jwt';
+import { database } from '../config/database';
+import { UserSession } from '../models';
 
 declare global {
   namespace Express {
     interface Request {
       user?: TokenPayload;
+      sessionId?: string;
     }
   }
 }
 
 export interface AuthRequest extends Request {
   user?: TokenPayload;
+  sessionId?: string;
 }
 
 export const authenticateToken = async (
@@ -35,6 +39,21 @@ export const authenticateToken = async (
 
     req.user = payload;
     (req as any).userRol = payload.rol;
+
+    const sessionId = `sess_${Buffer.from(accessToken).toString('base64').slice(0, 32)}`;
+    req.sessionId = sessionId;
+
+    try {
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      const session = await sessionsCollection.findOne({ id: sessionId });
+      if (session && !session.active) {
+        res.status(401).json({ error: 'Sesión cerrada remotamente. Inicie sesión nuevamente.' });
+        return;
+      }
+    } catch (sessionError) {
+      console.error('Error checking session:', sessionError);
+    }
+
     next();
   } catch (error) {
     res.status(401).json({ error: 'Error de autenticación' });
