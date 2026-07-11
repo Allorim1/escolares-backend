@@ -86,10 +86,11 @@ export interface Product {
   images?: string[];
   marcaId?: string;
   lineaId?: string;
-  // stock removido según solicitud
   categoriaId?: string;
   colorido?: boolean;
   colores?: Color[];
+  views: number;
+  purchases: number;
 }
 
 export interface ProductCategoria {

@@ -38,6 +38,7 @@ import tasasGuardadasRoutes from './routes/tasas-guardadas.routes';
 import cotizacionesRoutes from './routes/cotizaciones.routes';
 import notasEntregaRoutes from './routes/notas-entrega.routes';
 import comprasHistorialRoutes from './routes/compras-historial.routes';
+import estadisticasRoutes from './routes/estadisticas.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -1886,6 +1887,7 @@ app.use('/api/cotizaciones', cotizacionesRoutes);
 app.use('/api/notas-entrega', notasEntregaRoutes);
 app.use('/api/compras', comprasHistorialRoutes);
 app.use('/api/acuerdos-comerciales', comprasHistorialRoutes);
+app.use('/api/estadisticas', estadisticasRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: Response) => {

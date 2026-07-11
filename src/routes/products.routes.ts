@@ -308,7 +308,9 @@ router.get('/:id', async (req: Request, res: Response) => {
     if (!product) {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
-    
+
+    database.getCollection('products').updateOne({ id: id }, { $inc: { views: 1 } }).catch(() => {});
+
     await cacheSet(cacheKey, JSON.stringify(product), CACHE_TTL);
     res.header('X-Cache', 'MISS');
     res.json(product);
@@ -407,6 +409,8 @@ async function handleCreateProduct(req: Request, res: Response) {
       enOferta: enOferta || false,
       ofertaPorcentaje: ofertaPorcentaje || 0,
       ofertaPrecio: ofertaPrecio || 0,
+      views: 0,
+      purchases: 0,
       ...(images.length > 0 && { images }),
       colorido: colorido || false,
       colores: colores && colores.length > 0 ? colores : defaultColors,

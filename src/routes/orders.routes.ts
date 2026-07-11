@@ -214,6 +214,14 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
 
     await database.getCollection<Order>('orders').insertOne(newOrder);
 
+    for (const item of newOrder.items) {
+      const pid = String(item.productId);
+      database.getCollection('products').updateOne(
+        { id: pid },
+        { $inc: { purchases: Number(item.quantity || 1) } }
+      ).catch(() => {});
+    }
+
     const io = req.app.get('io');
     if (io) {
       emitirNotificacionCompra(io, newOrder);
