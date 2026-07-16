@@ -192,8 +192,8 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
       // Google Maps fields
       placeId: placeId || '',
       direccionCompleta: direccionCompleta || direccion,
-      latitud: latitud || 0,
-      longitud: longitud || 0,
+      latitud: typeof latitud === 'number' && !Number.isNaN(latitud) ? latitud : null,
+      longitud: typeof longitud === 'number' && !Number.isNaN(longitud) ? longitud : null,
       metodoPago,
       referencia,
       fotoComprobante: fotoComprobante || '',
