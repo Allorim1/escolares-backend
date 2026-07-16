@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { ObjectId } from 'mongodb';
 import { database } from '../config/database';
 import { DeliveryPerson, Order } from '../models';
 import { googleMapsService } from '../services/google-maps.service';
@@ -53,23 +54,41 @@ export class DeliveryController {
   async getByUserId(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.params.userId;
-      // Try to find by userId first, then by user having this deliveryPersonId
-      let deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ userId });
-      
-      if (!deliveryPerson) {
-        // Fallback: find the user and check if they have a deliveryPersonId
-        const user = await database.getCollection('users').findOne({ id: userId });
-        if (user?.deliveryPersonId) {
-          deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: user.deliveryPersonId });
-        }
+      const deliveryPersonsCollection = database.getCollection<DeliveryPerson>('deliveryPersons');
+      const usersCollection = database.getCollection('users');
+
+      const lookupSelector: Record<string, any> = { $or: [{ id: userId }] };
+      const normalizedUserId = Array.isArray(userId) ? userId[0] : userId;
+
+      try {
+        lookupSelector.$or.push({ _id: new ObjectId(normalizedUserId) });
+      } catch {
+        lookupSelector.$or.push({ _id: normalizedUserId });
       }
-      
+
+      let deliveryPerson = await deliveryPersonsCollection.findOne({
+        $or: [{ userId }, { id: userId }],
+      });
+
+      if (!deliveryPerson) {
+        const user = await usersCollection.findOne(lookupSelector);
+        const candidateIds = [user?.deliveryPersonId, user?.id, userId].filter(Boolean) as string[];
+
+        deliveryPerson = await deliveryPersonsCollection.findOne({
+          $or: candidateIds.flatMap((candidateId) => [
+            { userId: candidateId },
+            { id: candidateId },
+          ]),
+        });
+      }
+
       if (!deliveryPerson) {
         res.status(404).json({ error: 'Repartidor no encontrado' });
         return;
       }
       res.json(deliveryPerson);
     } catch (error) {
+      console.error('Error getting delivery person by user:', error);
       res.status(500).json({ error: 'Error al obtener repartidor' });
     }
   }
@@ -309,6 +328,52 @@ async updateLocation(req: Request, res: Response): Promise<void> {
      }
    }
 
+  async updateAvailability(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { activo } = req.body;
+      const userId = req.user?.userId;
+
+      if (typeof activo !== 'boolean') {
+        res.status(400).json({ error: 'El campo activo es requerido y debe ser booleano' });
+        return;
+      }
+
+      const user = await database.getCollection('users').findOne({ id: userId });
+      if (!user || user.deliveryPersonId !== id) {
+        res.status(403).json({ error: 'No tienes permiso para cambiar la disponibilidad de este repartidor' });
+        return;
+      }
+
+      const result = await database
+        .getCollection<DeliveryPerson>('deliveryPersons')
+        .findOneAndUpdate(
+          { id },
+          { $set: { activo, updatedAt: new Date() } },
+          { returnDocument: 'after' }
+        );
+
+      if (!result) {
+        res.status(404).json({ error: 'Repartidor no encontrado' });
+        return;
+      }
+
+      const io = (req as any).app.get('io');
+      if (io) {
+        io.emit('repartidor-disponibilidad', {
+          deliveryPersonId: id,
+          activo,
+          timestamp: new Date()
+        });
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error updating delivery person availability:', error);
+      res.status(500).json({ error: 'Error al actualizar disponibilidad' });
+    }
+  }
+
   async updateDNI(req: Request, res: Response, fotoDNI: string): Promise<void> {
     try {
       const deliveryPerson = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({ id: req.params.id });
@@ -431,7 +496,7 @@ res.json({
   async updateOrderStatus(req: Request, res: Response): Promise<void> {
     try {
       const { orderId } = req.params;
-      const { status, observaciones } = req.body;
+      const { status, observaciones, facturaImage, productImage } = req.body;
       const userId = req.user?.userId;
 
       if (!status) {
@@ -478,8 +543,12 @@ res.json({
         updatedAt: new Date(),
       };
 
-      if (status === 'entregado' && req.body.facturaImage) {
-        updateData.facturaImage = req.body.facturaImage;
+      if (status === 'entregado' && facturaImage) {
+        updateData.facturaImage = facturaImage;
+      }
+
+      if (status === 'entregado' && productImage) {
+        updateData.productImage = productImage;
       }
 
       const result = await database.getCollection<Order>('orders').findOneAndUpdate(
@@ -504,6 +573,55 @@ res.json({
     } catch (error) {
       console.error('Error updating order status:', error);
       res.status(500).json({ error: 'Error al actualizar estado' });
+    }
+  }
+
+  async getEarnings(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId;
+      const period = (req.query.period as string) || 'daily';
+
+      const user = await database.getCollection('users').findOne({ id: userId });
+      if (!user || user.rol !== 'repartidor' || !user.deliveryPersonId) {
+        res.status(403).json({ error: 'Acceso denegado' });
+        return;
+      }
+
+      const now = new Date();
+      let startDate: Date;
+      
+      if (period === 'weekly') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+      } else {
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      }
+
+      const orders = await database.getCollection<Order>('orders')
+        .find({
+          deliveryPersonId: user.deliveryPersonId,
+          status: 'entregado',
+          createdAt: { $gte: startDate }
+        })
+        .toArray();
+
+      const deliveredCount = orders.length;
+      const totalEarnings = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+      const totalPropinas = orders.reduce((sum, order) => sum + (order.propina || 0), 0);
+      const totalComisiones = orders.reduce((sum, order) => sum + (order.comision || 0), 0);
+      const netEarnings = totalEarnings + totalPropinas - totalComisiones;
+
+      res.json({
+        deliveredCount,
+        totalEarnings,
+        totalPropinas,
+        totalComisiones,
+        netEarnings,
+        period,
+        startDate
+      });
+    } catch (error) {
+      console.error('Error getting earnings:', error);
+      res.status(500).json({ error: 'Error al obtener ganancias' });
     }
   }
 }

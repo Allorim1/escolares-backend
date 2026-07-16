@@ -35,6 +35,10 @@ import deliveryRoutes from './routes/delivery.routes';
 import redesSocialesRoutes from './routes/redes-sociales.routes';
 import noticiasRoutes from './routes/noticias.routes';
 import tasasGuardadasRoutes from './routes/tasas-guardadas.routes';
+import cotizacionesRoutes from './routes/cotizaciones.routes';
+import notasEntregaRoutes from './routes/notas-entrega.routes';
+import comprasHistorialRoutes from './routes/compras-historial.routes';
+import estadisticasRoutes from './routes/estadisticas.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -202,6 +206,8 @@ const invalidateCache = (req: Request, res: Response, next: () => void) => {
       cacheDeletePattern('req:/api/roles*');
     } else if (path.includes('/manuales')) {
       cacheDeletePattern('req:/api/manuales*');
+    } else if (path.includes('/notas-entrega')) {
+      cacheDeletePattern('req:/api/notas-entrega*');
     }
   }
   next();
@@ -230,10 +236,21 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-dolarvzla-key'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-dolarvzla-key', 'Origin', 'Accept', 'X-Requested-With'],
+  exposedHeaders: ['Authorization', 'Content-Type'],
 };
 
 app.use(cors(corsOptions));
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-dolarvzla-key,Origin,Accept,X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    return res.status(204).end();
+  }
+  next();
+});
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
@@ -319,6 +336,31 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching tasas:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/conversion/triple-anterior', async (req: Request, res: Response) => {
+  try {
+    const settings = await database.getCollection('settings').findOne({ key: 'conversionTripleAnterior' });
+    res.json(settings?.value || { cents: [0, 0, 0], fechas: ['', '', ''] });
+  } catch (error) {
+    console.error('Error getting triple anterior:', error);
+    res.status(500).json({ error: 'Error al obtener valores guardados' });
+  }
+});
+
+app.post('/api/conversion/triple-anterior', async (req: Request, res: Response) => {
+  try {
+    const { cents, fechas } = req.body;
+    await database.getCollection('settings').updateOne(
+      { key: 'conversionTripleAnterior' },
+      { $set: { key: 'conversionTripleAnterior', value: { cents, fechas }, updatedAt: new Date() } },
+      { upsert: true }
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving triple anterior:', error);
+    res.status(500).json({ error: 'Error al guardar valores' });
   }
 });
 
@@ -1841,6 +1883,11 @@ app.use('/api/delivery', deliveryRoutes);
 app.use('/api/redes-sociales', redesSocialesRoutes);
 app.use('/api/noticias', noticiasRoutes);
 app.use('/api/tasas-guardadas', tasasGuardadasRoutes);
+app.use('/api/cotizaciones', cotizacionesRoutes);
+app.use('/api/notas-entrega', notasEntregaRoutes);
+app.use('/api/compras', comprasHistorialRoutes);
+app.use('/api/acuerdos-comerciales', comprasHistorialRoutes);
+app.use('/api/estadisticas', estadisticasRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: Response) => {
@@ -2170,11 +2217,86 @@ app.delete('/api/nomina/pagos/:id', async (req: Request, res: Response) => {
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const collection = (database as any).getCollection('nomina-pagos');
-    await collection.deleteOne({ _id: new ObjectId(id) });
-    res.json({ success: true });
+await collection.deleteOne({ _id: new ObjectId(id) });
+     res.json({ success: true });
   } catch (error) {
     console.error('Error eliminando pago:', error);
     res.status(500).json({ error: 'Error al eliminar pago' });
+  }
+});
+
+// Control de Asistencias
+app.get('/api/asistencias', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const collection = (database as any).getCollection('asistencias');
+    const asistencias = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
+    const asistenciasFormatted = asistencias.map((a: any) => ({
+      ...a,
+      _id: a._id?.toString(),
+      empleadoId: a.empleadoId?.toString(),
+    }));
+    res.json(asistenciasFormatted);
+  } catch (error) {
+    console.error('Error obteniendo asistencias:', error);
+    res.status(500).json({ error: 'Error al obtener asistencias' });
+  }
+});
+
+app.post('/api/asistencias', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { empleadoId, empleadoNombre, fecha, tipo, hora, justificacion } = req.body;
+    if (!empleadoId) {
+      res.status(400).json({ error: 'Empleado es requerido' });
+      return;
+    }
+    const { ObjectId } = await import('mongodb');
+    const asistencia = {
+      empleadoId,
+      empleadoNombre: empleadoNombre || '',
+      fecha: fecha ? new Date(fecha) : new Date(),
+      tipo: tipo || 'entrada',
+      hora: hora || '',
+      justificacion: justificacion || '',
+    };
+    const collection = (database as any).getCollection('asistencias');
+    const result = await collection.insertOne(asistencia);
+    res.json({ ...asistencia, _id: result.insertedId.toString() });
+  } catch (error) {
+    console.error('Error creando asistencia:', error);
+    res.status(500).json({ error: 'Error al crear asistencia' });
+  }
+});
+
+app.put('/api/asistencias/:id', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { empleadoId, empleadoNombre, fecha, tipo, hora, justificacion } = req.body;
+    const updateData: any = { empleadoNombre, tipo, hora, justificacion };
+    if (empleadoId) updateData.empleadoId = new ObjectId(empleadoId);
+    if (fecha) updateData.fecha = new Date(fecha);
+    const collection = (database as any).getCollection('asistencias');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando asistencia:', error);
+    res.status(500).json({ error: 'Error al actualizar asistencia' });
+  }
+});
+
+app.delete('/api/asistencias/:id', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('asistencias');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando asistencia:', error);
+    res.status(500).json({ error: 'Error al eliminar asistencia' });
   }
 });
 
@@ -4168,6 +4290,138 @@ app.delete('/api/retenciones/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error eliminando retención:', error);
     res.status(500).json({ error: 'Error al eliminar retención' });
+  }
+});
+
+// Empresas
+app.get('/api/empresas', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('empresas');
+    const empresas = await collection.find({}).sort({ nombre: 1 }).allowDiskUse(true).toArray();
+    res.json(empresas);
+  } catch (error) {
+    console.error('Error obteniendo empresas:', error);
+    res.status(500).json({ error: 'Error al obtener empresas' });
+  }
+});
+
+app.post('/api/empresas', async (req: Request, res: Response) => {
+  try {
+    const { nombre, plantas } = req.body;
+    if (!nombre) {
+      res.status(400).json({ error: 'El nombre es requerido' });
+      return;
+    }
+    const empresa = { nombre, plantas: plantas || [] };
+    const collection = (database as any).getCollection('empresas');
+    const result = await collection.insertOne(empresa);
+    res.json({ ...empresa, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando empresa:', error);
+    res.status(500).json({ error: 'Error al crear empresa' });
+  }
+});
+
+app.put('/api/empresas/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { nombre, plantas } = req.body;
+    const collection = (database as any).getCollection('empresas');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: { nombre, plantas: plantas || [] } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando empresa:', error);
+    res.status(500).json({ error: 'Error al actualizar empresa' });
+  }
+});
+
+app.delete('/api/empresas/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('empresas');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando empresa:', error);
+    res.status(500).json({ error: 'Error al eliminar empresa' });
+  }
+});
+
+// Abonos Polar
+app.get('/api/abonos-polar', async (req: Request, res: Response) => {
+  try {
+    const collection = (database as any).getCollection('abonos-polar');
+    const abonos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
+    res.json(abonos);
+  } catch (error) {
+    console.error('Error obteniendo abonos polar:', error);
+    res.status(500).json({ error: 'Error al obtener abonos polar' });
+  }
+});
+
+app.post('/api/abonos-polar', async (req: Request, res: Response) => {
+  try {
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa } = req.body;
+    if (!fecha || !nombre || !planta || !nFact) {
+      res.status(400).json({ error: 'Fecha, nombre, planta y número de factura son requeridos' });
+      return;
+    }
+    const abono = {
+      fecha: fecha ? new Date(fecha) : new Date(),
+      nombre,
+      planta,
+      cedula: cedula || '',
+      telefono: telefono || '',
+      nFact,
+      montoFactura: montoFactura || 0,
+      iva: iva || 0,
+      diferencia: diferencia || 0,
+      tasa: tasa || 0,
+      divisa: divisa || 0,
+      status: status || '',
+      empresa: empresa || '',
+    };
+    const collection = (database as any).getCollection('abonos-polar');
+    const result = await collection.insertOne(abono);
+    res.json({ ...abono, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando abono polar:', error);
+    res.status(500).json({ error: 'Error al crear abono polar' });
+  }
+});
+
+app.put('/api/abonos-polar/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa } = req.body;
+    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa };
+    if (fecha) updateData.fecha = new Date(fecha);
+    const collection = (database as any).getCollection('abonos-polar');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando abono polar:', error);
+    res.status(500).json({ error: 'Error al actualizar abono polar' });
+  }
+});
+
+app.delete('/api/abonos-polar/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('abonos-polar');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando abono polar:', error);
+    res.status(500).json({ error: 'Error al eliminar abono polar' });
   }
 });
 

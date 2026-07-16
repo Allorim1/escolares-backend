@@ -20,27 +20,27 @@ export interface Oferta {
 }
 
 export interface User {
-   _id?: string;
-   id: string;
-   username: string;
-   email: string;
-   password?: string;
-   isAdmin: boolean;
-   isOwner?: boolean;
-   rol?: 'root' | 'owner' | 'usuario' | 'repartidor';
-   rolId?: string;
-   deliveryPersonId?: string;
-   nombreCompleto?: string;
-   apellido?: string;
-   direccion?: string;
-   telefono?: string;
-   cedula?: string;
-   tipoPersona?: 'natural' | 'juridica';
-   comentarios?: string;
-   direcciones?: Direccion[];
-   metodosPago?: MetodoPago[];
-   supervisorKey?: string;
- }
+    _id?: string;
+    id: string;
+    username: string;
+    email: string;
+    password?: string;
+    isAdmin: boolean;
+    rol?: 'root' | 'usuario' | 'repartidor';
+    rolId?: string;
+    deliveryPersonId?: string;
+    nombreCompleto?: string;
+    apellido?: string;
+    direccion?: string;
+    telefono?: string;
+    cedula?: string;
+    tipoPersona?: 'natural' | 'juridica';
+    comentarios?: string;
+    direcciones?: Direccion[];
+    metodosPago?: MetodoPago[];
+    supervisorKey?: string;
+    activo?: boolean;
+  }
 
 export interface Direccion {
    id: string;
@@ -86,10 +86,11 @@ export interface Product {
   images?: string[];
   marcaId?: string;
   lineaId?: string;
-  // stock removido según solicitud
   categoriaId?: string;
   colorido?: boolean;
   colores?: Color[];
+  views: number;
+  purchases: number;
 }
 
 export interface ProductCategoria {
@@ -131,6 +132,7 @@ export interface Order {
   referencia: string;
   fotoComprobante?: string;
   facturaImage?: string;
+  productImage?: string;
   bancoEmisor?: string;
   cedulaTitular?: string;
   correo?: string;
@@ -147,6 +149,9 @@ export interface Order {
     timestamp: Date;
   };
   tiempoEstimadoLlegada?: string;
+  // Delivery earnings
+  propina?: number;
+  comision?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -267,12 +272,30 @@ export interface NotificacionRedSocial {
    updatedAt: Date;
  }
 
- export interface UserNotificacion {
-   _id?: string;
-   id: string;
-   userId: string;
-   noticiaId: string;
-   leido: boolean;
-   createdAt: Date;
-   updatedAt: Date;
- }
+  export interface UserNotificacion {
+    _id?: string;
+    id: string;
+    userId: string;
+    noticiaId: string;
+    leido: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }
+
+  export interface UserSession {
+    _id?: string;
+    id: string;
+    userId: string;
+    username: string;
+    email: string;
+    rol: string;
+    ip?: string;
+    userAgent?: string;
+    device?: string;
+    browser?: string;
+    os?: string;
+    location?: string;
+    active: boolean;
+    createdAt: Date;
+    lastActive: Date;
+  }

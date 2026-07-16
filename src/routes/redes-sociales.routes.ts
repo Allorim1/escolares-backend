@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import { redesSocialesController } from '../controllers/redes-sociales.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { authenticateToken, authenticateTokenQuery } from '../middlewares/auth.middleware';
 import { database } from '../config/database';
 import { MensajeRedSocial } from '../models';
 
@@ -235,7 +235,7 @@ router.post('/upload-media', authenticateToken, (req, res) => {
 });
 
 // Server-Sent Events (SSE) for real-time message updates
-router.get('/events/messages', authenticateToken, (req, res) => {
+router.get('/events/messages', authenticateTokenQuery, (req, res) => {
   // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');

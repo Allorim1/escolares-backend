@@ -1,16 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
 import { jwtConfig, TokenPayload } from '../config/jwt';
+import { database } from '../config/database';
+import { UserSession } from '../models';
 
 declare global {
   namespace Express {
     interface Request {
       user?: TokenPayload;
+      sessionId?: string;
     }
   }
 }
 
 export interface AuthRequest extends Request {
   user?: TokenPayload;
+  sessionId?: string;
 }
 
 export const authenticateToken = async (
@@ -21,6 +25,51 @@ export const authenticateToken = async (
   try {
     const accessToken =
       req.cookies?.accessToken || req.headers.authorization?.replace('Bearer ', '');
+
+    if (!accessToken) {
+      res.status(401).json({ error: 'Token de acceso requerido' });
+      return;
+    }
+
+    const payload = jwtConfig.verifyAccessToken(accessToken);
+    if (!payload) {
+      res.status(401).json({ error: 'Token inválido o expirado' });
+      return;
+    }
+
+    req.user = payload;
+    (req as any).userRol = payload.rol;
+
+    const sessionId = `sess_${Buffer.from(accessToken).toString('base64').slice(0, 32)}`;
+    req.sessionId = sessionId;
+
+    try {
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      const session = await sessionsCollection.findOne({ id: sessionId });
+      if (session && !session.active) {
+        res.status(401).json({ error: 'Sesión cerrada remotamente. Inicie sesión nuevamente.' });
+        return;
+      }
+    } catch (sessionError) {
+      console.error('Error checking session:', sessionError);
+    }
+
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Error de autenticación' });
+  }
+};
+
+export const authenticateTokenQuery = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const accessToken =
+      req.cookies?.accessToken ||
+      (req.query.token as string) ||
+      req.headers.authorization?.replace('Bearer ', '');
 
     if (!accessToken) {
       res.status(401).json({ error: 'Token de acceso requerido' });
@@ -79,11 +128,11 @@ export const requireDelivery = (
    req: AuthRequest,
    res: Response,
    next: NextFunction,
- ): void => {
+  ): void => {
    const userRol = req.user?.rol || (req as any).userRol;
    if (userRol !== 'repartidor') {
      res.status(403).json({ error: 'Solo los repartidores pueden acceder a esta sección' });
      return;
    }
    next();
- };
+  };

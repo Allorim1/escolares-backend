@@ -48,9 +48,10 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
    { id: 'tasas_gestionar', nombre: 'Gestionar Tasas', descripcion: 'Puede gestionar costos y tasas', modulo: 'panel_admin' },
    { id: 'tasas_ver', nombre: 'Ver Tasas', descripcion: 'Puede ver histórico de costos', modulo: 'panel_admin' },
    
-   // Panel Admin - Registro/Facturación
-   { id: 'facturas_registrar', nombre: 'Registrar Facturas', descripcion: 'Puede registrar facturas', modulo: 'panel_admin' },
-   { id: 'facturas_gestionar', nombre: 'Gestionar Facturas', descripcion: 'Puede gestionar facturación', modulo: 'panel_admin' },
+// Panel Admin - Registro/Facturación
+    { id: 'facturas_registrar', nombre: 'Registrar Facturas', descripcion: 'Puede registrar facturas', modulo: 'panel_admin' },
+    { id: 'facturas_gestionar', nombre: 'Gestionar Facturas', descripcion: 'Puede gestionar facturación', modulo: 'panel_admin' },
+    { id: 'cotizaciones_gestionar', nombre: 'Gestionar Cotizaciones', descripcion: 'Puede gestionar cotizaciones Alcadía', modulo: 'panel_admin' },
    
    // Panel Admin - Otros
    { id: 'gastos_gestionar', nombre: 'Gestionar Gastos', descripcion: 'Puede gestionar gastos', modulo: 'panel_admin' },
@@ -74,16 +75,16 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
    { id: 'marcas_gestionar', nombre: 'Gestionar Marcas', descripcion: 'Puede agregar, editar y eliminar marcas', modulo: 'panel_web' },
    { id: 'lineas_ver', nombre: 'Ver Líneas', descripcion: 'Puede ver líneas', modulo: 'panel_web' },
    { id: 'lineas_gestionar', nombre: 'Gestionar Líneas', descripcion: 'Puede agregar, editar y eliminar líneas', modulo: 'panel_web' },
-{ id: 'ofertas_ver', nombre: 'Ver Ofertas', descripcion: 'Puede ver ofertas', modulo: 'panel_web' },
-    { id: 'noticias_gestionar', nombre: 'Gestionar Noticias', descripcion: 'Puede gestionar noticias', modulo: 'panel_web' },
-    { id: 'producto_categorias_ver', nombre: 'Ver Categorías de Productos', descripcion: 'Puede ver categorías de productos', modulo: 'panel_web' },
+   { id: 'ofertas_ver', nombre: 'Ver Ofertas', descripcion: 'Puede ver ofertas', modulo: 'panel_web' },
+   { id: 'noticias_gestionar', nombre: 'Gestionar Noticias', descripcion: 'Puede gestionar noticias', modulo: 'panel_web' },
+   { id: 'producto_categorias_ver', nombre: 'Ver Categorías de Productos', descripcion: 'Puede ver categorías de productos', modulo: 'panel_web' },
    { id: 'producto_categorias_gestionar', nombre: 'Gestionar Categorías de Productos', descripcion: 'Puede gestionar categorías de productos', modulo: 'panel_web' },
    
    // Panel Web - Usuarios y Roles
    { id: 'usuarios_gestionar', nombre: 'Gestionar Usuarios', descripcion: 'Puede gestionar usuarios', modulo: 'panel_web' },
 
    { id: 'manuales_ver', nombre: 'Ver Manuales', descripcion: 'Puede ver manuales', modulo: 'panel_web' },
-
+   
    // Modulo de Repartidor
    { id: 'repartidor_acceder', nombre: 'Acceder como Repartidor', descripcion: 'Puede acceder al módulo de repartidor', modulo: 'repartidor' },
    { id: 'repartidor_ver_pedidos', nombre: 'Ver Pedidos Asignados', descripcion: 'Puede ver pedidos asignados', modulo: 'repartidor' },
@@ -101,36 +102,36 @@ router.get('/permisos', authenticateToken, requireRoot, async (req: Request, res
 });
 
 router.get('/', authenticateToken, requireRoot, async (req: Request, res: Response) => {
-   try {
-     // Inicializar rol 'repartidor' si no existe
-     const repartidorRol = await database.getCollection<Rol>('roles').findOne({ nombre: 'repartidor' });
-     if (!repartidorRol) {
-       const newRol: Rol = {
-         id: 'repartidor-' + Date.now(),
-         nombre: 'repartidor',
-         descripcion: 'Rol para repartidores de la empresa',
-         permisos: [
-           'repartidor_acceder',
-           'repartidor_ver_pedidos',
-           'repartidor_actualizar_estado',
-           'repartidor_ubicacion',
-         ],
-         esDefault: false,
-         esVendedor: false,
-         comision: 0,
-         createdAt: new Date(),
-         updatedAt: new Date(),
-       };
-       await database.getCollection<Rol>('roles').insertOne(newRol);
-     }
-     
-     const roles = await database.getCollection<Rol>('roles').find({}).toArray();
-     res.json(roles);
-   } catch (error) {
-     console.error('Error getting roles:', error);
-     res.status(500).json({ error: 'Error al obtener roles' });
-   }
- });
+    try {
+      // Inicializar rol 'repartidor' si no existe
+      const repartidorRol = await database.getCollection<Rol>('roles').findOne({ nombre: 'repartidor' });
+      if (!repartidorRol) {
+        const newRol: Rol = {
+          id: 'repartidor-' + Date.now(),
+          nombre: 'repartidor',
+          descripcion: 'Rol para repartidores de la empresa',
+          permisos: [
+            'repartidor_acceder',
+            'repartidor_ver_pedidos',
+            'repartidor_actualizar_estado',
+            'repartidor_ubicacion',
+          ],
+          esDefault: false,
+          esVendedor: false,
+          comision: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        await database.getCollection<Rol>('roles').insertOne(newRol);
+      }
+      
+      const roles = await database.getCollection<Rol>('roles').find({}).toArray();
+      res.json(roles);
+    } catch (error) {
+      console.error('Error getting roles:', error);
+      res.status(500).json({ error: 'Error al obtener roles' });
+    }
+  });
 
 router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
@@ -244,7 +245,7 @@ router.put('/:id', authenticateToken, requireRoot, async (req: Request, res: Res
       return;
     }
 
-    if (existingRolById.nombre === 'root' || existingRolById.nombre === 'owner') {
+    if (existingRolById.nombre === 'root') {
       res.status(400).json({ error: 'No puedes editar roles del sistema' });
       return;
     }
@@ -290,8 +291,8 @@ router.delete('/:id', authenticateToken, requireRoot, async (req: Request, res: 
       return;
     }
 
-    if (existingRol.nombre === 'root' || existingRol.nombre === 'owner') {
-      res.status(400).json({ error: 'No puedes eliminar el rol de owner' });
+    if (existingRol.nombre === 'root') {
+      res.status(400).json({ error: 'No puedes eliminar el rol de root' });
       return;
     }
 

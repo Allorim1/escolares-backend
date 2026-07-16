@@ -86,7 +86,7 @@ const crearRegistro = async (database: any, accion: string, modulo: string, desc
 // Storage configuration for product images
 const uploadsRoot = process.env.UPLOADS_PATH
   ? path.resolve(process.env.UPLOADS_PATH)
-  : path.resolve(process.cwd(), 'src/uploads');
+  : path.resolve(process.cwd(), 'uploads');
 const productUploadPath = path.join(uploadsRoot, 'products');
 if (!fs.existsSync(productUploadPath)) {
   fs.mkdirSync(productUploadPath, { recursive: true });
@@ -134,7 +134,7 @@ router.post(
     });
 
     const imageUrl = `/api/uploads/products/${req.file.filename}`;
-    res.json({ url: imageUrl, filename: req.file.originalname, size: req.file.size });
+    res.json({ url: imageUrl, filename: req.file.filename, originalname: req.file.originalname, size: req.file.size });
   }
 );
 
@@ -157,7 +157,7 @@ router.post(
     })));
 
     const urls = files.map(f => `/api/uploads/products/${f.filename}`);
-    res.json({ urls, files: files.map(f => ({ filename: f.originalname, size: f.size })) });
+    res.json({ urls, files: files.map(f => ({ filename: f.filename, originalname: f.originalname, size: f.size })) });
   }
 );
 
@@ -184,7 +184,7 @@ function processRequestImages(req: Request): { image: string; images: string[] }
         const parsed = JSON.parse(req.body.images);
         if (Array.isArray(parsed)) {
           images = [...images, ...parsed.filter((img: string) => 
-            img.startsWith('http') || img.startsWith('https') || img.startsWith('data:image')
+            img.startsWith('http') || img.startsWith('https') || img.startsWith('data:image') || img.startsWith('/api/uploads') || img.indexOf('/api/uploads') !== -1
           )];
         }
       } catch (e) {
@@ -192,7 +192,7 @@ function processRequestImages(req: Request): { image: string; images: string[] }
       }
     } else if (Array.isArray(req.body.images)) {
       images = [...images, ...req.body.images.filter((img: string) => 
-        img.startsWith('http') || img.startsWith('https') || img.startsWith('data:image')
+        img.startsWith('http') || img.startsWith('https') || img.startsWith('data:image') || img.startsWith('/api/uploads') || img.indexOf('/api/uploads') !== -1
       )];
     }
   }
@@ -205,16 +205,55 @@ router.get('/', async (req: Request, res: Response) => {
     const pageParam = req.query.page as string | undefined;
     const limitParam = req.query.limit as string | undefined;
     const allParam = req.query.all as string | undefined;
+    const searchParam = (req.query.search as string | undefined)?.trim();
+    const categoryParam = (req.query.category as string | undefined)?.trim();
+    const brandParam = (req.query.brand as string | undefined)?.trim() || (req.query.marca as string | undefined)?.trim();
+
+    const query: any = {};
+    const filters: any[] = [];
+
+    if (searchParam) {
+      const searchRegex = new RegExp(escapeRegExp(searchParam), 'i');
+      filters.push({
+        $or: [
+          { title: searchRegex },
+          { description: searchRegex },
+          { category: searchRegex },
+          { marca: searchRegex }
+        ]
+      });
+    }
+
+    if (categoryParam) {
+      filters.push({ category: categoryParam });
+    }
+
+    if (brandParam) {
+      filters.push({ marca: brandParam });
+    }
+
+    if (filters.length > 0) {
+      query.$and = filters;
+    }
+
+    const page = parseInt(pageParam || '1');
+    const limit = parseInt(limitParam || '50');
+    const skip = (page - 1) * limit;
+
+    const cacheKey = `products:${page}:${limit}:${String(searchParam)}:${String(categoryParam)}:${String(brandParam)}:${String(allParam)}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      res.header('X-Cache', 'HIT');
+      return res.json(JSON.parse(cached));
+    }
 
     if (allParam === 'true') {
-      const cacheKey = 'products:all';
-      const cached = await cacheGet(cacheKey);
-      if (cached) {
-        res.header('X-Cache', 'HIT');
-        return res.json(JSON.parse(cached));
-      }
-
-      const products = await database.getCollection('products').find({}).toArray();
+      const products = await database.getCollection('products').find(query).toArray();
+      products.sort((a: any, b: any) => {
+        const left = Number(a.id);
+        const right = Number(b.id);
+        return Number.isNaN(left) || Number.isNaN(right) ? String(a.id).localeCompare(String(b.id)) : left - right;
+      });
       const result = {
         products,
         total: products.length
@@ -225,21 +264,15 @@ router.get('/', async (req: Request, res: Response) => {
       return res.json(result);
     }
 
-    const page = parseInt(pageParam || '1');
-    const limit = parseInt(limitParam || '50');
-    const skip = (page - 1) * limit;
-
-    const cacheKey = `products:${page}:${limit}`;
-    const cached = await cacheGet(cacheKey);
-    if (cached) {
-      res.header('X-Cache', 'HIT');
-      return res.json(JSON.parse(cached));
-    }
-
     const [products, total] = await Promise.all([
-      database.getCollection('products').find({}).skip(skip).limit(limit).toArray(),
-      database.getCollection('products').countDocuments()
+      database.getCollection('products').find(query).skip(skip).limit(limit).toArray(),
+      database.getCollection('products').countDocuments(query)
     ]);
+    products.sort((a: any, b: any) => {
+      const left = Number(a.id);
+      const right = Number(b.id);
+      return Number.isNaN(left) || Number.isNaN(right) ? String(a.id).localeCompare(String(b.id)) : left - right;
+    });
 
     const result = {
       products,
@@ -262,7 +295,7 @@ router.get('/', async (req: Request, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     
     const cacheKey = `product:${id}`;
     const cached = await cacheGet(cacheKey);
@@ -275,7 +308,9 @@ router.get('/:id', async (req: Request, res: Response) => {
     if (!product) {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
-    
+
+    database.getCollection('products').updateOne({ id: id }, { $inc: { views: 1 } }).catch(() => {});
+
     await cacheSet(cacheKey, JSON.stringify(product), CACHE_TTL);
     res.header('X-Cache', 'MISS');
     res.json(product);
@@ -311,7 +346,20 @@ router.post('/', authenticateToken, (req: Request, res: Response) => {
 
 async function handleCreateProduct(req: Request, res: Response) {
   try {
-    const { image, images } = processRequestImages(req);
+    let { image, images } = processRequestImages(req);
+    // Normalize incoming image URLs/paths to consistent /api/uploads/products/... or keep data URLs
+    const normalizeImg = (img: string) => {
+      if (!img) return '';
+      if (img.startsWith('data:') || img.startsWith('http')) return img;
+      const idx = img.indexOf('/api/uploads/products/');
+      if (idx !== -1) return img.slice(idx);
+      if (img.startsWith('/api/uploads/products/')) return img;
+      // If it's a plain filename, map to uploads path
+      if (!img.includes('/')) return `/api/uploads/products/${img}`;
+      return img;
+    };
+    image = normalizeImg(image || '');
+    images = (images || []).map(normalizeImg).filter(Boolean);
     const body = req.body as any;
     const title = (body.title || '').toString().trim();
     const category = (body.category || '').toString().trim();
@@ -329,13 +377,21 @@ async function handleCreateProduct(req: Request, res: Response) {
       return res.status(409).json({ error: `Ya existe un producto con el nombre "${title}"` });
     }
 
-    const lastProduct = await database.getCollection('products')
-      .find({})
-      .sort({ id: - 1 })
-      .limit(1)
-      .toArray();
-
-    const newId = lastProduct.length > 0 ? String(Number(lastProduct[0].id) + 1) : '1';
+    const allProductIds = await database.getCollection('products')
+      .distinct('id');
+    
+    let maxId = 0;
+    if (allProductIds.length > 0) {
+      const numericIds = allProductIds
+        .map(id => Number(id))
+        .filter(id => !isNaN(id));
+      maxId = numericIds.length > 0 ? Math.max(...numericIds) : 0;
+    }
+    
+    let newId = String(maxId + 1);
+    while (allProductIds.includes(newId)) {
+      newId = String(Number(newId) + 1);
+    }
 
     const newProduct: any = {
       id: newId,
@@ -353,6 +409,8 @@ async function handleCreateProduct(req: Request, res: Response) {
       enOferta: enOferta || false,
       ofertaPorcentaje: ofertaPorcentaje || 0,
       ofertaPrecio: ofertaPrecio || 0,
+      views: 0,
+      purchases: 0,
       ...(images.length > 0 && { images }),
       colorido: colorido || false,
       colores: colores && colores.length > 0 ? colores : defaultColors,
@@ -360,6 +418,7 @@ async function handleCreateProduct(req: Request, res: Response) {
     };
 
     await database.getCollection('products').insertOne(newProduct);
+      console.log('Product created in DB:', { id: newProduct.id, title: newProduct.title, image: image });
 
     if (lineaId) {
       await database.getCollection('lineas').updateOne(
@@ -407,10 +466,21 @@ router.put('/:id', authenticateToken, (req: Request, res: Response) => {
 
 async function handleUpdateProduct(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     
     // Process uploaded images
     let { image, images } = processRequestImages(req);
+    const normalizeImg = (img: string) => {
+      if (!img) return '';
+      if (img.startsWith('data:') || img.startsWith('http')) return img;
+      const idx = img.indexOf('/api/uploads/products/');
+      if (idx !== -1) return img.slice(idx);
+      if (img.startsWith('/api/uploads/products/')) return img;
+      if (!img.includes('/')) return `/api/uploads/products/${img}`;
+      return img;
+    };
+    image = normalizeImg(image || '');
+    images = (images || []).map(normalizeImg).filter(Boolean);
     const body = req.body as any;
     const title = (body.title || '').toString().trim();
     const category = (body.category || '').toString().trim();
@@ -456,10 +526,11 @@ async function handleUpdateProduct(req: Request, res: Response) {
       colores: colores && colores.length > 0 ? colores : defaultColors,
     };
 
-    await database.getCollection('products').updateOne(
+    const updateResult = await database.getCollection('products').updateOne(
       { id },
       { $set: updateData }
     );
+    console.log('Product update result:', { id, matchedCount: updateResult.matchedCount, modifiedCount: updateResult.modifiedCount });
 
     const updated = await database.getCollection('products').findOne({ id });
 
@@ -479,7 +550,7 @@ async function handleUpdateProduct(req: Request, res: Response) {
 
 router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
     
     const productoEliminado = await database.getCollection('products').findOne({ id });

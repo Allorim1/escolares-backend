@@ -138,8 +138,8 @@ export class LineasController {
   async addProduct(req: Request, res: Response): Promise<void> {
     try {
       const userRol = req.user?.rol || (req as any).userRol;
-      if (userRol !== 'root') {
-        res.status(403).json({ error: 'Solo el root puede añadir productos a líneas' });
+      if (userRol !== 'root' && userRol !== 'admin') {
+        res.status(403).json({ error: 'Permisos insuficientes para añadir productos a líneas' });
         return;
       }
 
@@ -165,8 +165,8 @@ export class LineasController {
   async removeProduct(req: Request, res: Response): Promise<void> {
     try {
       const userRol = req.user?.rol || (req as any).userRol;
-      if (userRol !== 'root') {
-        res.status(403).json({ error: 'Solo el root puede eliminar productos de líneas' });
+      if (userRol !== 'root' && userRol !== 'admin') {
+        res.status(403).json({ error: 'Permisos insuficientes para eliminar productos de líneas' });
         return;
       }
 

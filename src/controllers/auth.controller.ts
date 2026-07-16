@@ -1,9 +1,11 @@
 ﻿import { Request, Response } from 'express';
 import argon2 from 'argon2';
+import { ObjectId } from 'mongodb';
 import { database } from '../config/database';
-import { User, DeliveryPerson } from '../models';
+import { User, DeliveryPerson, UserSession } from '../models';
 import { jwtConfig } from '../config/jwt';
 import { AuthRequest } from '../middlewares/auth.middleware';
+import { createSessionRecord } from '../middlewares/session.middleware';
 import nodemailer from 'nodemailer';
 
 const transporter = nodemailer.createTransport({
@@ -17,6 +19,19 @@ const transporter = nodemailer.createTransport({
 });
 
 export class AuthController {
+  private getUserSelector(userId: string | string[]): Record<string, any> {
+    const normalizedUserId = Array.isArray(userId) ? userId[0] : userId;
+    const selector: Record<string, any> = { $or: [{ id: normalizedUserId }] };
+
+    try {
+      selector.$or.push({ _id: new ObjectId(normalizedUserId) });
+    } catch {
+      selector.$or.push({ _id: normalizedUserId });
+    }
+
+    return selector;
+  }
+
   async register(req: Request, res: Response): Promise<void> {
     try {
       const { username, email, password, rif, telefono, direccion, tipoPersona } = req.body;
@@ -118,11 +133,8 @@ const newUser: User = {
         comentarios: comentarios || '',
       };
 
-      if (rol === 'owner') {
-        newUser.isAdmin = true;
-        newUser.isOwner = true;
-      } else if (rol === 'repartidor') {
-        newUser.isOwner = false;
+      if (rol === 'repartidor') {
+        newUser.activo = true;
       }
 
       await database.getCollection<User>('users').insertOne(newUser);
@@ -215,7 +227,7 @@ const newUser: User = {
         deliveryPersonId: user.deliveryPersonId,
       });
 
-res.cookie('accessToken', tokens.accessToken, {
+      res.cookie('accessToken', tokens.accessToken, {
          httpOnly: true,
          secure: process.env.NODE_ENV === 'production',
          sameSite: 'strict',
@@ -229,7 +241,12 @@ res.cookie('accessToken', tokens.accessToken, {
          maxAge: 7 * 24 * 60 * 60 * 1000,
        });
 
-const { password: _, ...userWithoutPassword } = user;
+        const sessionId = `sess_${Buffer.from(tokens.accessToken).toString('base64').slice(0, 32)}`;
+        createSessionRecord(user.id, user.username, user.email, user.rol || 'usuario', sessionId, req).catch((err) => {
+          console.error('Error creating session record:', err);
+        });
+
+       const { password: _, ...userWithoutPassword } = user;
         const responseData: any = { ...userWithoutPassword, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
         // Include deliveryPersonId if user has one
         if (user.deliveryPersonId) {
@@ -327,7 +344,10 @@ res.cookie('accessToken', tokens.accessToken, {
   async getAll(req: Request, res: Response): Promise<void> {
     try {
       const users = await database.getCollection<User>('users').find({}).toArray();
-      const usersWithoutPassword = users.map(({ password, ...user }) => user);
+      const usersWithoutPassword = users.map(({ password, _id, ...user }) => ({
+        ...user,
+        id: user.id || (_id ? _id.toString() : undefined),
+      }));
       res.json(usersWithoutPassword);
     } catch (error) {
       res.status(500).json({ error: 'Error al obtener usuarios' });
@@ -373,44 +393,33 @@ res.cookie('accessToken', tokens.accessToken, {
     }
   }
 
-  async updateRol(req: Request, res: Response): Promise<void> {
-    try {
-      const { targetUserId, rol, rolId } = req.body;
-      const solicitanteRol = (req as any).userRol;
-      const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
+async updateRol(req: Request, res: Response): Promise<void> {
+     try {
+       const { targetUserId, rol, rolId } = req.body;
+       const solicitanteRol = (req as any).userRol;
+       const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
 
-      if (!targetUserId || (!rol && !rolId)) {
-        res.status(400).json({ error: 'ID de usuario y rol requeridos' });
-        return;
-      }
+       if (!targetUserId || (!rol && !rolId)) {
+         res.status(400).json({ error: 'ID de usuario y rol requeridos' });
+         return;
+       }
 
-      if (rol === 'root') {
-        res.status(403).json({ error: 'No se puede asignar rol de root' });
-        return;
-      }
-
-      if (rol === 'owner' && solicitanteRol !== 'root') {
-        res.status(403).json({ error: 'Solo el usuario root puede asignar rol de owner' });
-        return;
-      }
-
-      const usuarioActual = await database.getCollection<User>('users').findOne({ id: targetUserId });
-
-const updateData: Partial<User> = {};
-        if (rol) {
-          updateData.rol = rol as 'owner' | 'usuario' | 'repartidor' | 'root';
-          if (rol === 'owner') {
-            updateData.isAdmin = true;
-            updateData.isOwner = true;
-          } else if (rol === 'repartidor') {
-            updateData.isAdmin = false;
-            updateData.isOwner = false;
-          } else {
-            updateData.isAdmin = false;
-            updateData.isOwner = false;
-          }
+        if (rol === 'root') {
+          res.status(403).json({ error: 'No se puede asignar rol de root' });
+          return;
         }
-if (rolId !== undefined) {
+
+ const usuarioActual = await database.getCollection<User>('users').findOne(this.getUserSelector(targetUserId));
+
+  const updateData: Partial<User> = {};
+           if (rol) {
+             updateData.rol = rol as 'usuario' | 'repartidor' | 'root';
+             if (rol === 'repartidor') {
+             } else {
+               updateData.isAdmin = false;
+             }
+           }
+        if (rolId !== undefined) {
           updateData.rolId = rolId;
           // Only set isAdmin for non-repartidor roles
           if (rol !== 'repartidor' && !updateData.isAdmin) {
@@ -418,51 +427,51 @@ if (rolId !== undefined) {
           }
         }
 
-const result = await database
-         .getCollection<User>('users')
-         .findOneAndUpdate(
-           { id: targetUserId },
-           { $set: updateData },
-           { returnDocument: 'after' },
-         );
+        const result = await database
+          .getCollection<User>('users')
+          .findOneAndUpdate(
+            this.getUserSelector(targetUserId),
+            { $set: updateData },
+            { returnDocument: 'after' },
+          );
 
        if (!result) {
          res.status(404).json({ error: 'Usuario no encontrado' });
          return;
        }
 
-// Create delivery person record if rol is 'repartidor' and user doesn't have one
-        let deliveryPersonId = result.deliveryPersonId;
-        if (rol === 'repartidor' && !deliveryPersonId) {
-          const newDeliveryPerson = {
-            id: `${Date.now().toString()}-dp`,
-            nombre: result.nombreCompleto || result.username || 'Repartidor',
-            telefono: result.telefono || '',
-            activo: true,
-            userId: result.id,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-          await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
-          deliveryPersonId = newDeliveryPerson.id;
-          await database.getCollection<User>('users').updateOne(
-            { id: targetUserId },
+       // Create delivery person record if rol is 'repartidor' and user doesn't have one
+       let deliveryPersonId = result.deliveryPersonId;
+       if (rol === 'repartidor' && !deliveryPersonId) {
+         const newDeliveryPerson = {
+           id: `${Date.now().toString()}-dp`,
+           nombre: result.nombreCompleto || result.username || 'Repartidor',
+           telefono: result.telefono || '',
+           activo: true,
+           userId: result.id,
+           createdAt: new Date(),
+           updatedAt: new Date(),
+         };
+         await database.getCollection<DeliveryPerson>('deliveryPersons').insertOne(newDeliveryPerson);
+         deliveryPersonId = newDeliveryPerson.id;
+await database.getCollection<User>('users').updateOne(
+            this.getUserSelector(targetUserId),
             { $set: { deliveryPersonId } }
           );
         }
 
         // Fetch fresh user data to include the deliveryPersonId
-        const updatedUser = await database.getCollection<User>('users').findOne({ id: targetUserId });
+        const updatedUser = await database.getCollection<User>('users').findOne(this.getUserSelector(targetUserId));
         if (!updatedUser) {
           res.status(404).json({ error: 'Usuario no encontrado' });
           return;
         }
-        const { password: _, ...userWithoutPassword } = updatedUser;
-        res.json(userWithoutPassword);
-    } catch (error) {
-      res.status(500).json({ error: 'Error al actualizar rol' });
-    }
-  }
+       const { password: _, ...userWithoutPassword } = updatedUser;
+       res.json(userWithoutPassword);
+     } catch (error) {
+       res.status(500).json({ error: 'Error al actualizar rol' });
+     }
+   }
 
   async updateEmail(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -615,7 +624,7 @@ const result = await database
       }
 
       const usersCollection = database.getCollection<User>('users');
-      const existingUser = await usersCollection.findOne({ id: userId });
+      const existingUser = await usersCollection.findOne(this.getUserSelector(userId));
       
       if (!existingUser) {
         res.status(404).json({ error: 'Usuario no encontrado' });
@@ -633,7 +642,7 @@ const result = await database
       if (comentarios !== undefined) updateData.comentarios = comentarios;
 
       await usersCollection.updateOne(
-        { id: userId },
+        this.getUserSelector(userId),
         { $set: updateData }
       );
 
@@ -672,7 +681,7 @@ const result = await database
         return;
       }
 
-      const userToDelete = await database.getCollection<User>('users').findOne({ id: userId });
+      const userToDelete = await database.getCollection<User>('users').findOne(this.getUserSelector(userId));
       if (!userToDelete) {
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
@@ -683,7 +692,7 @@ const result = await database
         return;
       }
 
-      await database.getCollection<User>('users').deleteOne({ id: userId });
+      await database.getCollection<User>('users').deleteOne(this.getUserSelector(userId));
       res.json({ message: 'Usuario eliminado correctamente' });
     } catch (error) {
       res.status(500).json({ error: 'Error al eliminar usuario' });
@@ -706,7 +715,7 @@ const result = await database
         return;
       }
 
-      const user = await database.getCollection<User>('users').findOne({ id: userId });
+      const user = await database.getCollection<User>('users').findOne(this.getUserSelector(userId));
       if (!user) {
         res.status(404).json({ error: 'Usuario no encontrado' });
         return;
@@ -719,8 +728,9 @@ const result = await database
         parallelism: 4,
       });
 
+      const updateId = user.id || user._id?.toString();
       await database.getCollection<User>('users').updateOne(
-        { id: userId },
+        this.getUserSelector(userId),
         { $set: { password: hashedPassword } }
       );
 
@@ -883,6 +893,118 @@ const result = await database
     } catch (error) {
       console.error('Error al restablecer contraseña:', error);
       res.status(500).json({ error: 'Error al restablecer contraseña' });
+    }
+  }
+
+  async getAllSessions(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUser = req.user;
+      if (!currentUser || currentUser.rol !== 'root') {
+        res.status(403).json({ error: 'Solo el usuario root puede ver las sesiones' });
+        return;
+      }
+
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      const sessions = await sessionsCollection.find({}).sort({ lastActive: -1 }).allowDiskUse(true).toArray();
+
+      const sessionsWithoutSensitive = sessions.map(({ _id, ...session }) => ({
+        ...session,
+        id: session.id,
+      }));
+
+      res.json(sessionsWithoutSensitive);
+    } catch (error) {
+      console.error('Error al obtener sesiones:', error);
+      res.status(500).json({ error: 'Error al obtener sesiones' });
+    }
+  }
+
+  async getMySessions(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        res.status(401).json({ error: 'No autorizado' });
+        return;
+      }
+
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      const sessions = await sessionsCollection.find({ userId, active: true }).sort({ lastActive: -1 }).allowDiskUse(true).toArray();
+
+      const sessionsWithoutSensitive = sessions.map(({ _id, ...session }) => ({
+        ...session,
+        id: session.id,
+      }));
+
+      res.json(sessionsWithoutSensitive);
+    } catch (error) {
+      console.error('Error al obtener mis sesiones:', error);
+      res.status(500).json({ error: 'Error al obtener sesiones' });
+    }
+  }
+
+  async terminateSession(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUser = req.user;
+      const sessionId = req.params.sessionId;
+
+      if (!currentUser || !sessionId) {
+        res.status(400).json({ error: 'Datos incompletos' });
+        return;
+      }
+
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      const session = await sessionsCollection.findOne({ id: sessionId });
+
+      if (!session) {
+        res.status(404).json({ error: 'Sesión no encontrada' });
+        return;
+      }
+
+      const isRoot = currentUser.rol === 'root';
+      const isOwnSession = session.userId === currentUser.userId;
+
+      if (!isRoot && !isOwnSession) {
+        res.status(403).json({ error: 'No autorizado para cerrar esta sesión' });
+        return;
+      }
+
+      await sessionsCollection.updateOne(
+        { id: sessionId },
+        { $set: { active: false, lastActive: new Date() } },
+      );
+
+      res.json({ message: 'Sesión cerrada correctamente' });
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+      res.status(500).json({ error: 'Error al cerrar sesión' });
+    }
+  }
+
+  async terminateAllUserSessions(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUser = req.user;
+      const targetUserId = req.params.userId;
+
+      if (!currentUser || !targetUserId) {
+        res.status(400).json({ error: 'Datos incompletos' });
+        return;
+      }
+
+      if (currentUser.rol !== 'root') {
+        res.status(403).json({ error: 'Solo el usuario root puede cerrar todas las sesiones de un usuario' });
+        return;
+      }
+
+      const sessionsCollection = database.getCollection<UserSession>('sessions');
+      await sessionsCollection.updateMany(
+        { userId: targetUserId, active: true },
+        { $set: { active: false, lastActive: new Date() } },
+      );
+
+      res.json({ message: 'Todas las sesiones del usuario han sido cerradas' });
+    } catch (error) {
+      console.error('Error al cerrar sesiones:', error);
+      res.status(500).json({ error: 'Error al cerrar sesiones' });
     }
   }
 }

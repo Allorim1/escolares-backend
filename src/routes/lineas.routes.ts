@@ -136,7 +136,7 @@ router.delete('/:id', authenticateToken, requireRoot, (req: Request, res: Respon
  *       200:
  *         description: Producto añadido
  */
-router.post('/:id/products', authenticateToken, requireRoot, (req: Request, res: Response) =>
+router.post('/:id/products', authenticateToken, (req: Request, res: Response) =>
   lineasController.addProduct(req, res),
 );
 
@@ -165,7 +165,7 @@ router.post('/:id/products', authenticateToken, requireRoot, (req: Request, res:
  *       200:
  *         description: Producto eliminado
  */
-router.delete('/:id/products', authenticateToken, requireRoot, (req: Request, res: Response) =>
+router.delete('/:id/products', authenticateToken, (req: Request, res: Response) =>
   lineasController.removeProduct(req, res),
 );
 
