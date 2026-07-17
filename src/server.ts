@@ -4305,6 +4305,24 @@ app.get('/api/empresas', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/empresas/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('empresas');
+    const empresa = await collection.findOne({ _id: new ObjectId(id) });
+    if (!empresa) {
+      res.status(404).json({ error: 'Empresa no encontrada' });
+      return;
+    }
+    res.json(empresa);
+  } catch (error) {
+    console.error('Error obteniendo empresa:', error);
+    res.status(500).json({ error: 'Error al obtener empresa' });
+  }
+});
+
 app.post('/api/empresas', async (req: Request, res: Response) => {
   try {
     const { nombre, plantas } = req.body;
