@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import express, { Express, Request, Response } from 'express';
+import express, { Express, Request, Response as ExpressResponse } from 'express';
 import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -163,7 +163,7 @@ const cacheDeletePattern = async (pattern: string): Promise<void> => {
 };
 
 const withCache = (ttl: number = CACHE_TTL) => {
-  return async (req: Request, res: Response, next: () => void) => {
+  return async (req: Request, res: ExpressResponse, next: () => void) => {
     if (req.method !== 'GET') return next();
     
     const path = req.path;
@@ -188,7 +188,7 @@ const withCache = (ttl: number = CACHE_TTL) => {
   };
 };
 
-const invalidateCache = (req: Request, res: Response, next: () => void) => {
+const invalidateCache = (req: Request, res: ExpressResponse, next: () => void) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
     const path = req.path;
     
@@ -265,7 +265,25 @@ const USDT_API_URL = 'https://api.dolarvzla.com/public/usdt/exchange-rate';
 
 const qrUploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; timestamp: number }>();
 
-app.get('/api/tasas', async (req: Request, res: Response) => {
+const FETCH_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs: number = FETCH_TIMEOUT_MS): Promise<globalThis.Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    return response;
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error(`Request to ${url} timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
   const cacheKey = 'tasas:current';
   const cached = await cacheGet(cacheKey);
   if (cached) {
@@ -278,53 +296,81 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
     const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
     const apiKey = apiKeySettings?.value || DOLAR_API_KEY;
 
-    const [bcvRes, usdtRes] = await Promise.all([
-      fetch(DOLAR_API_URL, {
-        headers: {
-          'x-dolarvzla-key': apiKey,
-        },
-      }),
-      fetch(USDT_API_URL, {
-        headers: {
-          'x-dolarvzla-key': apiKey,
-        },
-      }),
-    ]);
+    let bcvRes: globalThis.Response | null = null;
+    let usdtRes: globalThis.Response | null = null;
+    let bcvError: string | null = null;
+    let usdtError: string | null = null;
 
-    if (bcvRes.status === 401) {
+    try {
+      bcvRes = await fetchWithTimeout(DOLAR_API_URL, {
+        headers: { 'x-dolarvzla-key': apiKey },
+      });
+    } catch (error: any) {
+      bcvError = error.message || 'Error de conexión con API BCV';
+    }
+
+    try {
+      usdtRes = await fetchWithTimeout(USDT_API_URL, {
+        headers: { 'x-dolarvzla-key': apiKey },
+      });
+    } catch (error: any) {
+      usdtError = error.message || 'Error de conexión con API USDT';
+    }
+
+    if (bcvRes?.status === 401) {
       await cacheSet(cacheKey, JSON.stringify({ apiKeyExpired: true }), 60);
       res.header('X-Cache', 'MISS');
       res.json({ apiKeyExpired: true, error: 'API key inválida o caducada' });
       return;
     }
-    
-    if (!bcvRes.ok) {
-      res.status(500).json({ error: 'Error al obtener tasas' });
+
+    if (!bcvRes && !usdtRes) {
+      res.status(500).json({ error: 'No se pudo obtener ninguna tasa. Intente más tarde.', details: [bcvError, usdtError].filter(Boolean).join('; ') });
       return;
     }
 
-    const bcvData: any = await bcvRes.json();
-    const usdtData: any = usdtRes.ok ? await usdtRes.json() : null;
-
     const result: any = {};
 
-    if (bcvData?.current) {
-      result.current = {
-        usd: bcvData.current.usd,
-        eur: bcvData.current.eur,
-      };
+    if (bcvRes?.ok) {
+      try {
+        const bcvData: any = await bcvRes.json();
+        if (bcvData?.current) {
+          result.current = {
+            usd: bcvData.current.usd,
+            eur: bcvData.current.eur,
+          };
+        }
+      } catch (error) {
+        console.error('Error parsing BCV response:', error);
+      }
+    } else if (bcvRes) {
+      console.error('BCV API error:', bcvRes.status, bcvRes.statusText);
     }
 
-    if (usdtData?.current) {
-      result.current = result.current || {};
-      const binanceValue =
-        usdtData.current.usdt ||
-        usdtData.current.binance ||
-        usdtData.current.usd ||
-        usdtData.current.price ||
-        usdtData.current.USDT ||
-        usdtData.current.average;
-      result.current.binance = binanceValue;
+    if (usdtRes?.ok) {
+      try {
+        const usdtData: any = await usdtRes.json();
+        if (usdtData?.current) {
+          result.current = result.current || {};
+          const binanceValue =
+            usdtData.current.usdt ||
+            usdtData.current.binance ||
+            usdtData.current.usd ||
+            usdtData.current.price ||
+            usdtData.current.USDT ||
+            usdtData.current.average;
+          result.current.binance = binanceValue;
+        }
+      } catch (error) {
+        console.error('Error parsing USDT response:', error);
+      }
+    } else if (usdtRes) {
+      console.error('USDT API error:', usdtRes.status, usdtRes.statusText);
+    }
+
+    if (!result.current) {
+      res.status(500).json({ error: 'No se pudo obtener información de tasas', details: [bcvError, usdtError].filter(Boolean).join('; ') || 'Respuesta vacía de las APIs' });
+      return;
     }
 
     await cacheSet(cacheKey, JSON.stringify(result), 60);
@@ -339,7 +385,7 @@ app.get('/api/tasas', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/conversion/triple-anterior', async (req: Request, res: Response) => {
+app.get('/api/conversion/triple-anterior', async (req: Request, res: ExpressResponse) => {
   try {
     const settings = await database.getCollection('settings').findOne({ key: 'conversionTripleAnterior' });
     res.json(settings?.value || { cents: [0, 0, 0], fechas: ['', '', ''] });
@@ -349,7 +395,7 @@ app.get('/api/conversion/triple-anterior', async (req: Request, res: Response) =
   }
 });
 
-app.post('/api/conversion/triple-anterior', async (req: Request, res: Response) => {
+app.post('/api/conversion/triple-anterior', async (req: Request, res: ExpressResponse) => {
   try {
     const { cents, fechas } = req.body;
     await database.getCollection('settings').updateOne(
@@ -364,7 +410,7 @@ app.post('/api/conversion/triple-anterior', async (req: Request, res: Response) 
   }
 });
 
-app.get('/api/settings/tasas-status', async (req: Request, res: Response) => {
+app.get('/api/settings/tasas-status', async (req: Request, res: ExpressResponse) => {
   try {
     const cacheKey = 'tasas:current';
     const cached = await cacheGet(cacheKey);
@@ -394,7 +440,7 @@ app.get('/api/settings/tasas-status', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/settings/dolar-api-key', authenticateToken, async (req: Request, res: Response) => {
+app.get('/api/settings/dolar-api-key', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -410,7 +456,7 @@ app.get('/api/settings/dolar-api-key', authenticateToken, async (req: Request, r
   }
 });
 
-app.put('/api/settings/dolar-api-key', authenticateToken, async (req: Request, res: Response) => {
+app.put('/api/settings/dolar-api-key', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -437,7 +483,7 @@ app.put('/api/settings/dolar-api-key', authenticateToken, async (req: Request, r
   }
 });
 
-app.get('/api/settings/api-key-renewal-info', authenticateToken, async (req: Request, res: Response) => {
+app.get('/api/settings/api-key-renewal-info', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -457,7 +503,7 @@ app.get('/api/settings/api-key-renewal-info', authenticateToken, async (req: Req
 });
 
 // Currency Display Settings - Global for all users
-app.get('/api/settings/currency-display', async (req: Request, res: Response) => {
+app.get('/api/settings/currency-display', async (req: Request, res: ExpressResponse) => {
   try {
     const settings = await database.getCollection('settings').findOne({ key: 'currencyDisplay' });
     res.json({ display: settings?.value || 'USD' });
@@ -467,7 +513,7 @@ app.get('/api/settings/currency-display', async (req: Request, res: Response) =>
   }
 });
 
-app.put('/api/settings/currency-display', authenticateToken, async (req: Request, res: Response) => {
+app.put('/api/settings/currency-display', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -500,7 +546,7 @@ app.put('/api/settings/currency-display', authenticateToken, async (req: Request
 });
 
 // Compras Deshabilitadas Settings - Global for all users
-app.get('/api/settings/compras-deshabilitadas', async (req: Request, res: Response) => {
+app.get('/api/settings/compras-deshabilitadas', async (req: Request, res: ExpressResponse) => {
   try {
     const settings = await database.getCollection('settings').findOne({ key: 'comprasDeshabilitadas' });
     res.json({ disabled: settings?.value === true });
@@ -510,7 +556,7 @@ app.get('/api/settings/compras-deshabilitadas', async (req: Request, res: Respon
   }
 });
 
-app.put('/api/settings/compras-deshabilitadas', authenticateToken, async (req: Request, res: Response) => {
+app.put('/api/settings/compras-deshabilitadas', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -537,7 +583,7 @@ app.put('/api/settings/compras-deshabilitadas', authenticateToken, async (req: R
   }
 });
 
-app.get('/api/settings/ocultar-precios', async (req: Request, res: Response) => {
+app.get('/api/settings/ocultar-precios', async (req: Request, res: ExpressResponse) => {
   try {
     const settings = await database.getCollection('settings').findOne({ key: 'ocultarPrecios' });
     res.json({ hidden: settings?.value === true });
@@ -547,7 +593,7 @@ app.get('/api/settings/ocultar-precios', async (req: Request, res: Response) => 
   }
 });
 
-app.put('/api/settings/ocultar-precios', authenticateToken, async (req: Request, res: Response) => {
+app.put('/api/settings/ocultar-precios', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const userRol = (req.user as any)?.rol;
     if (userRol !== 'root') {
@@ -570,7 +616,7 @@ app.put('/api/settings/ocultar-precios', authenticateToken, async (req: Request,
 });
 
 // Mantenimiento Mode Settings
-app.get('/api/settings/mantenimiento', async (req: Request, res: Response) => {
+app.get('/api/settings/mantenimiento', async (req: Request, res: ExpressResponse) => {
   try {
     const settings = await database.getCollection('settings').findOne({ key: 'mantenimiento' });
     const enabled = settings?.value?.enabled === true;
@@ -582,7 +628,7 @@ app.get('/api/settings/mantenimiento', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/settings/mantenimiento', authenticateToken, async (req: Request, res: Response) => {
+app.put('/api/settings/mantenimiento', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -623,15 +669,15 @@ app.use(
   }),
 );
 
-app.get('/swagger.json', (req: Request, res: Response) => {
+app.get('/swagger.json', (req: Request, res: ExpressResponse) => {
   res.json(swaggerSpec);
 });
 
-app.get('/health', (req: Request, res: Response) => {
+app.get('/health', (req: Request, res: ExpressResponse) => {
   res.json({ status: 'OK', message: 'API Escolares funcionando' });
 });
 
-app.post('/api/registros', async (req: Request, res: Response) => {
+app.post('/api/registros', async (req: Request, res: ExpressResponse) => {
   try {
     const { accion, modulo, descripcion, usuario, datos } = req.body;
 
@@ -654,7 +700,7 @@ app.post('/api/registros', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/registros', async (req: Request, res: Response) => {
+app.get('/api/registros', async (req: Request, res: ExpressResponse) => {
   try {
     const { modulo, limit = 100 } = req.query;
     const db = database.db;
@@ -691,7 +737,7 @@ app.get('/api/registros', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/registros', async (req: Request, res: Response) => {
+app.delete('/api/registros', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = database.getCollection('registros');
     await collection.deleteMany({});
@@ -702,7 +748,7 @@ app.delete('/api/registros', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/costos', async (req: Request, res: Response) => {
+app.post('/api/costos', async (req: Request, res: ExpressResponse) => {
   try {
     const { nombre, numero, tipo, data } = req.body;
 
@@ -724,7 +770,7 @@ app.post('/api/costos', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/costos', async (req: Request, res: Response) => {
+app.get('/api/costos', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = database.getCollection('costos');
     const grupos = await collection.find().sort({ fecha: -1 }).allowDiskUse(true).toArray();
@@ -735,7 +781,7 @@ app.get('/api/costos', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/costos/:id/costo', async (req: Request, res: Response) => {
+app.post('/api/costos/:id/costo', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const collection = database.getCollection('costos');
@@ -753,7 +799,7 @@ app.post('/api/costos/:id/costo', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/costos/:id/costo', async (req: Request, res: Response) => {
+app.put('/api/costos/:id/costo', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const collection = database.getCollection('costos');
@@ -768,7 +814,7 @@ app.put('/api/costos/:id/costo', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/costos/:id/costo/:index', async (req: Request, res: Response) => {
+app.put('/api/costos/:id/costo/:index', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const collection = database.getCollection('costos');
@@ -793,7 +839,7 @@ app.put('/api/costos/:id/costo/:index', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/costos/:id/costo/:index', async (req: Request, res: Response) => {
+app.delete('/api/costos/:id/costo/:index', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const collection = database.getCollection('costos');
@@ -818,7 +864,7 @@ app.delete('/api/costos/:id/costo/:index', async (req: Request, res: Response) =
   }
 });
 
-app.delete('/api/costos/:id', async (req: Request, res: Response) => {
+app.delete('/api/costos/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const collection = database.getCollection('costos');
@@ -831,7 +877,7 @@ app.delete('/api/costos/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/facturas', async (req: Request, res: Response) => {
+app.post('/api/facturas', async (req: Request, res: ExpressResponse) => {
   try {
     const { cliente, productos, total, estado } = req.body;
 
@@ -854,7 +900,7 @@ app.post('/api/facturas', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/facturas', async (req: Request, res: Response) => {
+app.get('/api/facturas', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = database.getCollection('facturas');
     const facturas = await collection.find().sort({ fecha: -1 }).allowDiskUse(true).toArray();
@@ -865,7 +911,7 @@ app.get('/api/facturas', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/facturas/resumen', async (req: Request, res: Response) => {
+app.get('/api/facturas/resumen', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = database.getCollection('facturas');
     const facturas = await collection.find().toArray();
@@ -906,7 +952,7 @@ app.get('/api/facturas/resumen', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/facturas/:id', async (req: Request, res: Response) => {
+app.put('/api/facturas/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const { estado } = req.body;
@@ -931,7 +977,7 @@ app.put('/api/facturas/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/facturas/:id', async (req: Request, res: Response) => {
+app.delete('/api/facturas/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const collection = database.getCollection('facturas');
@@ -946,7 +992,7 @@ app.delete('/api/facturas/:id', async (req: Request, res: Response) => {
 });
 
 
-app.get('/api/proveedores', async (req: Request, res: Response) => {
+app.get('/api/proveedores', async (req: Request, res: ExpressResponse) => {
   try {
     const db = (database as any).db;
     if (!db) {
@@ -989,7 +1035,7 @@ app.get('/api/proveedores', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/proveedores', authenticateToken, async (req: Request, res: Response) => {
+app.post('/api/proveedores', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { nombre, alias, rif, direccion, correo, telefono, vendedor, tasaPreferida, cuentasBancarias } = req.body;
     const usuario = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
@@ -1050,7 +1096,7 @@ app.post('/api/proveedores', authenticateToken, async (req: Request, res: Respon
   }
 });
 
-app.put('/api/proveedores/:id', authenticateToken, async (req: Request, res: Response) => {
+app.put('/api/proveedores/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const { nombre, alias, rif, direccion, correo, telefono, vendedor, tasaPreferida, cuentasBancarias } = req.body;
@@ -1114,7 +1160,7 @@ app.put('/api/proveedores/:id', authenticateToken, async (req: Request, res: Res
   }
 });
 
-app.delete('/api/proveedores/:id', authenticateToken, async (req: Request, res: Response) => {
+app.delete('/api/proveedores/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1146,7 +1192,7 @@ app.delete('/api/proveedores/:id', authenticateToken, async (req: Request, res: 
   }
 });
 
-app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) => {
+app.post('/api/proveedores/:id/facturas', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const { numero, fecha, tipo, monto, montoIva, baseImponible, baseExenta, exentoBsf, porcentajeIva, imagenes, montoBsf, numeroControl } = req.body;
@@ -1232,7 +1278,7 @@ app.post('/api/proveedores/:id/facturas', async (req: Request, res: Response) =>
   }
 });
 
-app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Response) => {
+app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1322,7 +1368,7 @@ app.put('/api/proveedores/:id/facturas/:index', async (req: Request, res: Respon
   }
 });
 
-app.post('/api/proveedores/:id/facturas/:index/abonos', async (req: Request, res: Response) => {
+app.post('/api/proveedores/:id/facturas/:index/abonos', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1384,7 +1430,7 @@ app.post('/api/proveedores/:id/facturas/:index/abonos', async (req: Request, res
   }
 });
 
-app.post('/api/proveedores/:id/facturas/:index/abonos-iva', async (req: Request, res: Response) => {
+app.post('/api/proveedores/:id/facturas/:index/abonos-iva', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1441,7 +1487,7 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva', async (req: Request,
   }
 });
 
-app.post('/api/proveedores/:id/facturas/:index/abonos-iva25', async (req: Request, res: Response) => {
+app.post('/api/proveedores/:id/facturas/:index/abonos-iva25', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1498,7 +1544,7 @@ app.post('/api/proveedores/:id/facturas/:index/abonos-iva25', async (req: Reques
   }
 });
 
-app.delete('/api/proveedores/:id/facturas/:index/abonos/:abonoIndex', async (req: Request, res: Response) => {
+app.delete('/api/proveedores/:id/facturas/:index/abonos/:abonoIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1555,7 +1601,7 @@ app.delete('/api/proveedores/:id/facturas/:index/abonos/:abonoIndex', async (req
   }
 });
 
-app.put('/api/proveedores/:id/facturas/:index/abonos-iva/:abonoIndex', async (req: Request, res: Response) => {
+app.put('/api/proveedores/:id/facturas/:index/abonos-iva/:abonoIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1623,7 +1669,7 @@ app.put('/api/proveedores/:id/facturas/:index/abonos-iva/:abonoIndex', async (re
   }
 });
 
-app.delete('/api/proveedores/:id/facturas/:index/abonos-iva/:abonoIndex', async (req: Request, res: Response) => {
+app.delete('/api/proveedores/:id/facturas/:index/abonos-iva/:abonoIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1678,7 +1724,7 @@ app.delete('/api/proveedores/:id/facturas/:index/abonos-iva/:abonoIndex', async 
   }
 });
 
-app.put('/api/proveedores/:id/facturas/:index/abonos-iva25/:abonoIndex', async (req: Request, res: Response) => {
+app.put('/api/proveedores/:id/facturas/:index/abonos-iva25/:abonoIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1746,7 +1792,7 @@ app.put('/api/proveedores/:id/facturas/:index/abonos-iva25/:abonoIndex', async (
   }
 });
 
-app.delete('/api/proveedores/:id/facturas/:index/abonos-iva25/:abonoIndex', async (req: Request, res: Response) => {
+app.delete('/api/proveedores/:id/facturas/:index/abonos-iva25/:abonoIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1801,7 +1847,7 @@ app.delete('/api/proveedores/:id/facturas/:index/abonos-iva25/:abonoIndex', asyn
   }
 });
 
-app.delete('/api/proveedores/:id/facturas/:index', async (req: Request, res: Response) => {
+app.delete('/api/proveedores/:id/facturas/:index', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1829,7 +1875,7 @@ app.delete('/api/proveedores/:id/facturas/:index', async (req: Request, res: Res
   }
 });
 
-app.put('/api/proveedores/:id/factura/:index/comentario', async (req: Request, res: Response) => {
+app.put('/api/proveedores/:id/factura/:index/comentario', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -1890,7 +1936,7 @@ app.use('/api/acuerdos-comerciales', comprasHistorialRoutes);
 app.use('/api/estadisticas', estadisticasRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
-app.get('/api/users', authenticateToken, async (req: Request, res: Response) => {
+app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { role } = req.query;
     if (role === 'repartidor') {
@@ -1909,7 +1955,7 @@ app.get('/api/users', authenticateToken, async (req: Request, res: Response) => 
 });
 
 // Categorías de Productos - Endpoints para compatibilidad con módulo de productos
-app.get('/api/productos-categorias', async (req: Request, res: Response) => {
+app.get('/api/productos-categorias', async (req: Request, res: ExpressResponse) => {
   try {
     const categorias = await database
       .getCollection<any>('producto-categorias')
@@ -1922,7 +1968,7 @@ app.get('/api/productos-categorias', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/productos-categorias', authenticateToken, async (req: Request, res: Response) => {
+app.post('/api/productos-categorias', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { nombre, descripcion, imagen, orden } = req.body;
     if (!nombre) {
@@ -1947,7 +1993,7 @@ app.post('/api/productos-categorias', authenticateToken, async (req: Request, re
   }
 });
 
-app.put('/api/productos-categorias/:id', authenticateToken, async (req: Request, res: Response) => {
+app.put('/api/productos-categorias/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { id } = req.params;
     const { nombre, descripcion, imagen, orden } = req.body;
@@ -1991,7 +2037,7 @@ app.put('/api/productos-categorias/:id', authenticateToken, async (req: Request,
   }
 });
 
-app.delete('/api/productos-categorias/:id', authenticateToken, async (req: Request, res: Response) => {
+app.delete('/api/productos-categorias/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { id } = req.params;
     
@@ -2026,7 +2072,7 @@ app.delete('/api/productos-categorias/:id', authenticateToken, async (req: Reque
 });
 
 // Gastos - Gestión de Gastos
-app.get('/api/gastos', async (req: Request, res: Response) => {
+app.get('/api/gastos', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('gastos');
     const gastos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
@@ -2037,7 +2083,7 @@ app.get('/api/gastos', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/gastos', async (req: Request, res: Response) => {
+app.post('/api/gastos', async (req: Request, res: ExpressResponse) => {
   try {
     const { descripcion, monto, categoria, fecha, notas } = req.body;
     if (!descripcion || !categoria || !monto) {
@@ -2060,7 +2106,7 @@ app.post('/api/gastos', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/gastos/:id', async (req: Request, res: Response) => {
+app.put('/api/gastos/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2077,7 +2123,7 @@ app.put('/api/gastos/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/gastos/:id', async (req: Request, res: Response) => {
+app.delete('/api/gastos/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2092,7 +2138,7 @@ app.delete('/api/gastos/:id', async (req: Request, res: Response) => {
 });
 
 // Nómina - Empleados
-app.get('/api/nomina/empleados', async (req: Request, res: Response) => {
+app.get('/api/nomina/empleados', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('nomina-empleados');
     const empleados = await collection.find({}).sort({ nombre: 1 }).toArray();
@@ -2103,7 +2149,7 @@ app.get('/api/nomina/empleados', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/nomina/empleados', async (req: Request, res: Response) => {
+app.post('/api/nomina/empleados', async (req: Request, res: ExpressResponse) => {
   try {
     const { nombre, cedula, cargo, salario, fechaIngreso, notas } = req.body;
     if (!nombre || !cedula) {
@@ -2127,7 +2173,7 @@ app.post('/api/nomina/empleados', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/nomina/empleados/:id', async (req: Request, res: Response) => {
+app.put('/api/nomina/empleados/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2144,7 +2190,7 @@ app.put('/api/nomina/empleados/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/nomina/empleados/:id', async (req: Request, res: Response) => {
+app.delete('/api/nomina/empleados/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2159,7 +2205,7 @@ app.delete('/api/nomina/empleados/:id', async (req: Request, res: Response) => {
 });
 
 // Nómina - Pagos
-app.get('/api/nomina/pagos', async (req: Request, res: Response) => {
+app.get('/api/nomina/pagos', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('nomina-pagos');
     const pagos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
@@ -2170,7 +2216,7 @@ app.get('/api/nomina/pagos', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/nomina/pagos', async (req: Request, res: Response) => {
+app.post('/api/nomina/pagos', async (req: Request, res: ExpressResponse) => {
   try {
     const { empleadoId, empleadoNombre, monto, fecha, tipo, notas } = req.body;
     if (!empleadoId || !monto) {
@@ -2194,7 +2240,7 @@ app.post('/api/nomina/pagos', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/nomina/pagos/:id', async (req: Request, res: Response) => {
+app.put('/api/nomina/pagos/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2211,7 +2257,7 @@ app.put('/api/nomina/pagos/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/nomina/pagos/:id', async (req: Request, res: Response) => {
+app.delete('/api/nomina/pagos/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2226,7 +2272,7 @@ await collection.deleteOne({ _id: new ObjectId(id) });
 });
 
 // Control de Asistencias
-app.get('/api/asistencias', authenticateToken, async (req: Request, res: Response) => {
+app.get('/api/asistencias', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const collection = (database as any).getCollection('asistencias');
@@ -2243,7 +2289,7 @@ app.get('/api/asistencias', authenticateToken, async (req: Request, res: Respons
   }
 });
 
-app.post('/api/asistencias', authenticateToken, async (req: Request, res: Response) => {
+app.post('/api/asistencias', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { empleadoId, empleadoNombre, fecha, tipo, hora, justificacion } = req.body;
     if (!empleadoId) {
@@ -2268,7 +2314,7 @@ app.post('/api/asistencias', authenticateToken, async (req: Request, res: Respon
   }
 });
 
-app.put('/api/asistencias/:id', authenticateToken, async (req: Request, res: Response) => {
+app.put('/api/asistencias/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2286,7 +2332,7 @@ app.put('/api/asistencias/:id', authenticateToken, async (req: Request, res: Res
   }
 });
 
-app.delete('/api/asistencias/:id', authenticateToken, async (req: Request, res: Response) => {
+app.delete('/api/asistencias/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2301,7 +2347,7 @@ app.delete('/api/asistencias/:id', authenticateToken, async (req: Request, res: 
 });
 
 // Galería - Documentos Temporales y Legales
-app.get('/api/galeria/:tipo', async (req: Request, res: Response) => {
+app.get('/api/galeria/:tipo', async (req: Request, res: ExpressResponse) => {
   try {
     const tipoParam = req.params.tipo;
     const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
@@ -2315,7 +2361,7 @@ app.get('/api/galeria/:tipo', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/galeria/:tipo', async (req: Request, res: Response) => {
+app.post('/api/galeria/:tipo', async (req: Request, res: ExpressResponse) => {
   try {
     const tipoParam = req.params.tipo;
     const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
@@ -2340,7 +2386,7 @@ app.post('/api/galeria/:tipo', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/galeria/:tipo/:id', async (req: Request, res: Response) => {
+app.put('/api/galeria/:tipo/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const tipoParam = req.params.tipo;
@@ -2360,7 +2406,7 @@ app.put('/api/galeria/:tipo/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/galeria/:tipo/:id', async (req: Request, res: Response) => {
+app.delete('/api/galeria/:tipo/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const tipoParam = req.params.tipo;
@@ -2379,7 +2425,7 @@ app.delete('/api/galeria/:tipo/:id', async (req: Request, res: Response) => {
 
 const galeriaTokens = new Map<string, { tipo: string; docId: string; expiresAt: Date }>();
 
-app.post('/api/galeria/:tipo/generate-qr', async (req: Request, res: Response) => {
+app.post('/api/galeria/:tipo/generate-qr', async (req: Request, res: ExpressResponse) => {
   try {
     const tipoParam = req.params.tipo;
     const tipo = Array.isArray(tipoParam) ? tipoParam[0] : tipoParam;
@@ -2412,7 +2458,7 @@ app.post('/api/galeria/:tipo/generate-qr', async (req: Request, res: Response) =
   }
 });
 
-app.post('/api/galeria/:tipo/:docId/upload', async (req: Request, res: Response) => {
+app.post('/api/galeria/:tipo/:docId/upload', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const tipoParam = req.params.tipo;
@@ -2434,7 +2480,7 @@ app.post('/api/galeria/:tipo/:docId/upload', async (req: Request, res: Response)
   }
 });
 
-app.get('/api/galeria/:tipo/imagenes/:docId', async (req: Request, res: Response) => {
+app.get('/api/galeria/:tipo/imagenes/:docId', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const tipoParam = req.params.tipo;
@@ -2455,7 +2501,7 @@ app.get('/api/galeria/:tipo/imagenes/:docId', async (req: Request, res: Response
   }
 });
 
-app.delete('/api/galeria/:tipo/imagenes/:docId/:imagenIndex', async (req: Request, res: Response) => {
+app.delete('/api/galeria/:tipo/imagenes/:docId/:imagenIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const tipoParam = req.params.tipo;
@@ -2483,7 +2529,7 @@ app.delete('/api/galeria/:tipo/imagenes/:docId/:imagenIndex', async (req: Reques
   }
 });
 
-app.get('/upload-galeria/:token', async (req: Request, res: Response) => {
+app.get('/upload-galeria/:token', async (req: Request, res: ExpressResponse) => {
   const tokenParam = req.params.token;
   const token = Array.isArray(tokenParam) ? tokenParam[0] : tokenParam;
   const uploadData = galeriaTokens.get(token);
@@ -2554,7 +2600,7 @@ const facturasQrTokens = new Map<string, {
   datosExtraidos?: any;
 }>();
 
-app.post('/api/facturas-qr/generate-qr', async (req: Request, res: Response) => {
+app.post('/api/facturas-qr/generate-qr', async (req: Request, res: ExpressResponse) => {
   try {
     const { proveedorId, facturaIndex } = req.body;
     const token = randomBytes(32).toString('hex');
@@ -2590,7 +2636,7 @@ app.post('/api/facturas-qr/generate-qr', async (req: Request, res: Response) => 
   }
 });
 
-app.get('/api/facturas-qr/check/:token', async (req: Request, res: Response) => {
+app.get('/api/facturas-qr/check/:token', async (req: Request, res: ExpressResponse) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const tokenData = facturasQrTokens.get(token);
   
@@ -2618,7 +2664,7 @@ app.get('/api/facturas-qr/check/:token', async (req: Request, res: Response) => 
   res.json({ success: false });
 });
 
-app.get('/api/facturas-qr/imagenes/:proveedorId/:facturaIndex', async (req: Request, res: Response) => {
+app.get('/api/facturas-qr/imagenes/:proveedorId/:facturaIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const proveedorIdParam = req.params.proveedorId;
@@ -2646,7 +2692,7 @@ app.get('/api/facturas-qr/imagenes/:proveedorId/:facturaIndex', async (req: Requ
   }
 });
 
-app.get('/facturas-qr/upload/:token', async (req: Request, res: Response) => {
+app.get('/facturas-qr/upload/:token', async (req: Request, res: ExpressResponse) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const tokenData = facturasQrTokens.get(token);
   
@@ -2804,7 +2850,7 @@ app.get('/facturas-qr/upload/:token', async (req: Request, res: Response) => {
             });
             
             const data = await response.json();
-            console.log('Response:', data);
+            console.log('ExpressResponse:', data);
             
             if (response.ok && data.success) {
               loadingStatus.className = 'status success';
@@ -2827,7 +2873,7 @@ app.get('/facturas-qr/upload/:token', async (req: Request, res: Response) => {
   `);
 });
 
-app.post('/api/facturas-qr/upload', async (req: Request, res: Response) => {
+app.post('/api/facturas-qr/upload', async (req: Request, res: ExpressResponse) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -2884,7 +2930,7 @@ app.post('/api/facturas-qr/upload', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/proveedores/:id/facturas/:index/imagen', async (req: Request, res: Response) => {
+app.post('/api/proveedores/:id/facturas/:index/imagen', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -2921,7 +2967,7 @@ app.post('/api/proveedores/:id/facturas/:index/imagen', async (req: Request, res
   }
 });
 
-app.get('/api/pago/debug/:token', async (req: Request, res: Response) => {
+app.get('/api/pago/debug/:token', async (req: Request, res: ExpressResponse) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const collection = (database as any).getCollection('pagos');
   const tokenData = await collection.findOne({ token });
@@ -2934,7 +2980,7 @@ app.get('/api/pago/debug/:token', async (req: Request, res: Response) => {
   });
 });
 
-app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
+app.post('/api/pago/generate-qr', async (req: Request, res: ExpressResponse) => {
   try {
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
@@ -2968,7 +3014,7 @@ app.post('/api/pago/generate-qr', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/pago/check/:token', async (req: Request, res: Response) => {
+app.get('/api/pago/check/:token', async (req: Request, res: ExpressResponse) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   
   const collection = (database as any).getCollection('pagos');
@@ -2993,7 +3039,7 @@ app.get('/api/pago/check/:token', async (req: Request, res: Response) => {
   res.json({ success: false });
 });
 
-app.get('/upload-pago/:token', async (req: Request, res: Response) => {
+app.get('/upload-pago/:token', async (req: Request, res: ExpressResponse) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   
   const collection = (database as any).getCollection('pagos');
@@ -3157,7 +3203,7 @@ app.get('/upload-pago/:token', async (req: Request, res: Response) => {
   `);
 });
 
-app.post('/api/pago/upload-photo', multer({ limits: { fileSize: 10 * 1024 * 1024 } }).any(), async (req: Request, res: Response) => {
+app.post('/api/pago/upload-photo', multer({ limits: { fileSize: 10 * 1024 * 1024 } }).any(), async (req: Request, res: ExpressResponse) => {
   try {
     console.log('Upload request received');
     console.log('Body:', req.body);
@@ -3205,7 +3251,7 @@ app.post('/api/pago/upload-photo', multer({ limits: { fileSize: 10 * 1024 * 1024
   }
 });
 
-app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, res: Response) => {
+app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { proveedorId, facturaIndex } = req.body;
     const token = randomBytes(32).toString('hex');
@@ -3237,7 +3283,7 @@ app.post('/api/facturas/generate-qr', authenticateToken, async (req: Request, re
   }
 });
 
-app.get('/api/facturas/imagenes/:proveedorId/:facturaIndex', async (req: Request, res: Response) => {
+app.get('/api/facturas/imagenes/:proveedorId/:facturaIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const proveedorIdParam = req.params.proveedorId;
     const facturaIndexParam = req.params.facturaIndex;
@@ -3274,7 +3320,7 @@ app.get('/api/facturas/imagenes/:proveedorId/:facturaIndex', async (req: Request
   }
 });
 
-app.delete('/api/facturas/imagenes/:proveedorId/:facturaIndex/:imagenIndex', async (req: Request, res: Response) => {
+app.delete('/api/facturas/imagenes/:proveedorId/:facturaIndex/:imagenIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const proveedorIdParam = req.params.proveedorId;
     const facturaIndexParam = req.params.facturaIndex;
@@ -3312,7 +3358,7 @@ app.delete('/api/facturas/imagenes/:proveedorId/:facturaIndex/:imagenIndex', asy
   }
 });
 
-app.put('/api/facturas/imagenes/:proveedorId/:facturaIndex/:imagenIndex', async (req: Request, res: Response) => {
+app.put('/api/facturas/imagenes/:proveedorId/:facturaIndex/:imagenIndex', async (req: Request, res: ExpressResponse) => {
   try {
     const proveedorIdParam = req.params.proveedorId;
     const facturaIndexParam = req.params.facturaIndex;
@@ -3341,7 +3387,7 @@ app.put('/api/facturas/imagenes/:proveedorId/:facturaIndex/:imagenIndex', async 
   }
 });
 
-app.get('/upload-factura/:token', async (req: Request, res: Response) => {
+app.get('/upload-factura/:token', async (req: Request, res: ExpressResponse) => {
   const token = req.params.token as string;
   const uploadData = uploadTokens.get(token);
   
@@ -3560,11 +3606,11 @@ app.get('/upload-factura/:token', async (req: Request, res: Response) => {
               });
               
               clearTimeout(timeoutId);
-              console.log('Response status:', response.status);
-              console.log('Response ok:', response.ok);
+              console.log('ExpressResponse status:', response.status);
+              console.log('ExpressResponse ok:', response.ok);
               
               const data = await response.json();
-              console.log('Response data:', data);
+              console.log('ExpressResponse data:', data);
             
               if (response.ok) {
               document.getElementById('statusText').textContent = '✅ ¡Foto subida exitosamente!';
@@ -3741,7 +3787,7 @@ app.get('/api/facturas/debug-upload-tokens', (req, res) => {
   res.json({ count: tokens.length, tokens });
 });
 
-app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: Response) => {
+app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res: ExpressResponse) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -3857,7 +3903,7 @@ app.post('/api/facturas/upload-photo', multer().any(), async (req: Request, res:
   }
 });
 
-app.post('/api/facturas/save-temp-image', async (req: Request, res: Response) => {
+app.post('/api/facturas/save-temp-image', async (req: Request, res: ExpressResponse) => {
   try {
     const { proveedorId, facturaIndex } = req.body;
     
@@ -3919,7 +3965,7 @@ const uploadManualVideo = multer({
   }
 });
 
-app.post('/api/manuales/upload-video', authenticateToken, (req: Request, res: Response) => {
+app.post('/api/manuales/upload-video', authenticateToken, (req: Request, res: ExpressResponse) => {
   uploadManualVideo.single('video')(req, res, (err) => {
     if (err) {
       console.error('Error uploading video:', err);
@@ -3962,7 +4008,7 @@ const uploadManualImage = multer({
   }
 });
 
-app.post('/api/manuales/upload-image', authenticateToken, (req: Request, res: Response) => {
+app.post('/api/manuales/upload-image', authenticateToken, (req: Request, res: ExpressResponse) => {
   uploadManualImage.single('image')(req, res, (err) => {
     if (err) {
       console.error('Error uploading image:', err);
@@ -3986,7 +4032,7 @@ const getManualId = (idParam: string | string[]): string => {
 };
 
 // GET all manuales
-app.get('/api/manuales', async (req: Request, res: Response) => {
+app.get('/api/manuales', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = database.getCollection('manuales');
     const manuales = await collection.find().sort({ fechaCreacion: -1 }).toArray();
@@ -4009,7 +4055,7 @@ app.get('/api/manuales', async (req: Request, res: Response) => {
 });
 
 // GET single manual
-app.get('/api/manuales/:id', async (req: Request, res: Response) => {
+app.get('/api/manuales/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const collection = database.getCollection('manuales');
@@ -4036,7 +4082,7 @@ app.get('/api/manuales/:id', async (req: Request, res: Response) => {
 });
 
 // POST create manual
-app.post('/api/manuales', authenticateToken, async (req: Request, res: Response) => {
+app.post('/api/manuales', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -4110,7 +4156,7 @@ app.post('/api/manuales', authenticateToken, async (req: Request, res: Response)
 });
 
 // PUT update manual
-app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Response) => {
+app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -4176,7 +4222,7 @@ app.put('/api/manuales/:id', authenticateToken, async (req: Request, res: Respon
 });
 
 // DELETE manual
-app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: Response) => {
+app.delete('/api/manuales/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const user = req.user as any;
     if (user.rol !== 'root') {
@@ -4202,7 +4248,7 @@ const retencionesSettings = {
   ultimoNumero: 0
 };
 
-app.get('/api/retenciones', async (req: Request, res: Response) => {
+app.get('/api/retenciones', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = database.getCollection('retenciones');
     const resultados = await collection.find().sort({ numero: -1 }).toArray();
@@ -4213,7 +4259,7 @@ app.get('/api/retenciones', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/retenciones', async (req: Request, res: Response) => {
+app.post('/api/retenciones', async (req: Request, res: ExpressResponse) => {
   try {
     const { numero, proveedorRif, proveedorNombre, facturaNumero, facturaFecha, fechaPagada, numeroControl, totalCompras, baseImponible, montoBsf, exento, exentoBsf, porcentajeIva, iva, retenido } = req.body;
     
@@ -4258,11 +4304,11 @@ app.post('/api/retenciones', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/retenciones/ultimo', (req: Request, res: Response) => {
+app.get('/api/retenciones/ultimo', (req: Request, res: ExpressResponse) => {
   res.json({ ultimoNumero: retencionesSettings.ultimoNumero });
 });
 
-app.put('/api/retenciones/ultimo', (req: Request, res: Response) => {
+app.put('/api/retenciones/ultimo', (req: Request, res: ExpressResponse) => {
   const { ultimoNumero } = req.body;
   if (typeof ultimoNumero === 'number' && ultimoNumero >= 0) {
     retencionesSettings.ultimoNumero = ultimoNumero;
@@ -4272,7 +4318,7 @@ app.put('/api/retenciones/ultimo', (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/retenciones/:id', async (req: Request, res: Response) => {
+app.delete('/api/retenciones/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -4294,7 +4340,7 @@ app.delete('/api/retenciones/:id', async (req: Request, res: Response) => {
 });
 
 // Empresas
-app.get('/api/empresas', async (req: Request, res: Response) => {
+app.get('/api/empresas', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('empresas');
     const empresas = await collection.find({}).sort({ nombre: 1 }).allowDiskUse(true).toArray();
@@ -4305,7 +4351,7 @@ app.get('/api/empresas', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/api/empresas/:id', async (req: Request, res: Response) => {
+app.get('/api/empresas/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -4323,7 +4369,7 @@ app.get('/api/empresas/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/empresas', async (req: Request, res: Response) => {
+app.post('/api/empresas', async (req: Request, res: ExpressResponse) => {
   try {
     const { nombre, plantas } = req.body;
     if (!nombre) {
@@ -4340,7 +4386,7 @@ app.post('/api/empresas', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/empresas/:id', async (req: Request, res: Response) => {
+app.put('/api/empresas/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -4355,7 +4401,7 @@ app.put('/api/empresas/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/empresas/:id', async (req: Request, res: Response) => {
+app.delete('/api/empresas/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -4370,7 +4416,7 @@ app.delete('/api/empresas/:id', async (req: Request, res: Response) => {
 });
 
 // Abonos Polar
-app.get('/api/abonos-polar', async (req: Request, res: Response) => {
+app.get('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('abonos-polar');
     const abonos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
@@ -4381,7 +4427,7 @@ app.get('/api/abonos-polar', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/abonos-polar', async (req: Request, res: Response) => {
+app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
   try {
     const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa } = req.body;
     if (!fecha || !nombre || !planta || !nFact) {
@@ -4412,7 +4458,7 @@ app.post('/api/abonos-polar', async (req: Request, res: Response) => {
   }
 });
 
-app.put('/api/abonos-polar/:id', async (req: Request, res: Response) => {
+app.put('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -4429,7 +4475,7 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.delete('/api/abonos-polar/:id', async (req: Request, res: Response) => {
+app.delete('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -4443,7 +4489,7 @@ app.delete('/api/abonos-polar/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.use((req: Request, res: Response) => {
+app.use((req: Request, res: ExpressResponse) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
