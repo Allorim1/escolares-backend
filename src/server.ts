@@ -2137,6 +2137,27 @@ app.delete('/api/gastos/:id', async (req: Request, res: ExpressResponse) => {
   }
 });
 
+app.get('/api/gastos-operativos/proximos-vencer', async (req: Request, res: ExpressResponse) => {
+  try {
+    const dias = parseInt(req.query.dias as string) || 7;
+    const ahora = new Date();
+    const limite = new Date();
+    limite.setDate(ahora.getDate() + dias);
+    limite.setHours(23, 59, 59, 999);
+
+    const collection = (database as any).getCollection('gastos-operativos');
+    const gastos = await collection.find({
+      pagado: false,
+      fechaProximoPago: { $lte: limite, $gte: ahora },
+    }).sort({ fechaProximoPago: 1 }).allowDiskUse(true).toArray();
+
+    res.json(gastos);
+  } catch (error) {
+    console.error('Error obteniendo gastos próximos a vencer:', error);
+    res.status(500).json({ error: 'Error al obtener gastos próximos a vencer' });
+  }
+});
+
 app.get('/api/gastos-operativos', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('gastos-operativos');
