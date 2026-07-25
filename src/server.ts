@@ -2137,6 +2137,115 @@ app.delete('/api/gastos/:id', async (req: Request, res: ExpressResponse) => {
   }
 });
 
+app.get('/api/gastos-operativos', async (req: Request, res: ExpressResponse) => {
+  try {
+    const collection = (database as any).getCollection('gastos-operativos');
+    const gastos = await collection.find({}).sort({ fechaInicio: -1 }).allowDiskUse(true).toArray();
+    res.json(gastos);
+  } catch (error) {
+    console.error('Error obteniendo gastos operativos:', error);
+    res.status(500).json({ error: 'Error al obtener gastos operativos' });
+  }
+});
+
+app.post('/api/gastos-operativos', async (req: Request, res: ExpressResponse) => {
+  try {
+    const { nombre, descripcion, monto, frecuencia, fechaInicio, fechaProximoPago, categoria } = req.body;
+    if (!nombre || !monto || !frecuencia || !fechaInicio) {
+      res.status(400).json({ error: 'Nombre, monto, frecuencia y fecha de inicio son requeridos' });
+      return;
+    }
+    const gasto: any = {
+      nombre,
+      descripcion: descripcion || '',
+      monto: parseFloat(monto),
+      frecuencia,
+      fechaInicio: new Date(fechaInicio),
+      fechaProximoPago: fechaProximoPago ? new Date(fechaProximoPago) : new Date(fechaInicio),
+      categoria: categoria || '',
+      pagado: false,
+      createdAt: new Date(),
+    };
+    const collection = (database as any).getCollection('gastos-operativos');
+    const result = await collection.insertOne(gasto);
+    res.json({ ...gasto, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error creando gasto operativo:', error);
+    res.status(500).json({ error: 'Error al crear gasto operativo' });
+  }
+});
+
+app.put('/api/gastos-operativos/:id/pagar', async (req: Request, res: ExpressResponse) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('gastos-operativos');
+    const gasto = await collection.findOne({ _id: new ObjectId(id) });
+    if (!gasto) {
+      res.status(404).json({ error: 'Gasto no encontrado' });
+      return;
+    }
+    const frecuencia = gasto.frecuencia;
+    const fechaProximo = gasto.fechaProximoPago ? new Date(gasto.fechaProximoPago) : new Date(gasto.fechaInicio);
+    const nuevaFecha = new Date(fechaProximo);
+    if (frecuencia === 'semanal') {
+      nuevaFecha.setDate(nuevaFecha.getDate() + 7);
+    } else if (frecuencia === 'quincenal') {
+      nuevaFecha.setDate(nuevaFecha.getDate() + 15);
+    } else if (frecuencia === 'mensual') {
+      nuevaFecha.setMonth(nuevaFecha.getMonth() + 1);
+    }
+    const nuevaFechaStr = nuevaFecha.toISOString().split('T')[0];
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { pagado: true, fechaProximoPago: new Date(nuevaFechaStr) } }
+    );
+    res.json({ success: true, fechaProximoPago: nuevaFechaStr });
+  } catch (error) {
+    console.error('Error pagando gasto operativo:', error);
+    res.status(500).json({ error: 'Error al pagar gasto operativo' });
+  }
+});
+
+app.put('/api/gastos-operativos/:id', async (req: Request, res: ExpressResponse) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const { nombre, descripcion, monto, frecuencia, fechaInicio, fechaProximoPago, categoria } = req.body;
+    const updateData: any = {
+      nombre,
+      descripcion: descripcion || '',
+      monto: parseFloat(monto),
+      frecuencia,
+      categoria: categoria || '',
+    };
+    if (fechaInicio) updateData.fechaInicio = new Date(fechaInicio);
+    if (fechaProximoPago) updateData.fechaProximoPago = new Date(fechaProximoPago);
+    const collection = (database as any).getCollection('gastos-operativos');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando gasto operativo:', error);
+    res.status(500).json({ error: 'Error al actualizar gasto operativo' });
+  }
+});
+
+app.delete('/api/gastos-operativos/:id', async (req: Request, res: ExpressResponse) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('gastos-operativos');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando gasto operativo:', error);
+    res.status(500).json({ error: 'Error al eliminar gasto operativo' });
+  }
+});
+
 // Nómina - Empleados
 app.get('/api/nomina/empleados', async (req: Request, res: ExpressResponse) => {
   try {
