@@ -65,4 +65,25 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
+router.put('/:id', async (req: Request, res: Response) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { nombre, tasas, tipo } = req.body;
+    const collection = database.getCollection('tasasGuardadas');
+    const updateData: any = {
+      nombre: nombre || '',
+      tipo: tipo || 'actual',
+    };
+    if (tasas) {
+      updateData.tasas = Object.entries(tasas).map(([fecha, valor]) => ({ fecha, valor }));
+    }
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error actualizando tasas:', error);
+    res.status(500).json({ error: 'Error al actualizar tasas guardadas' });
+  }
+});
+
 export default router;
