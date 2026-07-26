@@ -6,8 +6,9 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const collection = database.getCollection('tasasGuardadas');
-    const tasas = await collection.find().sort({ fechaCreacion: -1 }).toArray();
-    res.json(tasas);
+    const tasas = await collection.find({}).sort({ fechaCreacion: -1 }).toArray();
+    const limpias = tasas.map(t => ({ ...t, _id: t._id.toString() }));
+    res.json(limpias);
   } catch (error) {
     console.error('Error obteniendo tasas guardadas:', error);
     res.status(500).json({ error: 'Error al obtener tasas guardadas' });
@@ -23,16 +24,26 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    let tasasNormalizadas: { fecha: string; valor: number }[] = [];
+    if (Array.isArray(tasas)) {
+      tasasNormalizadas = tasas.map((t: any) => ({
+        fecha: t.fecha || t[0],
+        valor: Number(t.valor || t[1]),
+      }));
+    } else if (typeof tasas === 'object' && tasas !== null) {
+      tasasNormalizadas = Object.entries(tasas).map(([fecha, valor]) => ({ fecha, valor: Number(valor) }));
+    }
+
     const tasaDoc = {
       nombre,
-      tasas: Object.entries(tasas).map(([fecha, valor]) => ({ fecha, valor })),
+      tasas: tasasNormalizadas,
       tipo: tipo || 'actual',
       fechaCreacion: new Date(),
     };
 
     const collection = database.getCollection('tasasGuardadas');
     const result = await collection.insertOne(tasaDoc);
-    res.json({ success: true, id: result.insertedId });
+    res.json({ success: true, id: result.insertedId.toString() });
   } catch (error) {
     console.error('Error guardando tasas:', error);
     res.status(500).json({ error: 'Error al guardar tasas' });
@@ -45,7 +56,11 @@ router.get('/:id', async (req: Request, res: Response) => {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const collection = database.getCollection('tasasGuardadas');
     const tasa = await collection.findOne({ _id: new ObjectId(id) });
-    res.json(tasa);
+    if (!tasa) {
+      res.status(404).json({ error: 'Tasa no encontrada' });
+      return;
+    }
+    res.json({ ...tasa, _id: tasa._id.toString() });
   } catch (error) {
     console.error('Error obteniendo tasa:', error);
     res.status(500).json({ error: 'Error al obtener tasa' });
@@ -76,7 +91,14 @@ router.put('/:id', async (req: Request, res: Response) => {
       tipo: tipo || 'actual',
     };
     if (tasas) {
-      updateData.tasas = Object.entries(tasas).map(([fecha, valor]) => ({ fecha, valor }));
+      if (Array.isArray(tasas)) {
+        updateData.tasas = tasas.map((t: any) => ({
+          fecha: t.fecha || t[0],
+          valor: Number(t.valor || t[1]),
+        }));
+      } else if (typeof tasas === 'object' && tasas !== null) {
+        updateData.tasas = Object.entries(tasas).map(([fecha, valor]) => ({ fecha, valor: Number(valor) }));
+      }
     }
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
     res.json({ success: true });
