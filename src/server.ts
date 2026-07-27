@@ -294,23 +294,10 @@ app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
   }
 
   try {
-    const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
-    const apiKey = apiKeySettings?.value || DOLAR_API_KEY;
-
-    let bcvRes: globalThis.Response | null = null;
     let bcvCurrentRes: globalThis.Response | null = null;
     let usdtRes: globalThis.Response | null = null;
-    let bcvError: string | null = null;
     let bcvCurrentError: string | null = null;
     let usdtError: string | null = null;
-
-    try {
-      bcvRes = await fetchWithTimeout(DOLAR_API_URL, {
-        headers: { 'x-dolarvzla-key': apiKey },
-      });
-    } catch (error: any) {
-      bcvError = error.message || 'Error de conexión con API BCV exchange-rate';
-    }
 
     try {
       bcvCurrentRes = await fetchWithTimeout(BCV_CURRENT_URL);
@@ -319,6 +306,8 @@ app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
     }
 
     try {
+      const apiKeySettings = await database.getCollection('settings').findOne({ key: 'dolarApiKey' });
+      const apiKey = apiKeySettings?.value || DOLAR_API_KEY;
       usdtRes = await fetchWithTimeout(USDT_API_URL, {
         headers: { 'x-dolarvzla-key': apiKey },
       });
@@ -326,45 +315,21 @@ app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
       usdtError = error.message || 'Error de conexión con API USDT';
     }
 
-    if (bcvRes?.status === 401) {
-      await cacheSet(cacheKey, JSON.stringify({ apiKeyExpired: true }), 60);
-      res.header('X-Cache', 'MISS');
-      res.json({ apiKeyExpired: true, error: 'API key inválida o caducada' });
-      return;
-    }
-
-    if (!bcvRes && !bcvCurrentRes && !usdtRes) {
-      res.status(500).json({ error: 'No se pudo obtener ninguna tasa. Intente más tarde.', details: [bcvError, bcvCurrentError, usdtError].filter(Boolean).join('; ') });
+    if (!bcvCurrentRes && !usdtRes) {
+      res.status(500).json({ error: 'No se pudo obtener ninguna tasa. Intente más tarde.', details: [bcvCurrentError, usdtError].filter(Boolean).join('; ') });
       return;
     }
 
     const result: any = {};
 
-    if (bcvRes?.ok) {
-      try {
-        const bcvData: any = await bcvRes.json();
-        if (bcvData?.current?.usd) {
-          result.current = result.current || {};
-          result.current.usd = bcvData.current.usd;
-        }
-      } catch (error) {
-        console.error('Error parsing BCV exchange-rate response:', error);
-      }
-    } else if (bcvRes) {
-      console.error('BCV exchange-rate API error:', bcvRes.status, bcvRes.statusText);
-    }
-
     if (bcvCurrentRes?.ok) {
       try {
         const bcvCurrentData: any = await bcvCurrentRes.json();
         if (bcvCurrentData?.current) {
-          result.current = result.current || {};
-          if (bcvCurrentData.current.eur) {
-            result.current.eur = bcvCurrentData.current.eur;
-          }
-          if (!result.current.usd && bcvCurrentData.current.usd) {
-            result.current.usd = bcvCurrentData.current.usd;
-          }
+          result.current = {
+            usd: bcvCurrentData.current.usd,
+            eur: bcvCurrentData.current.eur,
+          };
         }
       } catch (error) {
         console.error('Error parsing BCV current response:', error);
@@ -395,7 +360,7 @@ app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
     }
 
     if (!result.current) {
-      res.status(500).json({ error: 'No se pudo obtener información de tasas', details: [bcvError, bcvCurrentError, usdtError].filter(Boolean).join('; ') || 'Respuesta vacía de las APIs' });
+      res.status(500).json({ error: 'No se pudo obtener información de tasas', details: [bcvCurrentError, usdtError].filter(Boolean).join('; ') || 'Respuesta vacía de las APIs' });
       return;
     }
 
