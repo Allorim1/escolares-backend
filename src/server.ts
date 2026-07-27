@@ -262,6 +262,7 @@ app.use(cookieParser());
 const DOLAR_API_KEY = '29b324b9a34615a7e8f1d945ea95bb22e621cfe3ae2d6b36e957bb08d1fa7fa7'
 const DOLAR_API_URL = 'https://api.dolarvzla.com/public/bcv/exchange-rate';
 const USDT_API_URL = 'https://api.dolarvzla.com/public/usdt/exchange-rate';
+const BCV_CURRENT_URL = 'https://api.dolarvzla.com/public/bcv/current.json';
 
 const qrUploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; timestamp: number }>();
 
@@ -297,8 +298,10 @@ app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
     const apiKey = apiKeySettings?.value || DOLAR_API_KEY;
 
     let bcvRes: globalThis.Response | null = null;
+    let bcvCurrentRes: globalThis.Response | null = null;
     let usdtRes: globalThis.Response | null = null;
     let bcvError: string | null = null;
+    let bcvCurrentError: string | null = null;
     let usdtError: string | null = null;
 
     try {
@@ -306,7 +309,13 @@ app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
         headers: { 'x-dolarvzla-key': apiKey },
       });
     } catch (error: any) {
-      bcvError = error.message || 'Error de conexión con API BCV';
+      bcvError = error.message || 'Error de conexión con API BCV exchange-rate';
+    }
+
+    try {
+      bcvCurrentRes = await fetchWithTimeout(BCV_CURRENT_URL);
+    } catch (error: any) {
+      bcvCurrentError = error.message || 'Error de conexión con API BCV current';
     }
 
     try {
@@ -324,8 +333,8 @@ app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
       return;
     }
 
-    if (!bcvRes && !usdtRes) {
-      res.status(500).json({ error: 'No se pudo obtener ninguna tasa. Intente más tarde.', details: [bcvError, usdtError].filter(Boolean).join('; ') });
+    if (!bcvRes && !bcvCurrentRes && !usdtRes) {
+      res.status(500).json({ error: 'No se pudo obtener ninguna tasa. Intente más tarde.', details: [bcvError, bcvCurrentError, usdtError].filter(Boolean).join('; ') });
       return;
     }
 
@@ -334,17 +343,34 @@ app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
     if (bcvRes?.ok) {
       try {
         const bcvData: any = await bcvRes.json();
-        if (bcvData?.current) {
-          result.current = {
-            usd: bcvData.current.usd,
-            eur: bcvData.current.eur,
-          };
+        if (bcvData?.current?.usd) {
+          result.current = result.current || {};
+          result.current.usd = bcvData.current.usd;
         }
       } catch (error) {
-        console.error('Error parsing BCV response:', error);
+        console.error('Error parsing BCV exchange-rate response:', error);
       }
     } else if (bcvRes) {
-      console.error('BCV API error:', bcvRes.status, bcvRes.statusText);
+      console.error('BCV exchange-rate API error:', bcvRes.status, bcvRes.statusText);
+    }
+
+    if (bcvCurrentRes?.ok) {
+      try {
+        const bcvCurrentData: any = await bcvCurrentRes.json();
+        if (bcvCurrentData?.current) {
+          result.current = result.current || {};
+          if (bcvCurrentData.current.eur) {
+            result.current.eur = bcvCurrentData.current.eur;
+          }
+          if (!result.current.usd && bcvCurrentData.current.usd) {
+            result.current.usd = bcvCurrentData.current.usd;
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing BCV current response:', error);
+      }
+    } else if (bcvCurrentRes) {
+      console.error('BCV current API error:', bcvCurrentRes.status, bcvCurrentRes.statusText);
     }
 
     if (usdtRes?.ok) {
@@ -369,7 +395,7 @@ app.get('/api/tasas', async (req: Request, res: ExpressResponse) => {
     }
 
     if (!result.current) {
-      res.status(500).json({ error: 'No se pudo obtener información de tasas', details: [bcvError, usdtError].filter(Boolean).join('; ') || 'Respuesta vacía de las APIs' });
+      res.status(500).json({ error: 'No se pudo obtener información de tasas', details: [bcvError, bcvCurrentError, usdtError].filter(Boolean).join('; ') || 'Respuesta vacía de las APIs' });
       return;
     }
 
