@@ -363,7 +363,7 @@ async function handleCreateProduct(req: Request, res: Response) {
     const body = req.body as any;
     const title = (body.title || '').toString().trim();
     const category = (body.category || '').toString().trim();
-    const { price, description, marca, lineaId, iva, ivaPercentage, estado, enOferta, ofertaPorcentaje, ofertaPrecio, rating, colorido, colores } = body;
+    const { price, description, marca, lineaId, iva, ivaPercentage, estado, enOferta, ofertaPorcentaje, ofertaPrecio, rating, colorido, colores, codigo } = body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
 
     if (!title) {
@@ -411,6 +411,7 @@ async function handleCreateProduct(req: Request, res: Response) {
       ofertaPrecio: ofertaPrecio || 0,
       views: 0,
       purchases: 0,
+      ...(codigo && { codigo }),
       ...(images.length > 0 && { images }),
       colorido: colorido || false,
       colores: colores && colores.length > 0 ? colores : defaultColors,
@@ -484,7 +485,7 @@ async function handleUpdateProduct(req: Request, res: Response) {
     const body = req.body as any;
     const title = (body.title || '').toString().trim();
     const category = (body.category || '').toString().trim();
-    const { price, description, marca, iva, ivaPercentage, estado, lineaId, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores, rating } = body;
+    const { price, description, marca, iva, ivaPercentage, estado, lineaId, enOferta, ofertaPorcentaje, ofertaPrecio, colorido, colores, rating, codigo } = body;
     const usuario = req.user?.nombre || req.user?.username || req.user?.email || 'Sistema';
 
     const productoAnterior = await database.getCollection('products').findOne({ id });
@@ -524,6 +525,7 @@ async function handleUpdateProduct(req: Request, res: Response) {
       ...(lineaId !== undefined && { lineaId }),
       colorido: colorido || false,
       colores: colores && colores.length > 0 ? colores : defaultColors,
+      ...(codigo !== undefined && { codigo }),
     };
 
     const updateResult = await database.getCollection('products').updateOne(
