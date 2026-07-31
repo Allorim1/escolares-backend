@@ -126,22 +126,31 @@ export const createSessionRecord = async (
     const os = detectOS(userAgent);
 
     const sessionsCollection = database.getCollection<UserSession>('sessions');
-    const newSession: UserSession = {
-      id: sessionId,
-      userId,
-      username,
-      email,
-      rol,
-      ip,
-      userAgent,
-      device,
-      browser,
-      os,
-      active: true,
-      createdAt: new Date(),
-      lastActive: new Date(),
-    };
-    await sessionsCollection.insertOne(newSession);
+    const existingSession = await sessionsCollection.findOne({ id: sessionId });
+
+    if (existingSession) {
+      await sessionsCollection.updateOne(
+        { id: sessionId },
+        { $set: { lastActive: new Date(), ip, userAgent, device, browser, os, active: true } },
+      );
+    } else {
+      const newSession: UserSession = {
+        id: sessionId,
+        userId,
+        username,
+        email,
+        rol,
+        ip,
+        userAgent,
+        device,
+        browser,
+        os,
+        active: true,
+        createdAt: new Date(),
+        lastActive: new Date(),
+      };
+      await sessionsCollection.insertOne(newSession);
+    }
   } catch (error) {
     console.error('Error creating session record:', error);
   }

@@ -89,6 +89,7 @@ export interface Product {
   categoriaId?: string;
   colorido?: boolean;
   colores?: Color[];
+  codigo?: string;
   views: number;
   purchases: number;
 }
