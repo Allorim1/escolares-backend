@@ -262,7 +262,7 @@ app.use(cookieParser());
 const DOLAR_API_KEY = '29b324b9a34615a7e8f1d945ea95bb22e621cfe3ae2d6b36e957bb08d1fa7fa7'
 const DOLAR_API_URL = 'https://api.dolarvzla.com/public/bcv/exchange-rate';
 const USDT_API_URL = 'https://api.dolarvzla.com/public/usdt/exchange-rate';
-const BCV_CURRENT_URL = 'https://api.dolarvzla.com/public/bcv/current.json';
+const BCV_CURRENT_URL = 'https://rates.dolarvzla.com/bcv/current.json';
 
 const qrUploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; timestamp: number }>();
 
@@ -648,6 +648,44 @@ app.put('/api/settings/mantenimiento', authenticateToken, async (req: Request, r
   } catch (error) {
     console.error('Error saving mantenimiento setting:', error);
     res.status(500).json({ error: 'Error al guardar la configuración de mantenimiento' });
+  }
+});
+
+app.get('/api/settings/relacion-cuentas-columnas', authenticateToken, async (req: Request, res: ExpressResponse) => {
+  try {
+    const result = await database.getCollection('settings').findOne({ key: 'relacion-cuentas-columnas' });
+    const value = result?.value ?? null;
+    res.json({ columns: value });
+  } catch (error) {
+    console.error('Error loading relacion-cuentas columnas setting:', error);
+    res.status(500).json({ error: 'Error al cargar la configuración de columnas' });
+  }
+});
+
+app.put('/api/settings/relacion-cuentas-columnas', authenticateToken, async (req: Request, res: ExpressResponse) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede modificar esta configuración' });
+      return;
+    }
+
+    const { columns } = req.body;
+    if (!Array.isArray(columns)) {
+      res.status(400).json({ error: 'Se requiere un array de columnas' });
+      return;
+    }
+
+    await database.getCollection('settings').updateOne(
+      { key: 'relacion-cuentas-columnas' },
+      { $set: { key: 'relacion-cuentas-columnas', value: columns, updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, columns });
+  } catch (error) {
+    console.error('Error saving relacion-cuentas columnas setting:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración de columnas' });
   }
 });
 
