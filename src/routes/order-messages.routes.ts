@@ -6,7 +6,7 @@ import { ObjectId } from 'mongodb';
 const router = Router();
 
 interface OrderMessage {
-  _id?: string;
+  _id?: ObjectId;
   orderId: string;
   emisorId: string;
   emisorNombre: string;
@@ -18,7 +18,7 @@ interface OrderMessage {
 
 router.get('/order/:orderId', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.params;
+    const orderId = String(req.params.orderId);
     const userId = req.user?.userId;
     const userRol = req.user?.rol;
 
@@ -54,11 +54,11 @@ router.get('/order/:orderId', authenticateToken, async (req: Request, res: Respo
 
 router.post('/order/:orderId', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.params;
+    const orderId = String(req.params.orderId);
     const { mensaje } = req.body;
     const userId = req.user?.userId;
-    const userName = req.user?.nombre || req.user?.username || req.user?.nombreCompleto || 'Usuario';
-    const userRol = req.user?.rol || 'usuario';
+    const userName = String(req.user?.username || req.user?.nombre || 'Usuario');
+    const userRol = String(req.user?.rol || 'usuario');
 
     if (!userId) {
       res.status(401).json({ error: 'No autorizado' });
@@ -119,7 +119,7 @@ router.post('/order/:orderId', authenticateToken, async (req: Request, res: Resp
 
 router.put('/order/:orderId/leer', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.params;
+    const orderId = String(req.params.orderId);
     const userId = req.user?.userId;
 
     if (!userId) {

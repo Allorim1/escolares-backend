@@ -1,3 +1,5 @@
+import { ObjectId } from 'mongodb';
+
 export interface Marca {
   _id?: string;
   id: string;
@@ -163,7 +165,7 @@ export interface OrderHistorial {
 }
 
 export interface OrderMessage {
-  _id?: string;
+  _id?: ObjectId;
   orderId: string;
   emisorId: string;
   emisorNombre: string;
