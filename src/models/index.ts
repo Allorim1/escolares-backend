@@ -122,9 +122,7 @@ export interface Order {
   nombre: string;
   cedula: string;
   telefono: string;
-  // Legacy text address (mantener compatibilidad)
   direccion: string;
-  // Google Maps fields
   placeId?: string;
   direccionCompleta?: string;
   latitud?: number;
@@ -143,18 +141,17 @@ export interface Order {
   autorizadoNombre?: string;
   deliveryPersonId?: string;
   deliveryPersonName?: string;
-  // Real-time tracking fields
   repartidorUbicacion?: {
     lat: number;
     lng: number;
     timestamp: Date;
   };
   tiempoEstimadoLlegada?: string;
-  // Delivery earnings
   propina?: number;
   comision?: number;
   createdAt: Date;
   updatedAt: Date;
+  mensajes?: OrderMessage[];
 }
 
 export type OrderStatus = 'confirmar' | 'pendiente' | 'procesando' | 'procesado' | 'enviado' | 'entregado' | 'cancelado';
@@ -163,6 +160,17 @@ export interface OrderHistorial {
   status: OrderStatus;
   fecha: Date;
   observaciones?: string;
+}
+
+export interface OrderMessage {
+  _id?: string;
+  orderId: string;
+  emisorId: string;
+  emisorNombre: string;
+  emisorRol: string;
+  mensaje: string;
+  leido: boolean;
+  fecha: Date;
 }
 
 export interface Permiso {

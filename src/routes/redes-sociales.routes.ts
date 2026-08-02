@@ -266,8 +266,4 @@ router.get('/events/messages', authenticateTokenQuery, (req, res) => {
   });
 });
 
-router.post('/recordatorio-masivo', authenticateToken, async (req, res) => {
-  redesSocialesController.enviarRecordatorioMasivo(req, res);
-});
-
 export default router;

@@ -39,6 +39,8 @@ import cotizacionesRoutes from './routes/cotizaciones.routes';
 import notasEntregaRoutes from './routes/notas-entrega.routes';
 import comprasHistorialRoutes from './routes/compras-historial.routes';
 import estadisticasRoutes from './routes/estadisticas.routes';
+import recordatoriosRoutes from './routes/recordatorios.routes';
+import orderMessagesRoutes from './routes/order-messages.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -124,6 +126,18 @@ io.on('connection', (socket) => {
   socket.on('leave-messages-room', (userId) => {
     socket.leave(`messages-${userId}`);
     console.log(`Usuario ${userId} salió de la sala de mensajes`);
+  });
+
+  // Join order messages room
+  socket.on('join-order-messages-room', (orderId) => {
+    socket.join(`order-messages-${orderId}`);
+    console.log(`Usuario se unió a la sala de mensajes del pedido ${orderId}`);
+  });
+
+  // Leave order messages room
+  socket.on('leave-order-messages-room', (orderId) => {
+    socket.leave(`order-messages-${orderId}`);
+    console.log(`Usuario salió de la sala de mensajes del pedido ${orderId}`);
   });
 });
 
@@ -1956,6 +1970,8 @@ app.use('/api/ratings', ratingsRoutes);
 app.use('/api/producto-categorias', productCategoriasRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/redes-sociales', redesSocialesRoutes);
+app.use('/api/recordatorios', recordatoriosRoutes);
+app.use('/api/recordatorios', recordatoriosRoutes);
 app.use('/api/noticias', noticiasRoutes);
 app.use('/api/tasas-guardadas', tasasGuardadasRoutes);
 app.use('/api/cotizaciones', cotizacionesRoutes);
@@ -1963,6 +1979,7 @@ app.use('/api/notas-entrega', notasEntregaRoutes);
 app.use('/api/compras', comprasHistorialRoutes);
 app.use('/api/acuerdos-comerciales', comprasHistorialRoutes);
 app.use('/api/estadisticas', estadisticasRoutes);
+app.use('/api/order-messages', orderMessagesRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {

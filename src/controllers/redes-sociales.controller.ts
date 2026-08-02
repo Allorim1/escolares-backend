@@ -1151,45 +1151,6 @@ await database
       res.status(500).json({ error: 'Error al verificar configuración' });
     }
   }
-
-  async enviarRecordatorioMasivo(req: Request, res: Response): Promise<void> {
-    try {
-      const { destinatarios } = req.body;
-      if (!Array.isArray(destinatarios) || destinatarios.length === 0) {
-        res.status(400).json({ error: 'Se requiere un array de destinatarios' });
-        return;
-      }
-
-      const config = await database.getCollection<RedSocial>('redes-sociales').findOne({ plataforma: 'whatsapp' });
-      if (!config || !config.token || !config.usuario) {
-        res.status(500).json({ error: 'WhatsApp no está configurado' });
-        return;
-      }
-
-      const phoneNumberId = config.usuario;
-      const accessToken = config.token;
-      const resultados = [];
-
-      for (const destinatario of destinatarios) {
-        try {
-          await this.sendWhatsAppMessage(
-            phoneNumberId,
-            accessToken,
-            destinatario.telefono,
-            `Hola ${destinatario.nombre}, te recordamos que tienes una relación de cuentas pendiente. Por favor, comunícate con nosotros para más información.`
-          );
-          resultados.push({ telefono: destinatario.telefono, nombre: destinatario.nombre, enviado: true });
-        } catch (error) {
-          resultados.push({ telefono: destinatario.telefono, nombre: destinatario.nombre, enviado: false, error: String(error) });
-        }
-      }
-
-      res.json({ success: true, resultados });
-    } catch (error) {
-      console.error('Error enviando recordatorios masivos:', error);
-      res.status(500).json({ error: 'Error al enviar recordatorios' });
-    }
-  }
 }
 
 export const redesSocialesController = new RedesSocialesController();
