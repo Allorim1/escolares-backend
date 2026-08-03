@@ -1,43 +1,26 @@
 import { Request, Response } from 'express';
-import { database } from '../config/database';
 
 export class RecordatoriosController {
-  private async sendWhatsAppMessage(phoneNumberId: string, accessToken: string, to: string, text?: string): Promise<void> {
-    const trimmedToken = accessToken.trim();
-    const cleanPhoneNumberId = phoneNumberId.replace(/\D/g, '');
-    const cleanTo = to.replace(/\D/g, '');
+  private async enviarWhatsAppTwilio(to: string, text: string): Promise<void> {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN || process.env.TWILIO_CLIENT_SECRET;
+    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
 
-    const url = `https://graph.facebook.com/v25.0/${cleanPhoneNumberId}/messages`;
-
-    const cleanText = (text || '').trim().replace(/(\.{3,}|…)\s*$/u, '').trim();
-    const payload: any = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: cleanTo,
-      type: 'text',
-      text: { body: cleanText },
-    };
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${trimmedToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      let errorMessage = `WhatsApp API error: ${response.status}`;
-      try {
-        const errorJson = JSON.parse(errorText);
-        if (errorJson.error) {
-          errorMessage = `WhatsApp API error: ${errorJson.error.message || errorJson.error}`;
-        }
-      } catch (e) {}
-      throw new Error(errorMessage);
+    if (!accountSid || !authToken || !fromNumber) {
+      throw new Error('Faltan variables de entorno de Twilio');
     }
+
+    const twilio = require('twilio');
+    const client = twilio(accountSid, authToken);
+
+    const cleanTo = to.replace(/\D/g, '');
+    const cleanFrom = fromNumber.replace(/\D/g, '');
+
+    await client.messages.create({
+      body: text,
+      from: `whatsapp:+${cleanFrom}`,
+      to: `whatsapp:+${cleanTo}`,
+    });
   }
 
   async enviarRecordatorioMasivo(req: Request, res: Response): Promise<void> {
@@ -48,21 +31,11 @@ export class RecordatoriosController {
         return;
       }
 
-      const config = await database.getCollection('redes-sociales').findOne({ plataforma: 'whatsapp' });
-      if (!config || !config.token || !config.usuario) {
-        res.status(500).json({ error: 'WhatsApp no está configurado' });
-        return;
-      }
-
-      const phoneNumberId = config.usuario;
-      const accessToken = config.token;
       const resultados = [];
 
       for (const destinatario of destinatarios) {
         try {
-          await this.sendWhatsAppMessage(
-            phoneNumberId,
-            accessToken,
+          await this.enviarWhatsAppTwilio(
             destinatario.telefono,
             `Hola ${destinatario.nombre}, te recordamos que tienes una relación de cuentas pendiente. Por favor, comunícate con nosotros para más información.`
           );
@@ -87,17 +60,8 @@ export class RecordatoriosController {
         return;
       }
 
-      const config = await database.getCollection('redes-sociales').findOne({ plataforma: 'whatsapp' });
-      if (!config || !config.token || !config.usuario) {
-        res.status(500).json({ error: 'WhatsApp no está configurado' });
-        return;
-      }
-
-      const phoneNumberId = config.usuario;
-      const accessToken = config.token;
       const texto = mensaje || 'Mensaje de prueba desde Relación de Cuentas';
-
-      await this.sendWhatsAppMessage(phoneNumberId, accessToken, telefono, texto);
+      await this.enviarWhatsAppTwilio(telefono, texto);
       res.json({ success: true, message: 'Mensaje de prueba enviado correctamente' });
     } catch (error: any) {
       console.error('Error enviando test WhatsApp:', error);
