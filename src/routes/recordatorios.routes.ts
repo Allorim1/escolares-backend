@@ -8,4 +8,8 @@ router.post('/recordatorio-masivo', authenticateToken, async (req: Request, res:
   await recordatoriosController.enviarRecordatorioMasivo(req, res);
 });
 
+router.post('/test-whatsapp', authenticateToken, async (req: Request, res: Response) => {
+  await recordatoriosController.enviarTestWhatsApp(req, res);
+});
+
 export default router;
