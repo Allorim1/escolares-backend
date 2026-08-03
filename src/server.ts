@@ -87,7 +87,8 @@ const io = new Server(httpServer, {
       ? process.env.ALLOWED_ORIGINS.split(',')
       : ['http://localhost:4200', 'http://localhost:3000', 'https://test.escolaresonline.com', 'https://escolaresonline.com'],
     methods: ['GET', 'POST']
-  }
+  },
+  transports: ['websocket']
 });
 
 // Attach io to app for access in routes
