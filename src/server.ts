@@ -4596,7 +4596,18 @@ app.delete('/api/empresas/:id', async (req: Request, res: ExpressResponse) => {
 app.get('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('abonos-polar');
-    const abonos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
+    const { q } = req.query;
+    let query: any = {};
+    if (q && typeof q === 'string') {
+      const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query = {
+        $or: [
+          { nombre: { $regex: regex } },
+          { cedula: { $regex: regex } },
+        ],
+      };
+    }
+    const abonos = await collection.find(query).sort({ fecha: -1 }).allowDiskUse(true).toArray();
     res.json(abonos);
   } catch (error) {
     console.error('Error obteniendo abonos polar:', error);
@@ -4606,7 +4617,7 @@ app.get('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
 
 app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
   try {
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa } = req.body;
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor, supervisorId } = req.body;
     if (!fecha || !nombre || !planta || !nFact) {
       res.status(400).json({ error: 'Fecha, nombre, planta y número de factura son requeridos' });
       return;
@@ -4625,6 +4636,8 @@ app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
       divisa: divisa || 0,
       status: status || '',
       empresa: empresa || '',
+      supervisor: supervisor || '',
+      supervisorId: supervisorId || '',
     };
     const collection = (database as any).getCollection('abonos-polar');
     const result = await collection.insertOne(abono);
@@ -4640,8 +4653,8 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa } = req.body;
-    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa };
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor, supervisorId } = req.body;
+    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor: supervisor || '', supervisorId: supervisorId || '' };
     if (fecha) updateData.fecha = new Date(fecha);
     const collection = (database as any).getCollection('abonos-polar');
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
