@@ -4641,6 +4641,14 @@ app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
     };
     const collection = (database as any).getCollection('abonos-polar');
     const result = await collection.insertOne(abono);
+
+    if (abono.supervisor) {
+      await collection.updateMany(
+        { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: abono.supervisor } },
+        { $set: { supervisor: abono.supervisor, supervisorId: abono.supervisorId } }
+      );
+    }
+
     res.json({ ...abono, _id: result.insertedId });
   } catch (error) {
     console.error('Error creando abono polar:', error);
@@ -4658,6 +4666,14 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
     if (fecha) updateData.fecha = new Date(fecha);
     const collection = (database as any).getCollection('abonos-polar');
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+
+    if (supervisor) {
+      await collection.updateMany(
+        { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: supervisor } },
+        { $set: { supervisor, supervisorId: supervisorId || '' } }
+      );
+    }
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error actualizando abono polar:', error);
@@ -4676,6 +4692,38 @@ app.delete('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) =
   } catch (error) {
     console.error('Error eliminando abono polar:', error);
     res.status(500).json({ error: 'Error al eliminar abono polar' });
+  }
+});
+
+app.get('/api/abonos-polar/comisiones', async (req: Request, res: ExpressResponse) => {
+  try {
+    const collection = (database as any).getCollection('abonos-polar');
+    const abonos = await collection.find({}).toArray();
+
+    const comisionesPorSupervisor: Record<string, { supervisor: string; supervisorId: string; monto: number; cantidad: number }> = {};
+    let comisionNoAsignada = 0;
+
+    for (const abono of abonos) {
+      const monto = Number(abono.divisa) || 0;
+      if (abono.supervisor) {
+        const key = abono.supervisor;
+        if (!comisionesPorSupervisor[key]) {
+          comisionesPorSupervisor[key] = { supervisor: abono.supervisor, supervisorId: abono.supervisorId || '', monto: 0, cantidad: 0 };
+        }
+        comisionesPorSupervisor[key].monto += monto;
+        comisionesPorSupervisor[key].cantidad += 1;
+      } else {
+        comisionNoAsignada += monto;
+      }
+    }
+
+    res.json({
+      comisionesPorSupervisor: Object.values(comisionesPorSupervisor),
+      comisionNoAsignada,
+    });
+  } catch (error) {
+    console.error('Error obteniendo comisiones:', error);
+    res.status(500).json({ error: 'Error al obtener comisiones' });
   }
 });
 
