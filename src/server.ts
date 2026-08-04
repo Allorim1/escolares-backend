@@ -4617,11 +4617,14 @@ app.get('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
 
 app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
   try {
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor, supervisorId, abonos, ivaPagado } = req.body;
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor, supervisorId, abonos, abonosPagos, ivaPagado } = req.body;
     if (!fecha || !nombre || !planta || !nFact) {
       res.status(400).json({ error: 'Fecha, nombre, planta y número de factura son requeridos' });
       return;
     }
+    const totalAbonos = Array.isArray(abonosPagos) && abonosPagos.length > 0
+      ? Number(abonosPagos.reduce((sum: number, p: any) => sum + (Number(p.monto) || 0), 0).toFixed(2))
+      : (abonos || 0);
     const abono = {
       fecha: fecha ? new Date(fecha) : new Date(),
       nombre,
@@ -4630,7 +4633,8 @@ app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
       telefono: telefono || '',
       nFact,
       montoFactura: montoFactura || 0,
-      abonos: abonos || 0,
+      abonos: totalAbonos,
+      abonosPagos: Array.isArray(abonosPagos) ? abonosPagos : [],
       iva: iva || 0,
       ivaPagado: ivaPagado || false,
       diferencia: diferencia || 0,
@@ -4663,8 +4667,11 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor, supervisorId, abonos, ivaPagado } = req.body;
-    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor: supervisor || '', supervisorId: supervisorId || '', abonos: abonos || 0, ivaPagado: ivaPagado || false };
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor, supervisorId, abonos, abonosPagos, ivaPagado } = req.body;
+    const totalAbonos = Array.isArray(abonosPagos) && abonosPagos.length > 0
+      ? Number(abonosPagos.reduce((sum: number, p: any) => sum + (Number(p.monto) || 0), 0).toFixed(2))
+      : (abonos || 0);
+    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor: supervisor || '', supervisorId: supervisorId || '', abonos: totalAbonos, abonosPagos: Array.isArray(abonosPagos) ? abonosPagos : [], ivaPagado: ivaPagado || false };
     if (fecha) updateData.fecha = new Date(fecha);
     const collection = (database as any).getCollection('abonos-polar');
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
