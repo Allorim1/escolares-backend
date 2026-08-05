@@ -1956,6 +1956,7 @@ app.use(withCache(300));
 
 // Servir archivos estáticos desde el directorio uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api/marcas', marcasRoutes);
 app.use('/api/lineas', lineasRoutes);
@@ -4749,22 +4750,18 @@ app.post('/api/abonos-polar/:id/imagenes', uploadAbonoImagen.single('imagen'), a
   }
 });
 
-app.delete('/api/abonos-polar/:id/imagenes/:index', async (req: Request, res: ExpressResponse) => {
+app.delete('/api/abonos-polar/:id/imagenes', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const index = Number(req.params.index);
+    const url = String(req.query.url || '');
     const collection = (database as any).getCollection('abonos-polar');
     const abono = await collection.findOne({ _id: new ObjectId(id) });
     const imagenes = Array.isArray(abono?.imagenes) ? abono.imagenes : [];
-    if (index < 0 || index >= imagenes.length) {
-      res.status(400).json({ error: 'Índice de imagen inválido' });
-      return;
-    }
-    imagenes.splice(index, 1);
-    await collection.updateOne({ _id: new ObjectId(id) }, { $set: { imagenes } });
-    res.json({ imagenes });
+    const nuevas = imagenes.filter((img: string) => img !== url);
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: { imagenes: nuevas } });
+    res.json({ imagenes: nuevas });
   } catch (error) {
     console.error('Error eliminando imagen de abono:', error);
     res.status(500).json({ error: 'Error al eliminar imagen' });
