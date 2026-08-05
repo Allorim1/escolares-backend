@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { Express, Request, Response as ExpressResponse } from 'express';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import helmet from 'helmet';
 import swaggerJsdoc from 'swagger-jsdoc';
@@ -4706,18 +4707,40 @@ app.delete('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) =
   }
 });
 
-app.post('/api/abonos-polar/:id/imagenes', async (req: Request, res: ExpressResponse) => {
+const uploadsRoot = process.env.UPLOADS_PATH
+  ? path.resolve(process.env.UPLOADS_PATH)
+  : path.resolve(process.cwd(), 'uploads');
+const abonoImagenesPath = path.join(uploadsRoot, 'abonos-polar');
+if (!fs.existsSync(abonoImagenesPath)) {
+  fs.mkdirSync(abonoImagenesPath, { recursive: true });
+}
+
+const abonoImagenesStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, abonoImagenesPath);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+    cb(null, uniqueName);
+  }
+});
+
+const uploadAbonoImagen = multer({ storage: abonoImagenesStorage, limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.post('/api/abonos-polar/:id/imagenes', uploadAbonoImagen.single('imagen'), async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const { imagen } = req.body;
-    if (!imagen || typeof imagen !== 'string') {
+    const file = req.file;
+    if (!file) {
       res.status(400).json({ error: 'No se envió ninguna imagen' });
       return;
     }
+    const imageUrl = `/api/uploads/abonos-polar/${file.filename}`;
     const collection = (database as any).getCollection('abonos-polar');
-    await collection.updateOne({ _id: new ObjectId(id) }, { $push: { imagenes: imagen } });
+    await collection.updateOne({ _id: new ObjectId(id) }, { $push: { imagenes: imageUrl } });
     const abono = await collection.findOne({ _id: new ObjectId(id) });
     res.json({ imagenes: abono?.imagenes || [] });
   } catch (error) {
