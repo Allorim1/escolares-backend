@@ -4706,21 +4706,18 @@ app.delete('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) =
   }
 });
 
-const uploadAbonoImagen = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
-
-app.post('/api/abonos-polar/:id/imagenes', uploadAbonoImagen.single('imagen'), async (req: Request, res: ExpressResponse) => {
+app.post('/api/abonos-polar/:id/imagenes', async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const file = req.file;
-    if (!file) {
+    const { imagen } = req.body;
+    if (!imagen || typeof imagen !== 'string') {
       res.status(400).json({ error: 'No se envió ninguna imagen' });
       return;
     }
-    const base64 = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
     const collection = (database as any).getCollection('abonos-polar');
-    await collection.updateOne({ _id: new ObjectId(id) }, { $push: { imagenes: base64 } });
+    await collection.updateOne({ _id: new ObjectId(id) }, { $push: { imagenes: imagen } });
     const abono = await collection.findOne({ _id: new ObjectId(id) });
     res.json({ imagenes: abono?.imagenes || [] });
   } catch (error) {
