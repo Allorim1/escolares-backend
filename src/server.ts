@@ -4712,13 +4712,13 @@ app.get('/api/abonos-polar/comisiones', async (req: Request, res: ExpressRespons
     const abonos = await collection.find({}).toArray();
 
     const comisionesPorSupervisor: Record<string, { supervisor: string; supervisorId: string; monto: number; cantidad: number }> = {};
-    let comisionNoAsignada = 0;
+    let montoFacturaNoAsignada = 0;
 
     for (const abono of abonos) {
-      const monto = Number(abono.diferencia) || 0;
-      const porcentaje = Number(abono.comisionPorcentaje) || 0;
-      const comision = monto * (porcentaje / 100);
+      const montoFactura = Number(abono.montoFactura) || 0;
       if (abono.supervisor) {
+        const porcentaje = Number(abono.comisionPorcentaje) || 0;
+        const comision = montoFactura * (porcentaje / 100);
         const key = abono.supervisor;
         if (!comisionesPorSupervisor[key]) {
           comisionesPorSupervisor[key] = { supervisor: abono.supervisor, supervisorId: abono.supervisorId || '', monto: 0, cantidad: 0 };
@@ -4726,13 +4726,18 @@ app.get('/api/abonos-polar/comisiones', async (req: Request, res: ExpressRespons
         comisionesPorSupervisor[key].monto += comision;
         comisionesPorSupervisor[key].cantidad += 1;
       } else {
-        comisionNoAsignada += comision;
+        montoFacturaNoAsignada += montoFactura;
       }
     }
+
+    const porcentajeNoAsignada = Number(req.query.porcentaje || 0);
+    const comisionNoAsignada = montoFacturaNoAsignada * (porcentajeNoAsignada / 100);
 
     res.json({
       comisionesPorSupervisor: Object.values(comisionesPorSupervisor),
       comisionNoAsignada,
+      comisionNoAsignadaPorcentaje: porcentajeNoAsignada,
+      montoFacturaNoAsignada,
     });
   } catch (error) {
     console.error('Error obteniendo comisiones:', error);
