@@ -4706,6 +4706,51 @@ app.delete('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) =
   }
 });
 
+const uploadAbonoImagen = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.post('/api/abonos-polar/:id/imagenes', uploadAbonoImagen.single('imagen'), async (req: Request, res: ExpressResponse) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: 'No se envió ninguna imagen' });
+      return;
+    }
+    const base64 = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+    const collection = (database as any).getCollection('abonos-polar');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $push: { imagenes: base64 } });
+    const abono = await collection.findOne({ _id: new ObjectId(id) });
+    res.json({ imagenes: abono?.imagenes || [] });
+  } catch (error) {
+    console.error('Error subiendo imagen de abono:', error);
+    res.status(500).json({ error: 'Error al subir imagen' });
+  }
+});
+
+app.delete('/api/abonos-polar/:id/imagenes/:index', async (req: Request, res: ExpressResponse) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const index = Number(req.params.index);
+    const collection = (database as any).getCollection('abonos-polar');
+    const abono = await collection.findOne({ _id: new ObjectId(id) });
+    const imagenes = Array.isArray(abono?.imagenes) ? abono.imagenes : [];
+    if (index < 0 || index >= imagenes.length) {
+      res.status(400).json({ error: 'Índice de imagen inválido' });
+      return;
+    }
+    imagenes.splice(index, 1);
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: { imagenes } });
+    res.json({ imagenes });
+  } catch (error) {
+    console.error('Error eliminando imagen de abono:', error);
+    res.status(500).json({ error: 'Error al eliminar imagen' });
+  }
+});
+
 app.get('/api/abonos-polar/comisiones', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('abonos-polar');
