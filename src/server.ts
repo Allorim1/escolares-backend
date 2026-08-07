@@ -42,6 +42,7 @@ import comprasHistorialRoutes from './routes/compras-historial.routes';
 import estadisticasRoutes from './routes/estadisticas.routes';
 import recordatoriosRoutes from './routes/recordatorios.routes';
 import orderMessagesRoutes from './routes/order-messages.routes';
+import supervisoresRoutes from './routes/supervisores.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -224,6 +225,8 @@ const invalidateCache = (req: Request, res: ExpressResponse, next: () => void) =
       cacheDeletePattern('req:/api/manuales*');
     } else if (path.includes('/notas-entrega')) {
       cacheDeletePattern('req:/api/notas-entrega*');
+    } else if (path.includes('/supervisores')) {
+      cacheDeletePattern('req:/api/supervisores*');
     }
   }
   next();
@@ -1983,6 +1986,7 @@ app.use('/api/compras', comprasHistorialRoutes);
 app.use('/api/acuerdos-comerciales', comprasHistorialRoutes);
 app.use('/api/estadisticas', estadisticasRoutes);
 app.use('/api/order-messages', orderMessagesRoutes);
+app.use('/api/supervisores', supervisoresRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {

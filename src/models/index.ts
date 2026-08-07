@@ -310,3 +310,13 @@ export interface NotificacionRedSocial {
     createdAt: Date;
     lastActive: Date;
   }
+
+  export interface Supervisor {
+    _id?: string;
+    id: string;
+    nombre: string;
+    cedula?: string;
+    telefono?: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }
