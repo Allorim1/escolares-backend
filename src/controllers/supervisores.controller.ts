@@ -68,7 +68,7 @@ export class SupervisoresController {
 
       const result = await database
         .getCollection<Supervisor>('supervisores')
-        .findOneAndUpdate({ _id: new ObjectId(id) }, { $set: updateData }, { returnDocument: 'after' });
+        .findOneAndUpdate({ _id: new ObjectId(id) } as any, { $set: updateData }, { returnDocument: 'after' });
 
       if (!result) {
         res.status(404).json({ error: 'Supervisor no encontrado' });
@@ -89,7 +89,7 @@ export class SupervisoresController {
 
       const result = await database
         .getCollection<Supervisor>('supervisores')
-        .deleteOne({ _id: new ObjectId(id) });
+        .deleteOne({ _id: new ObjectId(id) } as any);
 
       if (result.deletedCount === 0) {
         res.status(404).json({ error: 'Supervisor no encontrado' });
