@@ -4660,6 +4660,11 @@ app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
         { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: abono.supervisor } },
         { $set: { supervisor: abono.supervisor, supervisorId: abono.supervisorId } }
       );
+    } else {
+      await collection.updateMany(
+        { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: '' } },
+        { $set: { supervisor: '', supervisorId: '' } }
+      );
     }
 
     res.json({ ...abono, _id: result.insertedId });
@@ -4687,6 +4692,11 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
       await collection.updateMany(
         { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: supervisor } },
         { $set: { supervisor, supervisorId: supervisorId || '' } }
+      );
+    } else {
+      await collection.updateMany(
+        { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: '' } },
+        { $set: { supervisor: '', supervisorId: '' } }
       );
     }
 
@@ -4782,12 +4792,14 @@ app.get('/api/abonos-polar/comisiones', async (req: Request, res: ExpressRespons
 
     for (const abono of abonos) {
       const montoFactura = Number(abono.montoFactura) || 0;
-      if (abono.supervisor) {
+      const supervisorNombre = abono.supervisor || '';
+      const supervisorId = abono.supervisorId || '';
+      if (supervisorNombre) {
         const porcentaje = Number(abono.comisionPorcentaje) || 0;
         const comision = montoFactura * (porcentaje / 100);
-        const key = abono.supervisor;
+        const key = supervisorId || supervisorNombre;
         if (!comisionesPorSupervisor[key]) {
-          comisionesPorSupervisor[key] = { supervisor: abono.supervisor, supervisorId: abono.supervisorId || '', monto: 0, cantidad: 0 };
+          comisionesPorSupervisor[key] = { supervisor: supervisorNombre, supervisorId, monto: 0, cantidad: 0 };
         }
         comisionesPorSupervisor[key].monto += comision;
         comisionesPorSupervisor[key].cantidad += 1;
