@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { database } from '../config/database';
 import { Supervisor } from '../models';
+import { ObjectId } from 'mongodb';
 
 export class SupervisoresController {
   async getAll(req: Request, res: Response): Promise<void> {
@@ -67,7 +68,7 @@ export class SupervisoresController {
 
       const result = await database
         .getCollection<Supervisor>('supervisores')
-        .findOneAndUpdate({ _id: id }, { $set: updateData }, { returnDocument: 'after' });
+        .findOneAndUpdate({ _id: new ObjectId(id) }, { $set: updateData }, { returnDocument: 'after' });
 
       if (!result) {
         res.status(404).json({ error: 'Supervisor no encontrado' });
@@ -88,7 +89,7 @@ export class SupervisoresController {
 
       const result = await database
         .getCollection<Supervisor>('supervisores')
-        .deleteOne({ _id: id });
+        .deleteOne({ _id: new ObjectId(id) });
 
       if (result.deletedCount === 0) {
         res.status(404).json({ error: 'Supervisor no encontrado' });
