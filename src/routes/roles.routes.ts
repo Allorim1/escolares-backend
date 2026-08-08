@@ -89,8 +89,9 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
    { id: 'repartidor_acceder', nombre: 'Acceder como Repartidor', descripcion: 'Puede acceder al módulo de repartidor', modulo: 'repartidor' },
    { id: 'repartidor_ver_pedidos', nombre: 'Ver Pedidos Asignados', descripcion: 'Puede ver pedidos asignados', modulo: 'repartidor' },
    { id: 'repartidor_actualizar_estado', nombre: 'Actualizar Estado de Pedido', descripcion: 'Puede cambiar estado de pedidos', modulo: 'repartidor' },
-   { id: 'repartidor_ubicacion', nombre: 'Compartir Ubicación', descripcion: 'Puede compartir ubicación GPS', modulo: 'repartidor' },
-];
+    { id: 'repartidor_ubicacion', nombre: 'Compartir Ubicación', descripcion: 'Puede compartir ubicación GPS', modulo: 'repartidor' },
+    { id: 'totales_ver', nombre: 'Ver Totales', descripcion: 'Puede ver los totales en relación de cuentas', modulo: 'panel_admin' },
+  ];
 
 router.get('/permisos', authenticateToken, requireRoot, async (req: Request, res: Response) => {
   try {
