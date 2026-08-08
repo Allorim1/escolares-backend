@@ -4792,11 +4792,13 @@ app.get('/api/abonos-polar/comisiones', async (req: Request, res: ExpressRespons
 
     for (const abono of abonos) {
       const montoFactura = Number(abono.montoFactura) || 0;
+      const iva = Number(abono.iva) || 0;
+      const baseComision = Math.max(0, montoFactura - iva);
       const supervisorNombre = abono.supervisor || '';
       const supervisorId = abono.supervisorId || '';
       if (supervisorNombre) {
         const porcentaje = Number(abono.comisionPorcentaje) || 0;
-        const comision = montoFactura * (porcentaje / 100);
+        const comision = baseComision * (porcentaje / 100);
         const key = supervisorId || supervisorNombre;
         if (!comisionesPorSupervisor[key]) {
           comisionesPorSupervisor[key] = { supervisor: supervisorNombre, supervisorId, monto: 0, cantidad: 0 };
@@ -4804,7 +4806,7 @@ app.get('/api/abonos-polar/comisiones', async (req: Request, res: ExpressRespons
         comisionesPorSupervisor[key].monto += comision;
         comisionesPorSupervisor[key].cantidad += 1;
       } else {
-        montoFacturaNoAsignada += montoFactura;
+        montoFacturaNoAsignada += baseComision;
       }
     }
 
