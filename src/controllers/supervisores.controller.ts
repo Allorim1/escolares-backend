@@ -19,7 +19,7 @@ export class SupervisoresController {
 
   async create(req: Request, res: Response): Promise<void> {
     try {
-      const { nombre, cedula, telefono } = req.body;
+      const { nombre, apellido, cedula, telefono, planta } = req.body;
 
       if (!nombre || !nombre.trim()) {
         res.status(400).json({ error: 'El nombre es requerido' });
@@ -32,8 +32,10 @@ export class SupervisoresController {
       const supervisor: Supervisor = {
         id,
         nombre: nombre.trim(),
+        apellido: apellido?.trim() || '',
         cedula: cedula?.trim() || '',
         telefono: telefono?.trim() || '',
+        planta: planta?.trim() || '',
         createdAt: now,
         updatedAt: now,
       };
@@ -51,19 +53,21 @@ export class SupervisoresController {
     try {
       const idParam = req.params.id;
       const id = Array.isArray(idParam) ? idParam[0] : idParam;
-      const { nombre, cedula, telefono } = req.body;
+      const { nombre, apellido, cedula, telefono, planta } = req.body;
 
       const updateData: Partial<Supervisor> = {
         updatedAt: new Date(),
       };
 
       if (nombre !== undefined) updateData.nombre = nombre;
+      if (apellido !== undefined) updateData.apellido = apellido;
       if (cedula !== undefined) updateData.cedula = cedula;
       if (telefono !== undefined) updateData.telefono = telefono;
+      if (planta !== undefined) updateData.planta = planta;
 
       const result = await database
         .getCollection<Supervisor>('supervisores')
-        .findOneAndUpdate({ id }, { $set: updateData }, { returnDocument: 'after' });
+        .findOneAndUpdate({ _id: id }, { $set: updateData }, { returnDocument: 'after' });
 
       if (!result) {
         res.status(404).json({ error: 'Supervisor no encontrado' });
@@ -84,7 +88,7 @@ export class SupervisoresController {
 
       const result = await database
         .getCollection<Supervisor>('supervisores')
-        .deleteOne({ id });
+        .deleteOne({ _id: id });
 
       if (result.deletedCount === 0) {
         res.status(404).json({ error: 'Supervisor no encontrado' });

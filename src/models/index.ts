@@ -315,8 +315,10 @@ export interface NotificacionRedSocial {
     _id?: string;
     id: string;
     nombre: string;
+    apellido?: string;
     cedula?: string;
     telefono?: string;
+    planta?: string;
     createdAt: Date;
     updatedAt: Date;
   }
