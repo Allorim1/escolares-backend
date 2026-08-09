@@ -4825,6 +4825,73 @@ app.get('/api/abonos-polar/comisiones', async (req: Request, res: ExpressRespons
   }
 });
 
+app.get('/api/abonos-polar/comisiones-detalle', async (req: Request, res: ExpressResponse) => {
+  try {
+    const collection = (database as any).getCollection('abonos-polar');
+    const { supervisor, empresa, planta, fechaDesde, fechaHasta } = req.query;
+
+    const filter: any = {};
+    if (supervisor) filter.supervisor = supervisor;
+    if (empresa) filter.empresa = empresa;
+    if (planta) filter.planta = planta;
+    if (fechaDesde || fechaHasta) {
+      filter.fecha = {};
+      if (fechaDesde) filter.fecha.$gte = fechaDesde;
+      if (fechaHasta) filter.fecha.$lte = fechaHasta;
+    }
+
+    const abonos = await collection.find(filter).toArray();
+
+    const comisionesPorSupervisor: Record<string, { supervisor: string; supervisorId: string; planta: string; monto: number; cantidad: number; abonos: any[] }> = {};
+    let montoFacturaNoAsignada = 0;
+
+    for (const abono of abonos) {
+      const montoFactura = Number(abono.montoFactura) || 0;
+      const iva = Number(abono.iva) || 0;
+      const baseComision = Math.max(0, montoFactura - iva);
+      const supervisorNombre = abono.supervisor || '';
+      const supervisorId = abono.supervisorId || '';
+      const abonoPlanta = abono.planta || '';
+      if (supervisorNombre) {
+        const porcentaje = Number(abono.comisionPorcentaje) || 0;
+        const comision = baseComision * (porcentaje / 100);
+        const key = supervisorId || supervisorNombre;
+        if (!comisionesPorSupervisor[key]) {
+          comisionesPorSupervisor[key] = { supervisor: supervisorNombre, supervisorId, planta: abonoPlanta, monto: 0, cantidad: 0, abonos: [] };
+        }
+        comisionesPorSupervisor[key].monto += comision;
+        comisionesPorSupervisor[key].cantidad += 1;
+        comisionesPorSupervisor[key].abonos.push({
+          _id: abono._id,
+          fecha: abono.fecha,
+          nombre: abono.nombre,
+          planta: abonoPlanta,
+          empresa: abono.empresa,
+          cedula: abono.cedula,
+          telefono: abono.telefono,
+          nFact: abono.nFact,
+          montoFactura,
+          iva,
+          baseComision,
+          comisionPorcentaje: porcentaje,
+          comisionMonto: comision,
+          status: abono.status,
+        });
+      } else {
+        montoFacturaNoAsignada += baseComision;
+      }
+    }
+
+    res.json({
+      comisionesPorSupervisor: Object.values(comisionesPorSupervisor),
+      montoFacturaNoAsignada,
+    });
+  } catch (error) {
+    console.error('Error obteniendo comisiones detalle:', error);
+    res.status(500).json({ error: 'Error al obtener comisiones detalle' });
+  }
+});
+
 app.use((req: Request, res: ExpressResponse) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
