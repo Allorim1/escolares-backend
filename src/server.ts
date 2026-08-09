@@ -4830,20 +4830,19 @@ app.get('/api/abonos-polar/comisiones-detalle', async (req: Request, res: Expres
     const collection = (database as any).getCollection('abonos-polar');
     const { supervisor, empresa, planta, fechaDesde, fechaHasta } = req.query;
 
-    const filter: any = {};
-    if (supervisor) filter.supervisor = supervisor;
-    if (empresa) filter.empresa = empresa;
-    if (planta) filter.planta = planta;
+    const abonosFilter: any = {};
+    if (supervisor) abonosFilter.supervisor = supervisor;
+    if (empresa) abonosFilter.empresa = empresa;
+    if (planta) abonosFilter.planta = planta;
     if (fechaDesde || fechaHasta) {
-      filter.fecha = {};
-      if (fechaDesde) filter.fecha.$gte = fechaDesde;
-      if (fechaHasta) filter.fecha.$lte = fechaHasta;
+      abonosFilter.fecha = {};
+      if (fechaDesde) abonosFilter.fecha.$gte = fechaDesde;
+      if (fechaHasta) abonosFilter.fecha.$lte = fechaHasta;
     }
 
-    const abonos = await collection.find(filter).toArray();
+    const abonos = await collection.find(abonosFilter).toArray();
 
     const comisionesPorSupervisor: Record<string, { supervisor: string; supervisorId: string; planta: string; monto: number; cantidad: number; abonos: any[] }> = {};
-    let montoFacturaNoAsignada = 0;
 
     for (const abono of abonos) {
       const montoFactura = Number(abono.montoFactura) || 0;
@@ -4877,14 +4876,31 @@ app.get('/api/abonos-polar/comisiones-detalle', async (req: Request, res: Expres
           comisionMonto: comision,
           status: abono.status,
         });
-      } else {
-        montoFacturaNoAsignada += baseComision;
       }
     }
 
+    const supervisoresCollection = (database as any).getCollection('supervisores');
+    const supervisores = await supervisoresCollection.find({}).toArray();
+
+    const resultado = supervisores.map((sup: any) => {
+      const key = sup._id?.toString() || sup.id || sup.nombre;
+      const existente = comisionesPorSupervisor[key];
+      if (existente) {
+        return existente;
+      }
+      return {
+        supervisor: sup.nombre,
+        supervisorId: sup._id?.toString() || sup.id || sup.nombre,
+        planta: sup.planta || '',
+        monto: 0,
+        cantidad: 0,
+        abonos: [],
+      };
+    });
+
     res.json({
-      comisionesPorSupervisor: Object.values(comisionesPorSupervisor),
-      montoFacturaNoAsignada,
+      comisionesPorSupervisor: resultado,
+      montoFacturaNoAsignada: 0,
     });
   } catch (error) {
     console.error('Error obteniendo comisiones detalle:', error);
