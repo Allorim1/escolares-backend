@@ -91,6 +91,23 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
    { id: 'repartidor_actualizar_estado', nombre: 'Actualizar Estado de Pedido', descripcion: 'Puede cambiar estado de pedidos', modulo: 'repartidor' },
     { id: 'repartidor_ubicacion', nombre: 'Compartir Ubicación', descripcion: 'Puede compartir ubicación GPS', modulo: 'repartidor' },
     { id: 'totales_ver', nombre: 'Ver Totales', descripcion: 'Puede ver los totales en relación de cuentas', modulo: 'panel_admin' },
+
+    // Columna relaciones
+    { id: 'columna_relaciones_fecha', nombre: 'Fecha', descripcion: 'Puede ver la columna Fecha en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_nombre', nombre: 'Nombre', descripcion: 'Puede ver la columna Nombre en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_empresa', nombre: 'Empresa', descripcion: 'Puede ver la columna Empresa en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_planta', nombre: 'Planta', descripcion: 'Puede ver la columna Planta en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_telefono', nombre: 'Teléfono', descripcion: 'Puede ver la columna Teléfono en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_cedula', nombre: 'Cédula', descripcion: 'Puede ver la columna Cédula en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_nFact', nombre: 'N. Fact', descripcion: 'Puede ver la columna N. Fact en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_montoFactura', nombre: 'Monto Factura', descripcion: 'Puede ver la columna Monto Factura en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_iva', nombre: 'IVA', descripcion: 'Puede ver la columna IVA en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_diferencia', nombre: 'Diferencia', descripcion: 'Puede ver la columna Diferencia en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_divisa', nombre: 'Divisa', descripcion: 'Puede ver la columna Divisa en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_pagoParcial', nombre: 'Pago Parcial', descripcion: 'Puede ver la columna Pago Parcial en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_tasa', nombre: 'Tasa', descripcion: 'Puede ver la columna Tasa en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_status', nombre: 'Status', descripcion: 'Puede ver la columna Status en Relaciones', modulo: 'Columna relaciones' },
+    { id: 'columna_relaciones_supervisor', nombre: 'Supervisor', descripcion: 'Puede ver la columna Supervisor en Relaciones', modulo: 'Columna relaciones' },
   ];
 
 router.get('/permisos', authenticateToken, requireRoot, async (req: Request, res: Response) => {
