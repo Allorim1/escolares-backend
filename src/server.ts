@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { Express, Request, Response as ExpressResponse } from 'express';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import helmet from 'helmet';
 import swaggerJsdoc from 'swagger-jsdoc';
@@ -39,6 +40,9 @@ import cotizacionesRoutes from './routes/cotizaciones.routes';
 import notasEntregaRoutes from './routes/notas-entrega.routes';
 import comprasHistorialRoutes from './routes/compras-historial.routes';
 import estadisticasRoutes from './routes/estadisticas.routes';
+import recordatoriosRoutes from './routes/recordatorios.routes';
+import orderMessagesRoutes from './routes/order-messages.routes';
+import supervisoresRoutes from './routes/supervisores.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -85,7 +89,8 @@ const io = new Server(httpServer, {
       ? process.env.ALLOWED_ORIGINS.split(',')
       : ['http://localhost:4200', 'http://localhost:3000', 'https://test.escolaresonline.com', 'https://escolaresonline.com'],
     methods: ['GET', 'POST']
-  }
+  },
+  transports: ['websocket']
 });
 
 // Attach io to app for access in routes
@@ -124,6 +129,18 @@ io.on('connection', (socket) => {
   socket.on('leave-messages-room', (userId) => {
     socket.leave(`messages-${userId}`);
     console.log(`Usuario ${userId} salió de la sala de mensajes`);
+  });
+
+  // Join order messages room
+  socket.on('join-order-messages-room', (orderId) => {
+    socket.join(`order-messages-${orderId}`);
+    console.log(`Usuario se unió a la sala de mensajes del pedido ${orderId}`);
+  });
+
+  // Leave order messages room
+  socket.on('leave-order-messages-room', (orderId) => {
+    socket.leave(`order-messages-${orderId}`);
+    console.log(`Usuario salió de la sala de mensajes del pedido ${orderId}`);
   });
 });
 
@@ -208,6 +225,8 @@ const invalidateCache = (req: Request, res: ExpressResponse, next: () => void) =
       cacheDeletePattern('req:/api/manuales*');
     } else if (path.includes('/notas-entrega')) {
       cacheDeletePattern('req:/api/notas-entrega*');
+    } else if (path.includes('/supervisores')) {
+      cacheDeletePattern('req:/api/supervisores*');
     }
   }
   next();
@@ -262,7 +281,7 @@ app.use(cookieParser());
 const DOLAR_API_KEY = '29b324b9a34615a7e8f1d945ea95bb22e621cfe3ae2d6b36e957bb08d1fa7fa7'
 const DOLAR_API_URL = 'https://api.dolarvzla.com/public/bcv/exchange-rate';
 const USDT_API_URL = 'https://api.dolarvzla.com/public/usdt/exchange-rate';
-const BCV_CURRENT_URL = 'https://api.dolarvzla.com/public/bcv/current.json';
+const BCV_CURRENT_URL = 'https://rates.dolarvzla.com/bcv/current.json';
 
 const qrUploadTokens = new Map<string, { proveedorId: string; facturaIndex: number; timestamp: number }>();
 
@@ -648,6 +667,44 @@ app.put('/api/settings/mantenimiento', authenticateToken, async (req: Request, r
   } catch (error) {
     console.error('Error saving mantenimiento setting:', error);
     res.status(500).json({ error: 'Error al guardar la configuración de mantenimiento' });
+  }
+});
+
+app.get('/api/settings/relacion-cuentas-columnas', authenticateToken, async (req: Request, res: ExpressResponse) => {
+  try {
+    const result = await database.getCollection('settings').findOne({ key: 'relacion-cuentas-columnas' });
+    const value = result?.value ?? null;
+    res.json({ columns: value });
+  } catch (error) {
+    console.error('Error loading relacion-cuentas columnas setting:', error);
+    res.status(500).json({ error: 'Error al cargar la configuración de columnas' });
+  }
+});
+
+app.put('/api/settings/relacion-cuentas-columnas', authenticateToken, async (req: Request, res: ExpressResponse) => {
+  try {
+    const user = req.user as any;
+    if (user.rol !== 'root') {
+      res.status(403).json({ error: 'Solo el usuario root puede modificar esta configuración' });
+      return;
+    }
+
+    const { columns } = req.body;
+    if (!Array.isArray(columns)) {
+      res.status(400).json({ error: 'Se requiere un array de columnas' });
+      return;
+    }
+
+    await database.getCollection('settings').updateOne(
+      { key: 'relacion-cuentas-columnas' },
+      { $set: { key: 'relacion-cuentas-columnas', value: columns, updatedAt: new Date() } },
+      { upsert: true }
+    );
+
+    res.json({ success: true, columns });
+  } catch (error) {
+    console.error('Error saving relacion-cuentas columnas setting:', error);
+    res.status(500).json({ error: 'Error al guardar la configuración de columnas' });
   }
 });
 
@@ -1902,6 +1959,7 @@ app.use(withCache(300));
 
 // Servir archivos estáticos desde el directorio uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api/marcas', marcasRoutes);
 app.use('/api/lineas', lineasRoutes);
@@ -1918,6 +1976,8 @@ app.use('/api/ratings', ratingsRoutes);
 app.use('/api/producto-categorias', productCategoriasRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/redes-sociales', redesSocialesRoutes);
+app.use('/api/recordatorios', recordatoriosRoutes);
+app.use('/api/recordatorios', recordatoriosRoutes);
 app.use('/api/noticias', noticiasRoutes);
 app.use('/api/tasas-guardadas', tasasGuardadasRoutes);
 app.use('/api/cotizaciones', cotizacionesRoutes);
@@ -1925,6 +1985,8 @@ app.use('/api/notas-entrega', notasEntregaRoutes);
 app.use('/api/compras', comprasHistorialRoutes);
 app.use('/api/acuerdos-comerciales', comprasHistorialRoutes);
 app.use('/api/estadisticas', estadisticasRoutes);
+app.use('/api/order-messages', orderMessagesRoutes);
+app.use('/api/supervisores', supervisoresRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {
@@ -4540,7 +4602,18 @@ app.delete('/api/empresas/:id', async (req: Request, res: ExpressResponse) => {
 app.get('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('abonos-polar');
-    const abonos = await collection.find({}).sort({ fecha: -1 }).allowDiskUse(true).toArray();
+    const { q } = req.query;
+    let query: any = {};
+    if (q && typeof q === 'string') {
+      const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query = {
+        $or: [
+          { nombre: { $regex: regex } },
+          { cedula: { $regex: regex } },
+        ],
+      };
+    }
+    const abonos = await collection.find(query).sort({ fecha: -1 }).allowDiskUse(true).toArray();
     res.json(abonos);
   } catch (error) {
     console.error('Error obteniendo abonos polar:', error);
@@ -4550,11 +4623,14 @@ app.get('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
 
 app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
   try {
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa } = req.body;
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor, supervisorId, abonos, abonosPagos, ivaPagado, comisionPorcentaje } = req.body;
     if (!fecha || !nombre || !planta || !nFact) {
       res.status(400).json({ error: 'Fecha, nombre, planta y número de factura son requeridos' });
       return;
     }
+    const totalAbonos = Array.isArray(abonosPagos) && abonosPagos.length > 0
+      ? Number(abonosPagos.reduce((sum: number, p: any) => sum + (Number(p.monto) || 0), 0).toFixed(2))
+      : (abonos || 0);
     const abono = {
       fecha: fecha ? new Date(fecha) : new Date(),
       nombre,
@@ -4563,15 +4639,34 @@ app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
       telefono: telefono || '',
       nFact,
       montoFactura: montoFactura || 0,
+      abonos: totalAbonos,
+      abonosPagos: Array.isArray(abonosPagos) ? abonosPagos : [],
       iva: iva || 0,
+      ivaPagado: ivaPagado || false,
       diferencia: diferencia || 0,
       tasa: tasa || 0,
       divisa: divisa || 0,
       status: status || '',
       empresa: empresa || '',
+      supervisor: supervisor || '',
+      supervisorId: supervisorId || '',
+      comisionPorcentaje: comisionPorcentaje || 0,
     };
     const collection = (database as any).getCollection('abonos-polar');
     const result = await collection.insertOne(abono);
+
+    if (abono.supervisor) {
+      await collection.updateMany(
+        { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: abono.supervisor } },
+        { $set: { supervisor: abono.supervisor, supervisorId: abono.supervisorId } }
+      );
+    } else {
+      await collection.updateMany(
+        { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: '' } },
+        { $set: { supervisor: '', supervisorId: '' } }
+      );
+    }
+
     res.json({ ...abono, _id: result.insertedId });
   } catch (error) {
     console.error('Error creando abono polar:', error);
@@ -4584,12 +4679,29 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
-    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa } = req.body;
-    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa };
+    const { fecha, nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor, supervisorId, abonos, abonosPagos, ivaPagado, comisionPorcentaje } = req.body;
+    const totalAbonos = Array.isArray(abonosPagos) && abonosPagos.length > 0
+      ? Number(abonosPagos.reduce((sum: number, p: any) => sum + (Number(p.monto) || 0), 0).toFixed(2))
+      : (abonos || 0);
+    const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor: supervisor || '', supervisorId: supervisorId || '', abonos: totalAbonos, abonosPagos: Array.isArray(abonosPagos) ? abonosPagos : [], ivaPagado: ivaPagado || false, comisionPorcentaje: comisionPorcentaje || 0 };
     if (fecha) updateData.fecha = new Date(fecha);
     const collection = (database as any).getCollection('abonos-polar');
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
-    res.json({ success: true });
+
+    if (supervisor) {
+      await collection.updateMany(
+        { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: supervisor } },
+        { $set: { supervisor, supervisorId: supervisorId || '' } }
+      );
+    } else {
+      await collection.updateMany(
+        { nombre: new RegExp(`^${nombre}$`, 'i'), supervisor: { $ne: '' } },
+        { $set: { supervisor: '', supervisorId: '' } }
+      );
+    }
+
+    const abonoActualizado = await collection.findOne({ _id: new ObjectId(id) });
+    res.json(abonoActualizado || { success: true });
   } catch (error) {
     console.error('Error actualizando abono polar:', error);
     res.status(500).json({ error: 'Error al actualizar abono polar' });
@@ -4607,6 +4719,192 @@ app.delete('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) =
   } catch (error) {
     console.error('Error eliminando abono polar:', error);
     res.status(500).json({ error: 'Error al eliminar abono polar' });
+  }
+});
+
+const uploadsRoot = process.env.UPLOADS_PATH
+  ? path.resolve(process.env.UPLOADS_PATH)
+  : path.resolve(process.cwd(), 'uploads');
+const abonoImagenesPath = path.join(uploadsRoot, 'abonos-polar');
+if (!fs.existsSync(abonoImagenesPath)) {
+  fs.mkdirSync(abonoImagenesPath, { recursive: true });
+}
+
+const abonoImagenesStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, abonoImagenesPath);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+    cb(null, uniqueName);
+  }
+});
+
+const uploadAbonoImagen = multer({ storage: abonoImagenesStorage, limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.post('/api/abonos-polar/:id/imagenes', uploadAbonoImagen.single('imagen'), async (req: Request, res: ExpressResponse) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: 'No se envió ninguna imagen' });
+      return;
+    }
+    const imageUrl = `/api/uploads/abonos-polar/${file.filename}`;
+    const collection = (database as any).getCollection('abonos-polar');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $push: { imagenes: imageUrl } });
+    const abono = await collection.findOne({ _id: new ObjectId(id) });
+    res.json({ imagenes: abono?.imagenes || [] });
+  } catch (error) {
+    console.error('Error subiendo imagen de abono:', error);
+    res.status(500).json({ error: 'Error al subir imagen' });
+  }
+});
+
+app.delete('/api/abonos-polar/:id/imagenes', async (req: Request, res: ExpressResponse) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const url = String(req.query.url || '');
+    const collection = (database as any).getCollection('abonos-polar');
+    const abono = await collection.findOne({ _id: new ObjectId(id) });
+    const imagenes = Array.isArray(abono?.imagenes) ? abono.imagenes : [];
+    const nuevas = imagenes.filter((img: string) => img !== url);
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: { imagenes: nuevas } });
+    res.json({ imagenes: nuevas });
+  } catch (error) {
+    console.error('Error eliminando imagen de abono:', error);
+    res.status(500).json({ error: 'Error al eliminar imagen' });
+  }
+});
+
+app.get('/api/abonos-polar/comisiones', async (req: Request, res: ExpressResponse) => {
+  try {
+    const collection = (database as any).getCollection('abonos-polar');
+    const abonos = await collection.find({}).toArray();
+
+    const comisionesPorSupervisor: Record<string, { supervisor: string; supervisorId: string; monto: number; cantidad: number }> = {};
+    let montoFacturaNoAsignada = 0;
+
+    for (const abono of abonos) {
+      const montoFactura = Number(abono.montoFactura) || 0;
+      const iva = Number(abono.iva) || 0;
+      const baseComision = Math.max(0, montoFactura - iva);
+      const supervisorNombre = abono.supervisor || '';
+      const supervisorId = abono.supervisorId || '';
+      if (supervisorNombre) {
+        const porcentaje = Number(abono.comisionPorcentaje) || 0;
+        const comision = baseComision * (porcentaje / 100);
+        const key = supervisorId || supervisorNombre;
+        if (!comisionesPorSupervisor[key]) {
+          comisionesPorSupervisor[key] = { supervisor: supervisorNombre, supervisorId, monto: 0, cantidad: 0 };
+        }
+        comisionesPorSupervisor[key].monto += comision;
+        comisionesPorSupervisor[key].cantidad += 1;
+      } else {
+        montoFacturaNoAsignada += baseComision;
+      }
+    }
+
+    const porcentajeNoAsignada = Number(req.query.porcentaje || 0);
+    const comisionNoAsignada = montoFacturaNoAsignada * (porcentajeNoAsignada / 100);
+
+    res.json({
+      comisionesPorSupervisor: Object.values(comisionesPorSupervisor),
+      comisionNoAsignada,
+      comisionNoAsignadaPorcentaje: porcentajeNoAsignada,
+      montoFacturaNoAsignada,
+    });
+  } catch (error) {
+    console.error('Error obteniendo comisiones:', error);
+    res.status(500).json({ error: 'Error al obtener comisiones' });
+  }
+});
+
+app.get('/api/abonos-polar/comisiones-detalle', async (req: Request, res: ExpressResponse) => {
+  try {
+    const collection = (database as any).getCollection('abonos-polar');
+    const { supervisor, empresa, planta, fechaDesde, fechaHasta } = req.query;
+
+    const abonosFilter: any = {};
+    if (supervisor) abonosFilter.supervisor = supervisor;
+    if (empresa) abonosFilter.empresa = empresa;
+    if (planta) abonosFilter.planta = planta;
+    if (fechaDesde || fechaHasta) {
+      abonosFilter.fecha = {};
+      if (fechaDesde) abonosFilter.fecha.$gte = fechaDesde;
+      if (fechaHasta) abonosFilter.fecha.$lte = fechaHasta;
+    }
+
+    const abonos = await collection.find(abonosFilter).toArray();
+
+    const comisionesPorSupervisor: Record<string, { supervisor: string; supervisorId: string; planta: string; monto: number; cantidad: number; abonos: any[] }> = {};
+
+    for (const abono of abonos) {
+      const montoFactura = Number(abono.montoFactura) || 0;
+      const iva = Number(abono.iva) || 0;
+      const baseComision = Math.max(0, montoFactura - iva);
+      const supervisorNombre = abono.supervisor || '';
+      const supervisorId = abono.supervisorId || '';
+      const abonoPlanta = abono.planta || '';
+      if (supervisorNombre) {
+        const porcentaje = Number(abono.comisionPorcentaje) || 0;
+        const comision = baseComision * (porcentaje / 100);
+        const key = supervisorId || supervisorNombre;
+        if (!comisionesPorSupervisor[key]) {
+          comisionesPorSupervisor[key] = { supervisor: supervisorNombre, supervisorId, planta: abonoPlanta, monto: 0, cantidad: 0, abonos: [] };
+        }
+        comisionesPorSupervisor[key].monto += comision;
+        comisionesPorSupervisor[key].cantidad += 1;
+        comisionesPorSupervisor[key].abonos.push({
+          _id: abono._id,
+          fecha: abono.fecha,
+          nombre: abono.nombre,
+          planta: abonoPlanta,
+          empresa: abono.empresa,
+          cedula: abono.cedula,
+          telefono: abono.telefono,
+          nFact: abono.nFact,
+          montoFactura,
+          iva,
+          baseComision,
+          comisionPorcentaje: porcentaje,
+          comisionMonto: comision,
+          status: abono.status,
+        });
+      }
+    }
+
+    const supervisoresCollection = (database as any).getCollection('supervisores');
+    const supervisores = await supervisoresCollection.find({}).toArray();
+
+    const resultado = supervisores.map((sup: any) => {
+      const key = sup._id?.toString() || sup.id || sup.nombre;
+      const existente = comisionesPorSupervisor[key];
+      if (existente) {
+        return existente;
+      }
+      return {
+        supervisor: sup.nombre,
+        supervisorId: sup._id?.toString() || sup.id || sup.nombre,
+        planta: sup.planta || '',
+        monto: 0,
+        cantidad: 0,
+        abonos: [],
+      };
+    });
+
+    res.json({
+      comisionesPorSupervisor: resultado,
+      montoFacturaNoAsignada: 0,
+    });
+  } catch (error) {
+    console.error('Error obteniendo comisiones detalle:', error);
+    res.status(500).json({ error: 'Error al obtener comisiones detalle' });
   }
 });
 
