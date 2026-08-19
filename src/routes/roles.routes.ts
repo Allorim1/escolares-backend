@@ -92,6 +92,9 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
     { id: 'repartidor_ubicacion', nombre: 'Compartir Ubicación', descripcion: 'Puede compartir ubicación GPS', modulo: 'repartidor' },
     { id: 'totales_ver', nombre: 'Ver Totales', descripcion: 'Puede ver los totales en relación de cuentas', modulo: 'panel_admin' },
 
+      // Relaciones
+      { id: 'relaciones_eliminar', nombre: 'Eliminar Relaciones', descripcion: 'Puede eliminar relaciones', modulo: 'panel_admin' },
+
     // Columna relaciones
     { id: 'columna_relaciones_fecha', nombre: 'Fecha', descripcion: 'Puede ver la columna Fecha en Relaciones', modulo: 'Columna relaciones' },
     { id: 'columna_relaciones_nombre', nombre: 'Nombre', descripcion: 'Puede ver la columna Nombre en Relaciones', modulo: 'Columna relaciones' },
