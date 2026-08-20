@@ -4714,8 +4714,16 @@ app.delete('/api/abonos-polar/:id', authenticateToken, async (req: Request, res:
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const collection = (database as any).getCollection('abonos-polar');
+    const requesterRole = (req as any).userRol;
+    // If requester is root, allow deletion with confirmation (no supervisor key needed)
+    if (requesterRole === 'root') {
+      await collection.deleteOne({ _id: new ObjectId(id) });
+      console.log(`Abono ${id} eliminado por usuario root solicitante`);
+      res.json({ success: true });
+      return;
+    }
 
-    // Read supervisor clave from body, query or header (required for all deletions)
+    // Read supervisor clave from body, query or header
     const claveSupervisor = (req.body && req.body.claveSupervisor) || req.query.claveSupervisor || req.headers['x-clave-supervisor'];
     if (!claveSupervisor) {
       res.status(400).json({ error: 'Clave de supervisor requerida' });
