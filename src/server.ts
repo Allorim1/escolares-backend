@@ -4708,13 +4708,59 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
   }
 });
 
-app.delete('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
+app.delete('/api/abonos-polar/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
     const id = Array.isArray(idParam) ? idParam[0] : idParam;
     const collection = (database as any).getCollection('abonos-polar');
+    const requesterRole = (req as any).userRol;
+    // If requester is root, allow deletion with confirmation (no supervisor key needed)
+    if (requesterRole === 'root') {
+      await collection.deleteOne({ _id: new ObjectId(id) });
+      console.log(`Abono ${id} eliminado por usuario root solicitante`);
+      res.json({ success: true });
+      return;
+    }
+
+    // Read supervisor clave from body, query or header
+    const claveSupervisor = (req.body && req.body.claveSupervisor) || req.query.claveSupervisor || req.headers['x-clave-supervisor'];
+    if (!claveSupervisor) {
+      res.status(400).json({ error: 'Clave de supervisor requerida' });
+      return;
+    }
+
+    // Find supervisor user by supervisorKey
+    const supervisor = await database.getCollection('users').findOne({ supervisorKey: String(claveSupervisor) });
+    if (!supervisor) {
+      res.status(403).json({ error: 'Clave de supervisor inválida' });
+      return;
+    }
+
+    // Root supervisor can authorize any action
+    if (supervisor.rol === 'root') {
+      await collection.deleteOne({ _id: new ObjectId(id) });
+      console.log(`Abono ${id} eliminado por supervisor root ${supervisor.username || supervisor.nombreCompleto || supervisor.id}`);
+      res.json({ success: true });
+      return;
+    }
+
+    // Otherwise verify supervisor's role has permiso 'relaciones_eliminar'
+    const rolId = supervisor.rolId;
+    if (!rolId) {
+      res.status(403).json({ error: 'Supervisor no autorizado' });
+      return;
+    }
+
+    const rol = await database.getCollection('roles').findOne({ id: rolId });
+    if (!rol || !Array.isArray(rol.permisos) || !rol.permisos.includes('relaciones_eliminar')) {
+      res.status(403).json({ error: 'Supervisor no autorizado para eliminar relaciones' });
+      return;
+    }
+
+    // Authorized: delete and log
     await collection.deleteOne({ _id: new ObjectId(id) });
+    console.log(`Abono ${id} eliminado por ${supervisor.username || supervisor.nombreCompleto || supervisor.id} (supervisor)`);
     res.json({ success: true });
   } catch (error) {
     console.error('Error eliminando abono polar:', error);
