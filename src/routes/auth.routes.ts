@@ -273,4 +273,8 @@ router.delete('/users/:id', authenticateToken, (req: Request, res: Response) =>
     authController.getAllPasswords(req, res),
   );
 
+  router.delete('/passwords/:id', authenticateToken, (req: Request, res: Response) =>
+    authController.deletePassword(req, res),
+  );
+
   export default router;

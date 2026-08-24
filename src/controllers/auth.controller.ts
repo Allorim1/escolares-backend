@@ -1068,6 +1068,35 @@ await database.getCollection<User>('users').updateOne(
     }
   }
 
+  async deletePassword(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUser = req.user;
+      if (!currentUser || currentUser.rol !== 'root') {
+        res.status(403).json({ error: 'Solo el usuario root puede acceder a esta sección' });
+        return;
+      }
+
+      const id = req.params.id;
+      if (!id) {
+        res.status(400).json({ error: 'ID requerido' });
+        return;
+      }
+
+      const collection = database.getCollection<ContrasenaAuditoria>('contrasenas');
+      const result = await collection.deleteOne({ id });
+
+      if (result.deletedCount === 0) {
+        res.status(404).json({ error: 'Registro no encontrado' });
+        return;
+      }
+
+      res.json({ message: 'Registro eliminado correctamente' });
+    } catch (error) {
+      console.error('Error al eliminar contraseña:', error);
+      res.status(500).json({ error: 'Error al eliminar contraseña' });
+    }
+  }
+
   async getAllPasswords(req: AuthRequest, res: Response): Promise<void> {
     try {
       const currentUser = req.user;
@@ -1076,7 +1105,39 @@ await database.getCollection<User>('users').updateOne(
         return;
       }
 
-      const passwords = await database.getCollection<ContrasenaAuditoria>('contrasenas').find({}).sort({ fecha: -1 }).toArray();
+      const searchTerm = (req.query.q as string || '').trim().toLowerCase();
+
+      const collection = database.getCollection<ContrasenaAuditoria>('contrasenas');
+      const pipeline: any[] = [
+        {
+          $sort: { fecha: -1 } as any,
+        },
+        {
+          $group: {
+            _id: '$userId',
+            doc: { $first: '$$ROOT' },
+          } as any,
+        },
+        {
+          $replaceRoot: { newRoot: '$doc' } as any,
+        },
+        {
+          $sort: { fecha: -1 } as any,
+        },
+      ];
+
+      if (searchTerm) {
+        pipeline.push({
+          $match: {
+            $or: [
+              { username: { $regex: searchTerm, $options: 'i' } },
+              { email: { $regex: searchTerm, $options: 'i' } },
+            ],
+          } as any,
+        });
+      }
+
+      const passwords = await collection.aggregate(pipeline).toArray();
       const passwordsWithoutSensitive = passwords.map(({ _id, ...p }) => ({
         ...p,
         id: p.id,
