@@ -2,7 +2,7 @@
 import argon2 from 'argon2';
 import { ObjectId } from 'mongodb';
 import { database } from '../config/database';
-import { User, DeliveryPerson, UserSession } from '../models';
+import { User, DeliveryPerson, UserSession, ContrasenaAuditoria } from '../models';
 import { jwtConfig } from '../config/jwt';
 import { AuthRequest } from '../middlewares/auth.middleware';
 import { createSessionRecord } from '../middlewares/session.middleware';
@@ -71,6 +71,18 @@ export class AuthController {
 
       await database.getCollection<User>('users').insertOne(newUser);
 
+      const registroContrasena: ContrasenaAuditoria = {
+        id: Date.now().toString() + '-pwd',
+        userId: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        contrasena: password,
+        rol: newUser.rol || 'usuario',
+        fecha: new Date(),
+        accion: 'crear',
+      };
+      await database.getCollection<ContrasenaAuditoria>('contrasenas').insertOne(registroContrasena);
+
       const tokens = jwtConfig.generateTokens({
         userId: newUser.id,
         email: newUser.email,
@@ -138,6 +150,18 @@ const newUser: User = {
       }
 
       await database.getCollection<User>('users').insertOne(newUser);
+
+      const registroContrasena: ContrasenaAuditoria = {
+        id: Date.now().toString() + '-pwd',
+        userId: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        contrasena: password,
+        rol: newUser.rol || 'usuario',
+        fecha: new Date(),
+        accion: 'crear',
+      };
+      await database.getCollection<ContrasenaAuditoria>('contrasenas').insertOne(registroContrasena);
 
       // Create delivery person record if rol is 'repartidor'
       let deliveryPersonIdForResponse: string | undefined;
@@ -587,6 +611,18 @@ await database.getCollection<User>('users').updateOne(
         { $set: { password: hashedPassword } }
       );
 
+      const registroContrasena: ContrasenaAuditoria = {
+        id: Date.now().toString() + '-pwd',
+        userId: user.id || userId,
+        username: user.username || '',
+        email: user.email || '',
+        contrasena: newPassword,
+        rol: user.rol || 'usuario',
+        fecha: new Date(),
+        accion: 'cambiar',
+      };
+      await database.getCollection<ContrasenaAuditoria>('contrasenas').insertOne(registroContrasena);
+
       const db = database.db;
       if (db) {
         let registrosCollection = db.collection('registros');
@@ -733,6 +769,18 @@ await database.getCollection<User>('users').updateOne(
         this.getUserSelector(userId),
         { $set: { password: hashedPassword } }
       );
+
+      const registroContrasena: ContrasenaAuditoria = {
+        id: Date.now().toString() + '-pwd',
+        userId: user.id || updateId || '',
+        username: user.username || '',
+        email: user.email || '',
+        contrasena: newPassword,
+        rol: user.rol || 'usuario',
+        fecha: new Date(),
+        accion: 'cambiar',
+      };
+      await database.getCollection<ContrasenaAuditoria>('contrasenas').insertOne(registroContrasena);
 
       res.json({ message: 'Contraseña actualizada correctamente' });
     } catch (error) {
@@ -884,6 +932,18 @@ await database.getCollection<User>('users').updateOne(
         { $set: { password: hashedPassword } }
       );
 
+      const registroContrasena: ContrasenaAuditoria = {
+        id: Date.now().toString() + '-pwd',
+        userId: user.id || '',
+        username: user.username || '',
+        email: user.email || '',
+        contrasena: newPassword,
+        rol: user.rol || 'usuario',
+        fecha: new Date(),
+        accion: 'cambiar',
+      };
+      await database.getCollection<ContrasenaAuditoria>('contrasenas').insertOne(registroContrasena);
+
       await database.getCollection('passwordResetOtp').updateOne(
         { userId: user.id },
         { $set: { used: true } }
@@ -1005,6 +1065,26 @@ await database.getCollection<User>('users').updateOne(
     } catch (error) {
       console.error('Error al cerrar sesiones:', error);
       res.status(500).json({ error: 'Error al cerrar sesiones' });
+    }
+  }
+
+  async getAllPasswords(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUser = req.user;
+      if (!currentUser || currentUser.rol !== 'root') {
+        res.status(403).json({ error: 'Solo el usuario root puede acceder a esta sección' });
+        return;
+      }
+
+      const passwords = await database.getCollection<ContrasenaAuditoria>('contrasenas').find({}).sort({ fecha: -1 }).toArray();
+      const passwordsWithoutSensitive = passwords.map(({ _id, ...p }) => ({
+        ...p,
+        id: p.id,
+      }));
+      res.json(passwordsWithoutSensitive);
+    } catch (error) {
+      console.error('Error al obtener contraseñas:', error);
+      res.status(500).json({ error: 'Error al obtener contraseñas' });
     }
   }
 }

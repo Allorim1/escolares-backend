@@ -322,3 +322,15 @@ export interface NotificacionRedSocial {
     createdAt: Date;
     updatedAt: Date;
   }
+
+  export interface ContrasenaAuditoria {
+    _id?: string;
+    id: string;
+    userId: string;
+    username: string;
+    email: string;
+    contrasena: string;
+    rol: string;
+    fecha: Date;
+    accion: 'crear' | 'cambiar';
+  }
