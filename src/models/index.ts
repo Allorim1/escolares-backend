@@ -96,6 +96,17 @@ export interface Product {
   purchases: number;
 }
 
+export interface InvProducto {
+  _id?: string;
+  codigo: string;
+  nombre: string;
+  descrip?: string;
+  costo?: number;
+  precio?: number;
+  iva?: number;
+  stock?: number;
+}
+
 export interface ProductCategoria {
   _id?: string;
   id: string;
