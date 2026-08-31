@@ -37,6 +37,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       iva: p.iva ?? 0,
       stock: p.stock ?? 0,
       codgrupo1: p.codgrupo1 || '',
+      borrado: p.borrado ?? 0,
     }));
 
     res.json(mapped);
