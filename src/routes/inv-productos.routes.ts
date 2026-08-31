@@ -8,6 +8,7 @@ const router = Router();
 router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const search = (req.query.q as string | undefined)?.trim() || '';
+    const codgrupo1 = (req.query.codgrupo1 as string | undefined)?.trim() || '';
     const collection = database.getCollection<InvProducto>('inv_productos');
 
     const query: Record<string, unknown> = {};
@@ -17,6 +18,9 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
         { codigo: regex },
         { nombre: regex },
       ];
+    }
+    if (codgrupo1) {
+      query.codgrupo1 = codgrupo1;
     }
 
     const productos = await collection.find(query).limit(50).toArray();
@@ -29,6 +33,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       precio: p.precio ?? 0,
       iva: p.iva ?? 0,
       stock: p.stock ?? 0,
+      codgrupo1: p.codgrupo1 || '',
     }));
 
     res.json(mapped);

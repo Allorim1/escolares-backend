@@ -105,6 +105,7 @@ export interface InvProducto {
   precio?: number;
   iva?: number;
   stock?: number;
+  codgrupo1?: string;
 }
 
 export interface ProductCategoria {

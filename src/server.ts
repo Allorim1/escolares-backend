@@ -44,6 +44,7 @@ import recordatoriosRoutes from './routes/recordatorios.routes';
 import orderMessagesRoutes from './routes/order-messages.routes';
 import supervisoresRoutes from './routes/supervisores.routes';
 import invProductosRoutes from './routes/inv-productos.routes';
+import invGrupos1Routes from './routes/inv-grupos1.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -1989,6 +1990,7 @@ app.use('/api/estadisticas', estadisticasRoutes);
 app.use('/api/order-messages', orderMessagesRoutes);
 app.use('/api/supervisores', supervisoresRoutes);
 app.use('/api/inv-productos', invProductosRoutes);
+app.use('/api/inv-grupos1', invGrupos1Routes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {
