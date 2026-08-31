@@ -9,6 +9,7 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const search = (req.query.q as string | undefined)?.trim() || '';
     const codgrupo1 = req.query.codgrupo1 as string | string[] | undefined;
+    const all = (req.query.all as string | undefined)?.trim() === 'true';
     const collection = database.getCollection<InvProducto>('inv_productos');
 
     const query: Record<string, unknown> = { borrado: 0 };
@@ -26,7 +27,8 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       }
     }
 
-    const productos = await collection.find(query).limit(50).toArray();
+    const cursor = collection.find(query);
+    const productos = all ? await cursor.toArray() : await cursor.limit(50).toArray();
     const mapped = productos.map((p) => ({
       _id: p._id,
       codigo: p.codigo || '',
