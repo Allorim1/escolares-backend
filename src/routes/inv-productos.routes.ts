@@ -8,10 +8,10 @@ const router = Router();
 router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
     const search = (req.query.q as string | undefined)?.trim() || '';
-    const codgrupo1 = (req.query.codgrupo1 as string | undefined)?.trim() || '';
+    const codgrupo1 = req.query.codgrupo1 as string | string[] | undefined;
     const collection = database.getCollection<InvProducto>('inv_productos');
 
-    const query: Record<string, unknown> = {};
+    const query: Record<string, unknown> = { borrado: 0 };
     if (search) {
       const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       query.$or = [
@@ -20,7 +20,10 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
       ];
     }
     if (codgrupo1) {
-      query.codgrupo1 = codgrupo1;
+      const grupos = Array.isArray(codgrupo1) ? codgrupo1.map((v) => v.trim()).filter(Boolean) : [codgrupo1.trim()].filter(Boolean);
+      if (grupos.length) {
+        query.codgrupo1 = { $in: grupos };
+      }
     }
 
     const productos = await collection.find(query).limit(50).toArray();
