@@ -41,7 +41,7 @@ export const authenticateToken = async (
     req.user = payload;
     (req as any).userRol = payload.rol;
 
-    const sessionId = `sess_${Buffer.from(accessToken).toString('base64').slice(0, 32)}`;
+    const sessionId = jwtConfig.deriveSessionId(accessToken, payload);
     req.sessionId = sessionId;
 
     try {

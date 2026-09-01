@@ -83,12 +83,14 @@ export class AuthController {
       };
       await database.getCollection<ContrasenaAuditoria>('contrasenas').insertOne(registroContrasena);
 
+      const sessionId = jwtConfig.generateSessionId();
       const tokens = jwtConfig.generateTokens({
         userId: newUser.id,
         email: newUser.email,
         rol: newUser.rol || 'usuario',
         username: newUser.username,
         nombre: newUser.nombreCompleto || newUser.username,
+        sessionId,
       });
 
 res.cookie('accessToken', tokens.accessToken, {
@@ -96,6 +98,10 @@ res.cookie('accessToken', tokens.accessToken, {
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
         maxAge: 24 * 60 * 60 * 1000,
+      });
+
+      createSessionRecord(newUser.id, newUser.username, newUser.email, newUser.rol || 'usuario', sessionId, req).catch((err) => {
+        console.error('Error creating session record:', err);
       });
 
       const { password: _, ...userWithoutPassword } = newUser;
@@ -242,6 +248,7 @@ const newUser: User = {
         return;
       }
 
+      const sessionId = jwtConfig.generateSessionId();
       const tokens = jwtConfig.generateTokens({
         userId: user.id,
         email: user.email,
@@ -249,6 +256,7 @@ const newUser: User = {
         username: user.username,
         nombre: user.nombreCompleto || user.username,
         deliveryPersonId: user.deliveryPersonId,
+        sessionId,
       });
 
       res.cookie('accessToken', tokens.accessToken, {
@@ -265,7 +273,6 @@ const newUser: User = {
          maxAge: 7 * 24 * 60 * 60 * 1000,
        });
 
-        const sessionId = `sess_${Buffer.from(tokens.accessToken).toString('base64').slice(0, 32)}`;
         createSessionRecord(user.id, user.username, user.email, user.rol || 'usuario', sessionId, req).catch((err) => {
           console.error('Error creating session record:', err);
         });
@@ -288,8 +295,12 @@ const newUser: User = {
       const accessToken =
         req.cookies?.accessToken || req.headers.authorization?.replace('Bearer ', '');
 
+      // El token puede haber vencido justo antes del logout; decodificamos sin
+      // validar la firma solo para identificar qué sesión cerrar (no se usa
+      // para autorizar nada).
       if (accessToken) {
-        const sessionId = `sess_${Buffer.from(accessToken).toString('base64').slice(0, 32)}`;
+        const payload = jwtConfig.decodeTokenUnsafe(accessToken);
+        const sessionId = jwtConfig.deriveSessionId(accessToken, payload);
         const sessionsCollection = database.getCollection<UserSession>('sessions');
         await sessionsCollection.updateOne(
           { id: sessionId },
@@ -328,13 +339,17 @@ const newUser: User = {
         return;
       }
 
-const tokens = jwtConfig.generateTokens({
+// Reutiliza el mismo sessionId del login original para que la renovación
+      // de token no genere una sesión "fantasma" nueva en el panel de sesiones.
+      const sessionId = payload.sessionId || jwtConfig.generateSessionId();
+      const tokens = jwtConfig.generateTokens({
         userId: user.id,
         email: user.email,
         rol: user.rol || 'usuario',
         username: user.username,
         nombre: user.nombreCompleto || user.username,
         deliveryPersonId: user.deliveryPersonId,
+        sessionId,
       });
 
 res.cookie('accessToken', tokens.accessToken, {

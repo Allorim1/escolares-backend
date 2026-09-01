@@ -8,17 +8,17 @@ const sessionMap = new Map<string, string>();
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 export const trackSession = (req: Request, res: Response, next: NextFunction): void => {
-  const user = (req as any).user as { userId?: string; email?: string; rol?: string } | undefined;
+  const user = (req as any).user as { userId?: string; email?: string; rol?: string; sessionId?: string } | undefined;
   if (!user?.userId) {
     next();
     return;
   }
 
-  const sessionId = req.cookies?.accessToken
-    ? `sess_${Buffer.from(req.cookies.accessToken).toString('base64').slice(0, 32)}`
-    : req.headers.authorization
-      ? `sess_${Buffer.from(req.headers.authorization.replace('Bearer ', '')).toString('base64').slice(0, 32)}`
-      : `sess_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+  // authenticateToken (que corre antes en la cadena de middlewares) ya
+  // calculó el sessionId real del token; lo reutilizamos en vez de
+  // recalcularlo para no divergir del id bajo el que se creó la sesión.
+  const sessionId =
+    (req as any).sessionId || user.sessionId || `sess_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
 
   sessionMap.set(user.userId, sessionId);
   (req as any).sessionId = sessionId;
