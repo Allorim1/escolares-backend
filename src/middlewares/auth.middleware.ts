@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { jwtConfig, TokenPayload } from '../config/jwt';
 import { database } from '../config/database';
 import { UserSession } from '../models';
+import { touchSessionActivity } from './session.middleware';
 
 declare global {
   namespace Express {
@@ -53,6 +54,11 @@ export const authenticateToken = async (
     } catch (sessionError) {
       console.error('Error checking session:', sessionError);
     }
+
+    // No se espera esta llamada: no debe retrasar la respuesta de la request real.
+    touchSessionActivity(payload.userId, sessionId, payload, req).catch((err) =>
+      console.error('Error touching session activity:', err),
+    );
 
     next();
   } catch (error) {

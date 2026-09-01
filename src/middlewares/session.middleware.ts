@@ -4,6 +4,9 @@ import { UserSession } from '../models';
 
 const sessionMap = new Map<string, string>();
 
+// Debe coincidir con la duración del accessToken (ver jwtConfig.generateTokens)
+export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
 export const trackSession = (req: Request, res: Response, next: NextFunction): void => {
   const user = (req as any).user as { userId?: string; email?: string; rol?: string } | undefined;
   if (!user?.userId) {
@@ -20,12 +23,15 @@ export const trackSession = (req: Request, res: Response, next: NextFunction): v
   sessionMap.set(user.userId, sessionId);
   (req as any).sessionId = sessionId;
 
-  updateSessionInBackground(user.userId, sessionId, user, req);
+  touchSessionActivity(user.userId, sessionId, user, req);
 
   next();
 };
 
-const updateSessionInBackground = async (
+// Actualiza lastActive/IP/dispositivo de la sesión asociada a este request.
+// Se llama en cada request autenticado (ver authenticateToken) para que
+// "última actividad" refleje uso real y no solo el momento del login.
+export const touchSessionActivity = async (
   userId: string,
   sessionId: string,
   user: { userId?: string; email?: string; rol?: string },
@@ -53,6 +59,10 @@ const updateSessionInBackground = async (
             browser,
             os,
             active: true,
+            // Ventana deslizante: mientras haya actividad, la sesión se mantiene
+            // vigente; también rellena expiresAt en sesiones creadas antes de
+            // que este campo existiera.
+            expiresAt: new Date(Date.now() + SESSION_TTL_MS),
           },
         },
       );
@@ -71,6 +81,7 @@ const updateSessionInBackground = async (
         active: true,
         createdAt: new Date(),
         lastActive: new Date(),
+        expiresAt: new Date(Date.now() + SESSION_TTL_MS),
       };
       await sessionsCollection.insertOne(newSession);
     }
@@ -148,6 +159,7 @@ export const createSessionRecord = async (
         active: true,
         createdAt: new Date(),
         lastActive: new Date(),
+        expiresAt: new Date(Date.now() + SESSION_TTL_MS),
       };
       await sessionsCollection.insertOne(newSession);
     }

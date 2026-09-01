@@ -5,7 +5,7 @@ import { database } from '../config/database';
 import { User, DeliveryPerson, UserSession, ContrasenaAuditoria } from '../models';
 import { jwtConfig } from '../config/jwt';
 import { AuthRequest } from '../middlewares/auth.middleware';
-import { createSessionRecord } from '../middlewares/session.middleware';
+import { createSessionRecord, SESSION_TTL_MS } from '../middlewares/session.middleware';
 import nodemailer from 'nodemailer';
 
 const transporter = nodemailer.createTransport({
@@ -285,11 +285,24 @@ const newUser: User = {
 
   async logout(req: Request, res: Response): Promise<void> {
     try {
+      const accessToken =
+        req.cookies?.accessToken || req.headers.authorization?.replace('Bearer ', '');
+
+      if (accessToken) {
+        const sessionId = `sess_${Buffer.from(accessToken).toString('base64').slice(0, 32)}`;
+        const sessionsCollection = database.getCollection<UserSession>('sessions');
+        await sessionsCollection.updateOne(
+          { id: sessionId },
+          { $set: { active: false, closedReason: 'logout', lastActive: new Date() } },
+        );
+      }
+
       res.clearCookie('accessToken');
       res.clearCookie('refreshToken');
 
       res.json({ message: 'Sesión cerrada correctamente' });
     } catch (error) {
+      console.error('Error al cerrar sesión:', error);
       res.status(500).json({ error: 'Error al cerrar sesión' });
     }
   }
@@ -965,14 +978,47 @@ await database.getCollection<User>('users').updateOne(
       }
 
       const sessionsCollection = database.getCollection<UserSession>('sessions');
-      const sessions = await sessionsCollection.find({}).sort({ lastActive: -1 }).allowDiskUse(true).toArray();
+
+      // Una sesión cuyo token ya venció (o que lleva más de 24h sin actividad)
+      // ya no está realmente activa, aunque nunca se haya cerrado explícitamente
+      // (logout, admin, etc.). El fallback por lastActive cubre sesiones creadas
+      // antes de que existiera el campo expiresAt.
+      await sessionsCollection.updateMany(
+        {
+          active: true,
+          $or: [
+            { expiresAt: { $lt: new Date() } },
+            { expiresAt: { $exists: false }, lastActive: { $lt: new Date(Date.now() - SESSION_TTL_MS) } },
+          ],
+        },
+        { $set: { active: false, closedReason: 'expired' } },
+      );
+
+      const estado = (req.query.estado as string) || 'todas';
+      const filtro: Record<string, unknown> = {};
+      if (estado === 'activas') filtro.active = true;
+      if (estado === 'cerradas') filtro.active = false;
+
+      const limit = Math.min(parseInt((req.query.limit as string) || '', 10) || 100, 500);
+      const skip = Math.max(parseInt((req.query.skip as string) || '', 10) || 0, 0);
+
+      const [sessions, total] = await Promise.all([
+        sessionsCollection
+          .find(filtro)
+          .sort({ lastActive: -1 })
+          .skip(skip)
+          .limit(limit)
+          .allowDiskUse(true)
+          .toArray(),
+        sessionsCollection.countDocuments(filtro),
+      ]);
 
       const sessionsWithoutSensitive = sessions.map(({ _id, ...session }) => ({
         ...session,
         id: session.id,
       }));
 
-      res.json(sessionsWithoutSensitive);
+      res.json({ sessions: sessionsWithoutSensitive, total });
     } catch (error) {
       console.error('Error al obtener sesiones:', error);
       res.status(500).json({ error: 'Error al obtener sesiones' });
@@ -988,6 +1034,19 @@ await database.getCollection<User>('users').updateOne(
       }
 
       const sessionsCollection = database.getCollection<UserSession>('sessions');
+
+      await sessionsCollection.updateMany(
+        {
+          userId,
+          active: true,
+          $or: [
+            { expiresAt: { $lt: new Date() } },
+            { expiresAt: { $exists: false }, lastActive: { $lt: new Date(Date.now() - SESSION_TTL_MS) } },
+          ],
+        },
+        { $set: { active: false, closedReason: 'expired' } },
+      );
+
       const sessions = await sessionsCollection.find({ userId, active: true }).sort({ lastActive: -1 }).allowDiskUse(true).toArray();
 
       const sessionsWithoutSensitive = sessions.map(({ _id, ...session }) => ({
@@ -1030,7 +1089,13 @@ await database.getCollection<User>('users').updateOne(
 
       await sessionsCollection.updateOne(
         { id: sessionId },
-        { $set: { active: false, lastActive: new Date() } },
+        {
+          $set: {
+            active: false,
+            lastActive: new Date(),
+            closedReason: isOwnSession ? 'user' : 'admin',
+          },
+        },
       );
 
       res.json({ message: 'Sesión cerrada correctamente' });
@@ -1058,7 +1123,7 @@ await database.getCollection<User>('users').updateOne(
       const sessionsCollection = database.getCollection<UserSession>('sessions');
       await sessionsCollection.updateMany(
         { userId: targetUserId, active: true },
-        { $set: { active: false, lastActive: new Date() } },
+        { $set: { active: false, lastActive: new Date(), closedReason: 'admin' } },
       );
 
       res.json({ message: 'Todas las sesiones del usuario han sido cerradas' });

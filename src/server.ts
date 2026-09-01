@@ -4679,7 +4679,7 @@ app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
   }
 });
 
-app.put('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
+app.put('/api/abonos-polar/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
   try {
     const { ObjectId } = await import('mongodb');
     const idParam = req.params.id;
@@ -4691,6 +4691,13 @@ app.put('/api/abonos-polar/:id', async (req: Request, res: ExpressResponse) => {
     const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor: supervisor || '', supervisorId: supervisorId || '', abonos: totalAbonos, abonosPagos: Array.isArray(abonosPagos) ? abonosPagos : [], ivaPagado: ivaPagado || false, comisionPorcentaje: comisionPorcentaje || 0, productosPendientes: Array.isArray(productosPendientes) ? productosPendientes : [] };
     if (fecha) updateData.fecha = new Date(fecha);
     const collection = (database as any).getCollection('abonos-polar');
+
+    const abonoAnterior = await collection.findOne({ _id: new ObjectId(id) });
+    if (abonoAnterior && (abonoAnterior.status || '') !== (status || '')) {
+      updateData.statusModificadoPor = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
+      updateData.statusModificadoEn = new Date();
+    }
+
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
 
     if (supervisor) {

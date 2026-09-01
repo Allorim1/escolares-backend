@@ -56,6 +56,7 @@ class Database {
     try {
       await this._db.collection('sessions').createIndex({ id: 1 }, { unique: true });
       await this._db.collection('sessions').createIndex({ userId: 1, active: 1 });
+      await this._db.collection('sessions').createIndex({ active: 1, lastActive: -1 });
     } catch (indexError) {
       console.error('Error creando índices de sesiones:', indexError);
     }

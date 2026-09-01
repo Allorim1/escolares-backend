@@ -322,6 +322,8 @@ export interface NotificacionRedSocial {
     active: boolean;
     createdAt: Date;
     lastActive: Date;
+    expiresAt?: Date;
+    closedReason?: 'logout' | 'expired' | 'admin' | 'user';
   }
 
   export interface Supervisor {
