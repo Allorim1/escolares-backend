@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { authController } from '../controllers/auth.controller';
 import { authenticateToken } from '../middlewares/auth.middleware';
 import { trackSession } from '../middlewares/session.middleware';
+import { verifyTurnstile } from '../middlewares/turnstile.middleware';
 import { database } from '../config/database';
 
 const router = Router();
@@ -67,7 +68,7 @@ const crearRegistro = async (accion: string, modulo: string, descripcion: string
  *             schema:
  *               $ref: '#/components/schemas/User'
  */
-router.post('/register', authLimiter, (req: Request, res: Response) => authController.register(req, res));
+router.post('/register', authLimiter, verifyTurnstile, (req: Request, res: Response) => authController.register(req, res));
 
 router.post('/register-simple', authenticateToken, (req: Request, res: Response) => authController.registerSimple(req, res));
 
@@ -101,7 +102,7 @@ router.post('/register-simple', authenticateToken, (req: Request, res: Response)
  *       401:
  *         description: Credenciales inválidas
  */
-router.post('/login', authLimiter, (req: Request, res: Response) => authController.login(req, res));
+router.post('/login', authLimiter, verifyTurnstile, (req: Request, res: Response) => authController.login(req, res));
 
 /**
  * @swagger
