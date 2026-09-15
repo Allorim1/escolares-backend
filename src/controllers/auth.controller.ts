@@ -518,6 +518,32 @@ await database.getCollection<User>('users').updateOne(
           res.status(404).json({ error: 'Usuario no encontrado' });
           return;
         }
+
+        const db = database.db;
+        if (db) {
+          let registrosCollection = db.collection('registros');
+          const exists = await db.listCollections().toArray();
+          const names = exists.map((c: any) => c.name);
+          if (!names.includes('registros')) {
+            await db.createCollection('registros');
+            registrosCollection = db.collection('registros');
+          }
+          await registrosCollection.insertOne({
+            accion: 'Modificación',
+            modulo: 'Usuarios',
+            descripcion: `Rol actualizado para usuario: ${updatedUser.username || updatedUser.email}`,
+            datos: {
+              usuarioId: targetUserId,
+              rolAnterior: usuarioActual?.rol,
+              rolIdAnterior: usuarioActual?.rolId,
+              rolNuevo: updatedUser.rol,
+              rolIdNuevo: updatedUser.rolId,
+            },
+            usuario,
+            fecha: new Date(),
+          });
+        }
+
        const { password: _, ...userWithoutPassword } = updatedUser;
        res.json(userWithoutPassword);
      } catch (error) {
@@ -757,6 +783,34 @@ await database.getCollection<User>('users').updateOne(
       }
 
       await database.getCollection<User>('users').deleteOne(this.getUserSelector(userId));
+
+      const db = database.db;
+      if (db) {
+        let registrosCollection = db.collection('registros');
+        const exists = await db.listCollections().toArray();
+        const names = exists.map((c: any) => c.name);
+        if (!names.includes('registros')) {
+          await db.createCollection('registros');
+          registrosCollection = db.collection('registros');
+        }
+        await registrosCollection.insertOne({
+          accion: 'Eliminación',
+          modulo: 'Usuarios',
+          descripcion: `Usuario eliminado: ${userToDelete.username || userToDelete.email}`,
+          datos: {
+            usuarioEliminado: {
+              id: userToDelete.id || userToDelete._id?.toString(),
+              username: userToDelete.username,
+              email: userToDelete.email,
+              rol: userToDelete.rol,
+              nombreCompleto: userToDelete.nombreCompleto,
+            },
+          },
+          usuario: currentUser.nombre || currentUser.username || currentUser.email || 'Sistema',
+          fecha: new Date(),
+        });
+      }
+
       res.json({ message: 'Usuario eliminado correctamente' });
     } catch (error) {
       res.status(500).json({ error: 'Error al eliminar usuario' });
