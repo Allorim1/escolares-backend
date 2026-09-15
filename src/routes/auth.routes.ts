@@ -8,10 +8,21 @@ import { database } from '../config/database';
 
 const router = Router();
 
+// Por defecto express-rate-limit cuenta los intentos solo por IP. Como varias
+// personas pueden compartir la misma IP pública (red de oficina/escuela, o un
+// proxy delante del backend), eso agotaba el cupo para todos a la vez aunque
+// solo una cuenta estuviera fallando. Al combinar IP + identificador de la
+// cuenta, el límite vuelve a ser por (IP, cuenta) como se pretendía.
+const authKeyGenerator = (req: Request): string => {
+  const identifier = (req.body?.email || req.body?.username || '').toString().toLowerCase().trim();
+  return identifier ? `${req.ip}:${identifier}` : req.ip || 'sin-ip';
+};
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
   skipSuccessfulRequests: true,
+  keyGenerator: authKeyGenerator,
   message: { error: 'Demasiados intentos, intente en 15 minutos' },
   standardHeaders: true,
   legacyHeaders: false,
