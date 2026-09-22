@@ -44,7 +44,7 @@ class Database {
     const collections = await this._db.listCollections().toArray();
     const collectionNames = collections.map((c) => c.name);
 
-    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas', 'abonos-polar', 'empresas', 'sessions', 'compras', 'alertas-costos', 'acuerdos-comerciales', 'variaciones-precio', 'gastos-operativos', 'contrasenas'];
+    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas', 'abonos-polar', 'empresas', 'sessions', 'compras', 'alertas-costos', 'acuerdos-comerciales', 'variaciones-precio', 'gastos-operativos', 'contrasenas', 'creditos_usuarios', 'creditos_solicitudes', 'creditos_productos', 'creditos_reglas'];
 
     for (const name of requiredCollections) {
       if (!collectionNames.includes(name)) {
@@ -59,6 +59,16 @@ class Database {
       await this._db.collection('sessions').createIndex({ active: 1, lastActive: -1 });
     } catch (indexError) {
       console.error('Error creando índices de sesiones:', indexError);
+    }
+
+    try {
+      await this._db.collection('creditos_usuarios').createIndex({ id: 1 }, { unique: true });
+      await this._db.collection('creditos_usuarios').createIndex({ telefono: 1 }, { unique: true });
+      await this._db.collection('creditos_solicitudes').createIndex({ id: 1 }, { unique: true });
+      await this._db.collection('creditos_solicitudes').createIndex({ usuarioId: 1, status: 1 });
+      await this._db.collection('creditos_productos').createIndex({ id: 1 }, { unique: true });
+    } catch (indexError) {
+      console.error('Error creando índices de créditos:', indexError);
     }
 
     await this.seedData();
@@ -199,6 +209,21 @@ class Database {
           ofertaPorcentaje: 0,
           ofertaPrecio: 0,
         },
+      ]);
+    }
+
+    const creditosProductosCount = await this._db.collection('creditos_productos').countDocuments();
+    if (creditosProductosCount === 0) {
+      const ahora = new Date();
+      await this._db.collection('creditos_productos').insertMany([
+        { id: 'kit-utiles', nombre: 'Kit de útiles escolares', descripcion: 'Cuadernos, lápices, colores, regla y más.', categoria: 'Útiles', precio: 60, icono: 'pencil', activo: true, createdAt: ahora, updatedAt: ahora },
+        { id: 'mochila', nombre: 'Mochila escolar', descripcion: 'Resistente, con compartimiento acolchado.', categoria: 'Útiles', precio: 45, icono: 'bag-handle', activo: true, createdAt: ahora, updatedAt: ahora },
+        { id: 'uniforme', nombre: 'Uniforme completo', descripcion: 'Camisa, pantalón o falda y suéter.', categoria: 'Uniformes', precio: 85, icono: 'shirt', activo: true, createdAt: ahora, updatedAt: ahora },
+        { id: 'zapatos', nombre: 'Zapatos escolares', descripcion: 'Cuero sintético, suela antideslizante.', categoria: 'Uniformes', precio: 40, icono: 'footsteps', activo: true, createdAt: ahora, updatedAt: ahora },
+        { id: 'libros', nombre: 'Paquete de libros de texto', descripcion: 'Libros del año escolar en curso.', categoria: 'Libros', precio: 120, icono: 'library', activo: true, createdAt: ahora, updatedAt: ahora },
+        { id: 'calculadora', nombre: 'Calculadora científica', descripcion: 'Para bachillerato y universidad.', categoria: 'Tecnología', precio: 30, icono: 'calculator', activo: true, createdAt: ahora, updatedAt: ahora },
+        { id: 'tablet', nombre: 'Tablet escolar', descripcion: '10 pulgadas, ideal para clases en línea.', categoria: 'Tecnología', precio: 220, icono: 'tablet-portrait', activo: true, createdAt: ahora, updatedAt: ahora },
+        { id: 'laptop', nombre: 'Laptop escolar', descripcion: '4 GB de RAM, 128 GB de almacenamiento.', categoria: 'Tecnología', precio: 480, icono: 'laptop', activo: true, createdAt: ahora, updatedAt: ahora },
       ]);
     }
   }

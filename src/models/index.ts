@@ -349,3 +349,121 @@ export interface NotificacionRedSocial {
     fecha: Date;
     accion: 'crear' | 'cambiar';
   }
+
+  /**
+   * Créditos Escolares — usuarios y datos de la app Escolares Online (Android).
+   * Son cuentas independientes de `User` (tienda web): se registran con teléfono,
+   * no con usuario/email, y no comparten sesión ni permisos con el panel admin.
+   */
+  export type CreditoEstadoVerificacion = 'sin_verificar' | 'en_revision' | 'verificado' | 'rechazado';
+
+  export const CREDITO_DOCUMENTOS = [
+    'fotoComprobantePago',
+    'fotoCedula',
+    'fotoConstanciaTrabajo',
+    'fotoReferenciaBancaria',
+    'fotoSoporteBeneficio',
+    'fotoSelfie',
+  ] as const;
+
+  export type CreditoDocumentoCampo = (typeof CREDITO_DOCUMENTOS)[number];
+
+  export interface CreditoDocumentoArchivo {
+    path: string; // ruta relativa dentro de private-uploads/creditos, nunca pública
+    mimetype: string;
+    size: number;
+    subidoEn: Date;
+  }
+
+  export interface CreditoVerificacion {
+    nombreCompleto: string;
+    documento: string; // número de cédula
+    fechaNacimiento: string;
+    direccion: string;
+    ciudad: string;
+    referenciaNombre: string;
+    referenciaTelefono: string;
+    ocupacion: string;
+    lugarTrabajo?: string;
+    documentos: Partial<Record<CreditoDocumentoCampo, CreditoDocumentoArchivo>>;
+    enviadoEn: Date;
+    revisadoPor?: string;
+    revisadoEn?: Date;
+    motivoRechazo?: string;
+  }
+
+  export interface CreditoUsuario {
+    _id?: string;
+    id: string;
+    nombre: string;
+    telefono: string;
+    email?: string;
+    passwordHash: string;
+    nivel: number;
+    status: CreditoEstadoVerificacion;
+    tutorialVisto: boolean;
+    verificacion?: CreditoVerificacion;
+    createdAt: Date;
+    updatedAt: Date;
+  }
+
+  export type CreditoFrecuencia = 'semanal' | 'quincenal' | 'mensual';
+  export type CreditoSolicitudStatus = 'solicitado' | 'activo' | 'pagado' | 'rechazado';
+
+  export interface CreditoFactura {
+    numero: string;
+    emitidaEn: Date;
+    subtotal: number;
+    iva: number;
+    total: number;
+  }
+
+  export interface CreditoSolicitud {
+    _id?: string;
+    id: string;
+    usuarioId: string;
+    monto: number;
+    cuotas: number;
+    frecuencia: CreditoFrecuencia;
+    cuotaMonto: number;
+    total: number;
+    proposito: string;
+    status: CreditoSolicitudStatus;
+    productoId?: string;
+    productoNombre?: string;
+    factura?: CreditoFactura;
+    cuotasPagadas: number;
+    createdAt: Date;
+    activadoEn?: Date;
+    revisadoPor?: string;
+    motivoRechazo?: string;
+  }
+
+  export interface CreditoProducto {
+    _id?: string;
+    id: string;
+    nombre: string;
+    descripcion: string;
+    categoria: string;
+    precio: number;
+    icono: string;
+    activo: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }
+
+  /** Documento único (id fijo 'reglas') con los parámetros del negocio de crédito. */
+  export interface CreditoReglas {
+    _id?: string;
+    id: 'reglas';
+    nivelBase: number;
+    factorNivel: number;
+    nivelMaximo: number;
+    cuotas: number;
+    diasEntreCuotas: number;
+    tasaQuincenal: number;
+    ivaTasa: number;
+    montoMinimo: number;
+    categorias: string[];
+    updatedAt: Date;
+  }

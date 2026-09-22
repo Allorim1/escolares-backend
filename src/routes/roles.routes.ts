@@ -111,6 +111,9 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
     { id: 'columna_relaciones_tasa', nombre: 'Tasa', descripcion: 'Puede ver la columna Tasa en Relaciones', modulo: 'Columna relaciones' },
     { id: 'columna_relaciones_status', nombre: 'Status', descripcion: 'Puede ver la columna Status en Relaciones', modulo: 'Columna relaciones' },
     { id: 'columna_relaciones_supervisor', nombre: 'Supervisor', descripcion: 'Puede ver la columna Supervisor en Relaciones', modulo: 'Columna relaciones' },
+
+    // Créditos Escolares (app Escolares Online)
+    { id: 'creditos_gestionar', nombre: 'Gestionar Créditos Escolares', descripcion: 'Puede ver verificaciones y documentos, aprobar o rechazar cuentas y créditos, y gestionar el catálogo y las reglas', modulo: 'Créditos Escolares' },
   ];
 
 router.get('/permisos', authenticateToken, requireRoot, async (req: Request, res: Response) => {

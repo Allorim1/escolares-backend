@@ -45,6 +45,8 @@ import orderMessagesRoutes from './routes/order-messages.routes';
 import supervisoresRoutes from './routes/supervisores.routes';
 import invProductosRoutes from './routes/inv-productos.routes';
 import invGrupos1Routes from './routes/inv-grupos1.routes';
+import creditosRoutes from './routes/creditos.routes';
+import creditosAdminRoutes from './routes/creditos-admin.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -1959,6 +1961,15 @@ app.put('/api/proveedores/:id/factura/:index/comentario', async (req: Request, r
 app.use(invalidateCache);
 app.use(withCache(300));
 
+// uploads/creditos guarda documentos de identidad (cédula, selfie, comprobantes): a
+// diferencia del resto de uploads/, nunca se sirve público. Solo se lee mediante
+// /api/creditos/.../documentos/..., que exige ser el propio usuario o un admin con
+// permiso de créditos. Este bloqueo va antes de express.static para que ninguna de
+// las dos rutas ('/uploads' y '/api/uploads') pueda servirlo por su nombre de archivo.
+app.use(['/uploads/creditos', '/api/uploads/creditos'], (_req: Request, res: ExpressResponse) => {
+  res.status(404).json({ error: 'No encontrado' });
+});
+
 // Servir archivos estáticos desde el directorio uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -1991,6 +2002,9 @@ app.use('/api/order-messages', orderMessagesRoutes);
 app.use('/api/supervisores', supervisoresRoutes);
 app.use('/api/inv-productos', invProductosRoutes);
 app.use('/api/inv-grupos1', invGrupos1Routes);
+// Escolares Online (app Android): cuentas de crédito propias, no la tienda web
+app.use('/api/creditos/admin', creditosAdminRoutes);
+app.use('/api/creditos', creditosRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {
