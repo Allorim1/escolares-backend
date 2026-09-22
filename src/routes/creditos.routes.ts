@@ -43,5 +43,7 @@ router.get('/verificacion/documentos/:campo', authenticateCreditoUser, (req, res
 // Créditos del usuario en sesión
 router.get('/solicitudes', authenticateCreditoUser, (req, res) => creditosController.listarSolicitudes(req, res));
 router.post('/solicitudes', authenticateCreditoUser, (req, res) => creditosController.crearSolicitud(req, res));
+router.post('/solicitudes/:id/aceptar', authenticateCreditoUser, (req, res) => creditosController.aceptarSolicitud(req, res));
+router.post('/solicitudes/:id/rechazar', authenticateCreditoUser, (req, res) => creditosController.rechazarSolicitud(req, res));
 
 export default router;

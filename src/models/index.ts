@@ -408,7 +408,13 @@ export interface NotificacionRedSocial {
   }
 
   export type CreditoFrecuencia = 'semanal' | 'quincenal' | 'mensual';
-  export type CreditoSolicitudStatus = 'solicitado' | 'activo' | 'pagado' | 'rechazado';
+
+  /**
+   * 'pendiente_aceptacion': el staff armó la factura desde inv_productos y espera que
+   * el cliente la acepte o la rechace desde la app. 'solicitado' sigue siendo el crédito
+   * libre (sin producto) que el propio usuario pide desde la app.
+   */
+  export type CreditoSolicitudStatus = 'pendiente_aceptacion' | 'solicitado' | 'activo' | 'pagado' | 'rechazado';
 
   export interface CreditoFactura {
     numero: string;
@@ -416,6 +422,16 @@ export interface NotificacionRedSocial {
     subtotal: number;
     iva: number;
     total: number;
+  }
+
+  /** Línea de una compra armada por el staff desde inv_productos (snapshot al momento de la venta). */
+  export interface CreditoSolicitudItem {
+    productoId: string;
+    codigo: string;
+    nombre: string;
+    precioUnitario: number;
+    cantidad: number;
+    ivaPorcentaje: number;
   }
 
   export interface CreditoSolicitud {
@@ -431,6 +447,9 @@ export interface NotificacionRedSocial {
     status: CreditoSolicitudStatus;
     productoId?: string;
     productoNombre?: string;
+    /** Presente cuando la compra la armó el staff con productos de inv_productos. */
+    items?: CreditoSolicitudItem[];
+    registradoPor?: string;
     factura?: CreditoFactura;
     cuotasPagadas: number;
     createdAt: Date;

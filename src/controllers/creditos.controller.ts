@@ -337,6 +337,50 @@ export class CreditosController {
       res.status(500).json({ error: 'Error al crear la solicitud' });
     }
   }
+
+  /** El cliente confirma que la compra que armó el staff está correcta: el crédito arranca ahora. */
+  async aceptarSolicitud(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const { id } = req.params;
+    const solicitud = await database
+      .getCollection<CreditoSolicitud>('creditos_solicitudes')
+      .findOne({ id, usuarioId: req.creditoUser!.userId });
+    if (!solicitud) {
+      res.status(404).json({ error: 'Compra no encontrada' });
+      return;
+    }
+    if (solicitud.status !== 'pendiente_aceptacion') {
+      res.status(400).json({ error: 'Esta compra ya no está pendiente de aceptación' });
+      return;
+    }
+
+    await database
+      .getCollection<CreditoSolicitud>('creditos_solicitudes')
+      .updateOne({ id }, { $set: { status: 'activo', activadoEn: new Date() } });
+    res.json({ message: 'Compra aceptada' });
+  }
+
+  /** El cliente rechaza una compra armada por el staff (por ejemplo, si algo está mal). */
+  async rechazarSolicitud(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const { id } = req.params;
+    const { motivo } = req.body;
+    const solicitud = await database
+      .getCollection<CreditoSolicitud>('creditos_solicitudes')
+      .findOne({ id, usuarioId: req.creditoUser!.userId });
+    if (!solicitud) {
+      res.status(404).json({ error: 'Compra no encontrada' });
+      return;
+    }
+    if (solicitud.status !== 'pendiente_aceptacion') {
+      res.status(400).json({ error: 'Esta compra ya no está pendiente de aceptación' });
+      return;
+    }
+
+    await database.getCollection<CreditoSolicitud>('creditos_solicitudes').updateOne(
+      { id },
+      { $set: { status: 'rechazado', motivoRechazo: (motivo || '').trim() || 'Rechazada por el cliente' } },
+    );
+    res.json({ message: 'Compra rechazada' });
+  }
 }
 
 export const creditosController = new CreditosController();

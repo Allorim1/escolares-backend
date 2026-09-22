@@ -1,18 +1,25 @@
 import { Response } from 'express';
 import fs from 'fs';
 import { Request } from 'express';
+import { ObjectId } from 'mongodb';
 import {
   CreditoDocumentoCampo,
   CreditoEstadoVerificacion,
   CreditoProducto,
   CreditoReglas,
   CreditoSolicitud,
+  CreditoSolicitudItem,
   CreditoSolicitudStatus,
   CreditoUsuario,
+  InvProducto,
 } from '../models';
 import { database } from '../config/database';
-import { getReglas } from '../services/creditos-reglas.service';
+import { getReglas, limitePorNivel, simularCredito } from '../services/creditos-reglas.service';
 import { rutaAbsolutaSegura } from '../services/creditos-storage.service';
+
+function round(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 function nombreAdmin(req: Request): string {
   const user = (req as any).user;
@@ -43,6 +50,40 @@ export class CreditosAdminController {
       return;
     }
     res.json(sinPassword(usuario));
+  }
+
+  /** Búsqueda por cédula (verificacion.documento), nombre o teléfono, para armar una compra. */
+  async buscarUsuarios(req: Request, res: Response): Promise<void> {
+    const q = ((req.query.q as string) || '').trim();
+    if (!q) {
+      res.json([]);
+      return;
+    }
+
+    const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const usuarios = await database
+      .getCollection<CreditoUsuario>('creditos_usuarios')
+      .find({ $or: [{ nombre: regex }, { telefono: regex }, { 'verificacion.documento': regex }] })
+      .limit(20)
+      .toArray();
+
+    const reglas = await getReglas();
+    const solicitudes = await database
+      .getCollection<CreditoSolicitud>('creditos_solicitudes')
+      .find({ usuarioId: { $in: usuarios.map((u) => u.id) }, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion'] } })
+      .toArray();
+
+    res.json(
+      usuarios.map((u) => {
+        const usado = solicitudes.filter((s) => s.usuarioId === u.id).reduce((sum, s) => sum + s.monto, 0);
+        const limite = limitePorNivel(reglas, u.nivel);
+        return {
+          ...sinPassword(u),
+          disponible: Math.max(0, limite - usado),
+          limite,
+        };
+      }),
+    );
   }
 
   async documentoUsuario(req: Request, res: Response): Promise<void> {
@@ -164,6 +205,131 @@ export class CreditosAdminController {
         usuarioTelefono: usuarioPorId.get(s.usuarioId)?.telefono,
       })),
     );
+  }
+
+  /** Arma una compra desde inv_productos y la deja esperando que el cliente la acepte en la app. */
+  async registrarCompra(req: Request, res: Response): Promise<void> {
+    try {
+      const { usuarioId, items } = req.body as {
+        usuarioId?: string;
+        items?: { productoId: string; cantidad: number }[];
+      };
+
+      if (!usuarioId || !Array.isArray(items) || items.length === 0) {
+        res.status(400).json({ error: 'Selecciona un usuario y al menos un producto' });
+        return;
+      }
+
+      const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id: usuarioId });
+      if (!usuario) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+      if (usuario.status !== 'verificado') {
+        res.status(400).json({ error: 'El usuario debe tener la cuenta verificada' });
+        return;
+      }
+
+      const invCollection = database.getCollection<InvProducto>('inv_productos');
+      const lineas: CreditoSolicitudItem[] = [];
+      for (const item of items) {
+        const cantidad = Number(item.cantidad);
+        if (!item.productoId || !Number.isFinite(cantidad) || cantidad <= 0) {
+          res.status(400).json({ error: 'Cantidad inválida en uno de los productos' });
+          return;
+        }
+
+        let producto: InvProducto | null = null;
+        try {
+          producto = await invCollection.findOne({ _id: new ObjectId(item.productoId) } as any);
+        } catch {
+          producto = null;
+        }
+        if (!producto || producto.borrado) {
+          res.status(404).json({ error: `Producto no encontrado: ${item.productoId}` });
+          return;
+        }
+
+        lineas.push({
+          productoId: item.productoId,
+          codigo: producto.codigo || '',
+          nombre: producto.nombre || '',
+          precioUnitario: producto.precio ?? 0,
+          cantidad,
+          ivaPorcentaje: producto.iva ?? 0,
+        });
+      }
+
+      const subtotal = round(lineas.reduce((sum, l) => sum + l.precioUnitario * l.cantidad, 0));
+      const iva = round(lineas.reduce((sum, l) => sum + l.precioUnitario * l.cantidad * (l.ivaPorcentaje / 100), 0));
+
+      const reglas = await getReglas();
+      const solicitudesCollection = database.getCollection<CreditoSolicitud>('creditos_solicitudes');
+      const existentes = await solicitudesCollection
+        .find({ usuarioId, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion'] } })
+        .toArray();
+      const usado = existentes.reduce((sum, s) => sum + s.monto, 0);
+      const disponible = Math.max(0, limitePorNivel(reglas, usuario.nivel) - usado);
+
+      if (subtotal > disponible) {
+        res.status(400).json({ error: `El subtotal (${subtotal}) supera el disponible del usuario (${disponible})` });
+        return;
+      }
+
+      const sim = simularCredito(reglas, subtotal);
+      const ahora = new Date();
+      const numeroFactura = `F-${String((await solicitudesCollection.countDocuments({ factura: { $exists: true } })) + 1).padStart(6, '0')}`;
+
+      const solicitud: CreditoSolicitud = {
+        id: Date.now().toString(),
+        usuarioId,
+        monto: subtotal,
+        cuotas: reglas.cuotas,
+        frecuencia: 'quincenal',
+        cuotaMonto: sim.cuotaMonto,
+        total: sim.total,
+        proposito: lineas.map((l) => `${l.cantidad}x ${l.nombre}`).join(', ').slice(0, 300),
+        status: 'pendiente_aceptacion',
+        cuotasPagadas: 0,
+        createdAt: ahora,
+        items: lineas,
+        registradoPor: nombreAdmin(req),
+        factura: { numero: numeroFactura, emitidaEn: ahora, subtotal, iva, total: round(subtotal + iva) },
+      };
+
+      await solicitudesCollection.insertOne(solicitud);
+      res.status(201).json(solicitud);
+    } catch (error) {
+      console.error('Error al registrar compra:', error);
+      res.status(500).json({ error: 'Error al registrar la compra' });
+    }
+  }
+
+  /** El staff cancela una compra que armó por error, antes de que el cliente responda. */
+  async cancelarCompra(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const { motivo } = req.body;
+    const solicitud = await database.getCollection<CreditoSolicitud>('creditos_solicitudes').findOne({ id });
+    if (!solicitud) {
+      res.status(404).json({ error: 'Compra no encontrada' });
+      return;
+    }
+    if (solicitud.status !== 'pendiente_aceptacion') {
+      res.status(400).json({ error: 'Solo se puede cancelar una compra pendiente de aceptación' });
+      return;
+    }
+
+    await database.getCollection<CreditoSolicitud>('creditos_solicitudes').updateOne(
+      { id },
+      {
+        $set: {
+          status: 'rechazado',
+          revisadoPor: nombreAdmin(req),
+          motivoRechazo: (motivo || '').trim() || 'Cancelada por el staff',
+        },
+      },
+    );
+    res.json({ message: 'Compra cancelada' });
   }
 
   async aprobarSolicitud(req: Request, res: Response): Promise<void> {

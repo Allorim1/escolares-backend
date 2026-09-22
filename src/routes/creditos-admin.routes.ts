@@ -9,15 +9,20 @@ const router = Router();
 router.use(authenticateToken, requireCreditosPermiso);
 
 router.get('/usuarios', (req, res) => c.listarUsuarios(req, res));
+// Antes de '/usuarios/:id': si no, ':id' atraparía la palabra 'buscar' como si fuera un id.
+router.get('/usuarios/buscar', (req, res) => c.buscarUsuarios(req, res));
 router.get('/usuarios/:id', (req, res) => c.obtenerUsuario(req, res));
 router.get('/usuarios/:id/documentos/:campo', (req, res) => c.documentoUsuario(req, res));
 router.post('/usuarios/:id/verificacion/aprobar', (req, res) => c.aprobarVerificacion(req, res));
 router.post('/usuarios/:id/verificacion/rechazar', (req, res) => c.rechazarVerificacion(req, res));
 router.post('/usuarios/:id/nivel', (req, res) => c.cambiarNivel(req, res));
 
+router.post('/compras', (req, res) => c.registrarCompra(req, res));
+
 router.get('/solicitudes', (req, res) => c.listarSolicitudes(req, res));
 router.post('/solicitudes/:id/aprobar', (req, res) => c.aprobarSolicitud(req, res));
 router.post('/solicitudes/:id/rechazar', (req, res) => c.rechazarSolicitud(req, res));
+router.post('/solicitudes/:id/cancelar', (req, res) => c.cancelarCompra(req, res));
 router.post('/solicitudes/:id/registrar-pago', (req, res) => c.registrarPago(req, res));
 
 router.get('/productos', (req, res) => c.listarProductos(req, res));
