@@ -20,9 +20,11 @@ router.post('/usuarios/:id/nivel', (req, res) => c.cambiarNivel(req, res));
 router.post('/compras', (req, res) => c.registrarCompra(req, res));
 
 router.get('/solicitudes', (req, res) => c.listarSolicitudes(req, res));
+router.get('/solicitudes/:id', (req, res) => c.obtenerSolicitud(req, res));
 router.post('/solicitudes/:id/aprobar', (req, res) => c.aprobarSolicitud(req, res));
 router.post('/solicitudes/:id/rechazar', (req, res) => c.rechazarSolicitud(req, res));
 router.post('/solicitudes/:id/cancelar', (req, res) => c.cancelarCompra(req, res));
+router.post('/solicitudes/:id/confirmar-pago', (req, res) => c.confirmarPago(req, res));
 router.post('/solicitudes/:id/registrar-pago', (req, res) => c.registrarPago(req, res));
 
 router.get('/productos', (req, res) => c.listarProductos(req, res));

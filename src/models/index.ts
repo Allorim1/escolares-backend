@@ -410,11 +410,20 @@ export interface NotificacionRedSocial {
   export type CreditoFrecuencia = 'semanal' | 'quincenal' | 'mensual';
 
   /**
-   * 'pendiente_aceptacion': el staff armó la factura desde inv_productos y espera que
-   * el cliente la acepte o la rechace desde la app. 'solicitado' sigue siendo el crédito
-   * libre (sin producto) que el propio usuario pide desde la app.
+   * 'pendiente_aceptacion': el staff armó la factura (o el cliente la generó vía QR) y
+   * espera que el cliente la acepte o la rechace desde la app. 'esperando_pago': el
+   * cliente ya eligió cuánto paga de inicial y confirmó, pero el staff todavía no marcó
+   * que recibió ese pago (efectivo/transferencia) — el crédito no arranca hasta entonces.
+   * 'solicitado' sigue siendo el crédito libre (sin producto) que el propio usuario pide
+   * desde la app.
    */
-  export type CreditoSolicitudStatus = 'pendiente_aceptacion' | 'solicitado' | 'activo' | 'pagado' | 'rechazado';
+  export type CreditoSolicitudStatus =
+    | 'pendiente_aceptacion'
+    | 'esperando_pago'
+    | 'solicitado'
+    | 'activo'
+    | 'pagado'
+    | 'rechazado';
 
   export interface CreditoFactura {
     numero: string;
@@ -451,6 +460,8 @@ export interface NotificacionRedSocial {
     items?: CreditoSolicitudItem[];
     registradoPor?: string;
     factura?: CreditoFactura;
+    /** Cuánto eligió pagar de inicial (mínimo factura.iva); presente desde 'esperando_pago'. */
+    pagoInicial?: number;
     cuotasPagadas: number;
     createdAt: Date;
     activadoEn?: Date;

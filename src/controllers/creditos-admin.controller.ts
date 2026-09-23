@@ -1,21 +1,23 @@
 import { Response } from 'express';
 import fs from 'fs';
 import { Request } from 'express';
-import { ObjectId } from 'mongodb';
+import QRCode from 'qrcode';
 import {
   CreditoDocumentoCampo,
   CreditoEstadoVerificacion,
   CreditoProducto,
   CreditoReglas,
   CreditoSolicitud,
-  CreditoSolicitudItem,
   CreditoSolicitudStatus,
   CreditoUsuario,
-  InvProducto,
 } from '../models';
 import { database } from '../config/database';
-import { getReglas, limitePorNivel, simularCredito } from '../services/creditos-reglas.service';
+import { calcularIva, getReglas, limitePorNivel, simularCredito } from '../services/creditos-reglas.service';
 import { rutaAbsolutaSegura } from '../services/creditos-storage.service';
+
+/** Prefijo que identifica un QR de compra de créditos, para no confundirlo con cualquier
+ *  otro código que el cliente pueda escanear por error. */
+const QR_PREFIJO = 'ESCOLARES-CREDITO:';
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
@@ -70,7 +72,7 @@ export class CreditosAdminController {
     const reglas = await getReglas();
     const solicitudes = await database
       .getCollection<CreditoSolicitud>('creditos_solicitudes')
-      .find({ usuarioId: { $in: usuarios.map((u) => u.id) }, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion'] } })
+      .find({ usuarioId: { $in: usuarios.map((u) => u.id) }, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion', 'esperando_pago'] } })
       .toArray();
 
     res.json(
@@ -210,16 +212,29 @@ export class CreditosAdminController {
     );
   }
 
-  /** Arma una compra desde inv_productos y la deja esperando que el cliente la acepte en la app. */
+  /** Una sola solicitud por id, para que el panel haga polling del estado mientras
+   *  espera a que el cliente confirme (o rechace) desde la app tras escanear el QR. */
+  async obtenerSolicitud(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const solicitud = await database.getCollection<CreditoSolicitud>('creditos_solicitudes').findOne({ id });
+    if (!solicitud) {
+      res.status(404).json({ error: 'Compra no encontrada' });
+      return;
+    }
+    res.json(solicitud);
+  }
+
+  /**
+   * Registra una compra por un monto en dólares (sin desglose de productos) y la deja
+   * esperando que el cliente la confirme escaneando el QR desde la app.
+   */
   async registrarCompra(req: Request, res: Response): Promise<void> {
     try {
-      const { usuarioId, items } = req.body as {
-        usuarioId?: string;
-        items?: { productoId: string; cantidad: number }[];
-      };
+      const { usuarioId, monto } = req.body as { usuarioId?: string; monto?: number };
+      const subtotal = round(Number(monto));
 
-      if (!usuarioId || !Array.isArray(items) || items.length === 0) {
-        res.status(400).json({ error: 'Selecciona un usuario y al menos un producto' });
+      if (!usuarioId || !Number.isFinite(subtotal) || subtotal <= 0) {
+        res.status(400).json({ error: 'Selecciona un usuario e ingresa un monto válido' });
         return;
       }
 
@@ -233,75 +248,45 @@ export class CreditosAdminController {
         return;
       }
 
-      const invCollection = database.getCollection<InvProducto>('inv_productos');
-      const lineas: CreditoSolicitudItem[] = [];
-      for (const item of items) {
-        const cantidad = Number(item.cantidad);
-        if (!item.productoId || !Number.isFinite(cantidad) || cantidad <= 0) {
-          res.status(400).json({ error: 'Cantidad inválida en uno de los productos' });
-          return;
-        }
-
-        let producto: InvProducto | null = null;
-        try {
-          producto = await invCollection.findOne({ _id: new ObjectId(item.productoId) } as any);
-        } catch {
-          producto = null;
-        }
-        if (!producto || producto.borrado) {
-          res.status(404).json({ error: `Producto no encontrado: ${item.productoId}` });
-          return;
-        }
-
-        lineas.push({
-          productoId: item.productoId,
-          codigo: producto.codigo || '',
-          nombre: producto.nombre || '',
-          precioUnitario: producto.precio ?? 0,
-          cantidad,
-          ivaPorcentaje: producto.iva ?? 0,
-        });
-      }
-
-      const subtotal = round(lineas.reduce((sum, l) => sum + l.precioUnitario * l.cantidad, 0));
-      const iva = round(lineas.reduce((sum, l) => sum + l.precioUnitario * l.cantidad * (l.ivaPorcentaje / 100), 0));
-
       const reglas = await getReglas();
       const solicitudesCollection = database.getCollection<CreditoSolicitud>('creditos_solicitudes');
       const existentes = await solicitudesCollection
-        .find({ usuarioId, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion'] } })
+        .find({ usuarioId, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion', 'esperando_pago'] } })
         .toArray();
       const usado = existentes.reduce((sum, s) => sum + s.monto, 0);
       const disponible = Math.max(0, limitePorNivel(reglas, usuario.nivel) - usado);
 
       if (subtotal > disponible) {
-        res.status(400).json({ error: `El subtotal (${subtotal}) supera el disponible del usuario (${disponible})` });
+        res.status(400).json({ error: `El monto (${subtotal}) supera el disponible del usuario (${disponible})` });
         return;
       }
 
+      const iva = calcularIva(reglas, subtotal);
       const sim = simularCredito(reglas, subtotal);
       const ahora = new Date();
       const numeroFactura = `F-${String((await solicitudesCollection.countDocuments({ factura: { $exists: true } })) + 1).padStart(6, '0')}`;
+      const id = Date.now().toString();
 
       const solicitud: CreditoSolicitud = {
-        id: Date.now().toString(),
+        id,
         usuarioId,
         monto: subtotal,
         cuotas: reglas.cuotas,
         frecuencia: 'quincenal',
         cuotaMonto: sim.cuotaMonto,
         total: sim.total,
-        proposito: lineas.map((l) => `${l.cantidad}x ${l.nombre}`).join(', ').slice(0, 300),
+        proposito: 'Compra registrada en tienda',
         status: 'pendiente_aceptacion',
         cuotasPagadas: 0,
         createdAt: ahora,
-        items: lineas,
         registradoPor: nombreAdmin(req),
         factura: { numero: numeroFactura, emitidaEn: ahora, subtotal, iva, total: round(subtotal + iva) },
       };
 
       await solicitudesCollection.insertOne(solicitud);
-      res.status(201).json(solicitud);
+
+      const qrCode = await QRCode.toDataURL(`${QR_PREFIJO}${id}`, { margin: 1, width: 320 });
+      res.status(201).json({ ...solicitud, qrCode });
     } catch (error) {
       console.error('Error al registrar compra:', error);
       res.status(500).json({ error: 'Error al registrar la compra' });
@@ -333,6 +318,29 @@ export class CreditosAdminController {
       },
     );
     res.json({ message: 'Compra cancelada' });
+  }
+
+  /**
+   * El staff confirma que recibió (en efectivo o transferencia) el pago inicial que el
+   * cliente eligió al aceptar la compra. Recién aquí arranca el crédito de verdad.
+   */
+  async confirmarPago(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const solicitud = await database.getCollection<CreditoSolicitud>('creditos_solicitudes').findOne({ id });
+    if (!solicitud) {
+      res.status(404).json({ error: 'Compra no encontrada' });
+      return;
+    }
+    if (solicitud.status !== 'esperando_pago') {
+      res.status(400).json({ error: 'Esta compra no está esperando el pago inicial' });
+      return;
+    }
+
+    await database.getCollection<CreditoSolicitud>('creditos_solicitudes').updateOne(
+      { id },
+      { $set: { status: 'activo', activadoEn: new Date(), revisadoPor: nombreAdmin(req) } },
+    );
+    res.json({ message: 'Pago inicial confirmado, crédito activado' });
   }
 
   async aprobarSolicitud(req: Request, res: Response): Promise<void> {

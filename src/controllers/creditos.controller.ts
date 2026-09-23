@@ -18,6 +18,10 @@ function normalizarTelefono(telefono: string): string {
   return telefono.replace(/\D/g, '');
 }
 
+function round(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function sinPassword(usuario: CreditoUsuario) {
   const { passwordHash: _passwordHash, ...resto } = usuario;
   return resto;
@@ -338,7 +342,12 @@ export class CreditosController {
     }
   }
 
-  /** El cliente confirma que la compra que armó el staff está correcta: el crédito arranca ahora. */
+  /**
+   * El cliente confirma que la compra que armó el staff está correcta y elige cuánto paga
+   * de inicial (mínimo el IVA de la factura, ya calculado al 16% del subtotal). El crédito
+   * todavía NO arranca: queda 'esperando_pago' hasta que el staff confirme en el panel que
+   * recibió ese pago inicial (efectivo/transferencia).
+   */
   async aceptarSolicitud(req: CreditoAuthRequest, res: Response): Promise<void> {
     const { id } = req.params;
     const solicitud = await database
@@ -352,11 +361,25 @@ export class CreditosController {
       res.status(400).json({ error: 'Esta compra ya no está pendiente de aceptación' });
       return;
     }
+    if (!solicitud.factura) {
+      res.status(400).json({ error: 'Esta compra no tiene factura' });
+      return;
+    }
+
+    const minimo = solicitud.factura.iva;
+    const maximo = solicitud.factura.total;
+    const pagoInicial = round(Number(req.body?.pagoInicial));
+    if (!Number.isFinite(pagoInicial) || pagoInicial < minimo - 0.01 || pagoInicial > maximo + 0.01) {
+      res.status(400).json({ error: `El pago inicial debe estar entre ${minimo} y ${maximo}` });
+      return;
+    }
+
+    const cuotaMonto = round((maximo - pagoInicial) / solicitud.cuotas);
 
     await database
       .getCollection<CreditoSolicitud>('creditos_solicitudes')
-      .updateOne({ id }, { $set: { status: 'activo', activadoEn: new Date() } });
-    res.json({ message: 'Compra aceptada' });
+      .updateOne({ id }, { $set: { status: 'esperando_pago', pagoInicial, cuotaMonto } });
+    res.json({ message: 'Compra confirmada, falta registrar el pago inicial', pagoInicial, cuotaMonto });
   }
 
   /** El cliente rechaza una compra armada por el staff (por ejemplo, si algo está mal). */
