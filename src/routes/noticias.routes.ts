@@ -30,6 +30,12 @@ router.get('/', (req: Request, res: Response) => noticiasController.getAll(req, 
  */
 router.get('/admin', authenticateToken, (req: Request, res: Response) => noticiasController.getAllAdmin(req, res));
 
+// Antes de '/:id': si no, ':id' atraparía 'user-notifications' como si fuera el id
+// de una noticia, y GET /noticias/user-notifications terminaba en getById() -> 404.
+router.get('/user-notifications', authenticateToken, (req: Request, res: Response) => noticiasController.getUserNotifications(req, res));
+router.put('/user-notifications/:id/read', authenticateToken, (req: Request, res: Response) => noticiasController.markAsRead(req, res));
+router.get('/user-notifications/unread-count', authenticateToken, (req: Request, res: Response) => noticiasController.getUnreadCount(req, res));
+
 /**
  * @swagger
  * /api/noticias/{id}:
@@ -132,10 +138,5 @@ router.put('/:id', authenticateToken, (req: Request, res: Response) => noticiasC
 *         description: Noticia eliminada
 */
 router.delete('/:id', authenticateToken, (req: Request, res: Response) => noticiasController.delete(req, res));
-
-// User Notifications
-router.get('/user-notifications', authenticateToken, (req: Request, res: Response) => noticiasController.getUserNotifications(req, res));
-router.put('/user-notifications/:id/read', authenticateToken, (req: Request, res: Response) => noticiasController.markAsRead(req, res));
-router.get('/user-notifications/unread-count', authenticateToken, (req: Request, res: Response) => noticiasController.getUnreadCount(req, res));
 
 export default router;

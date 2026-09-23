@@ -18,9 +18,13 @@ const authKeyGenerator = (req: Request): string => {
   return identifier ? `${req.ip}:${identifier}` : req.ip || 'sin-ip';
 };
 
+// 10 fallos/15min resultaba muy fácil de agotar con una contraseña vieja autocompletada
+// por el navegador (cada intento fallido cuenta, aunque el siguiente sea el correcto).
+// Cada intento ya exige pasar Cloudflare Turnstile, así que subir el cupo no debilita
+// mucho la protección contra fuerza bruta.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 10,
+  limit: 20,
   skipSuccessfulRequests: true,
   keyGenerator: authKeyGenerator,
   message: { error: 'Demasiados intentos, intente en 15 minutos' },

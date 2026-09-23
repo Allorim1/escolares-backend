@@ -7,7 +7,6 @@ import helmet from 'helmet';
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import cookieParser from 'cookie-parser';
-import rateLimit from 'express-rate-limit';
 import { database } from './config/database';
 import { swaggerConfig } from './config/swagger';
 import { authenticateToken } from './middlewares/auth.middleware';
@@ -235,23 +234,6 @@ const invalidateCache = (req: Request, res: ExpressResponse, next: () => void) =
   }
   next();
 };
-
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 100,
-  message: { error: 'Demasiadas solicitudes, intente más tarde' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  skipSuccessfulRequests: true,
-  message: { error: 'Demasiados intentos de login, intente en 15 minutos' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
 
 const corsOptions = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
