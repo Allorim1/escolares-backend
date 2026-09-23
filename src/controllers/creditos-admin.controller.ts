@@ -183,7 +183,10 @@ export class CreditosAdminController {
 
   async listarSolicitudes(req: Request, res: Response): Promise<void> {
     const status = req.query.status as CreditoSolicitudStatus | undefined;
-    const filtro = status ? { status } : {};
+    const usuarioId = req.query.usuarioId as string | undefined;
+    const filtro: Record<string, unknown> = {};
+    if (status) filtro.status = status;
+    if (usuarioId) filtro.usuarioId = usuarioId;
     const solicitudes = await database
       .getCollection<CreditoSolicitud>('creditos_solicitudes')
       .find(filtro)
