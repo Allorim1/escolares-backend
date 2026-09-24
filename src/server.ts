@@ -187,8 +187,14 @@ const withCache = (ttl: number = CACHE_TTL) => {
     if (req.method !== 'GET') return next();
     
     const path = req.path;
-    if (path.includes('/users') || path.includes('/profile')) return next();
-    
+    // '/creditos': datos personales y en tiempo real (compras, cuotas, estado de pago).
+    // La cache key es la URL tal cual, sin distinguir usuario, así que cachear
+    // '/api/creditos/solicitudes' servía la lista de LA PRIMERA persona que la pidiera a
+    // cualquier otra que la pidiera después (mismo path, distinto usuario autenticado). Y
+    // '/api/creditos/admin/solicitudes/:id', al no invalidarse nunca, dejaba el polling del
+    // panel viendo el mismo estado viejo durante los 5 minutos de TTL.
+    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos')) return next();
+
     const cacheKey = `req:${req.originalUrl}`;
     const cached = await cacheGet(cacheKey);
     if (cached) {
