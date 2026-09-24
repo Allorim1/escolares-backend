@@ -54,6 +54,29 @@ function sinPassword(usuario: CreditoUsuario) {
 }
 
 export class CreditosAdminController {
+  /**
+   * Última ubicación conocida de cada cliente (reportada al aceptar una compra o declarar
+   * un pago), para el módulo "Ubicación de clientes" del panel. El centrado en el staff y
+   * el filtrado por cercanía se resuelven en el frontend con su propia geolocalización.
+   */
+  async listarUbicaciones(_req: Request, res: Response): Promise<void> {
+    const usuarios = await database
+      .getCollection<CreditoUsuario>('creditos_usuarios')
+      .find({ ultimaUbicacion: { $exists: true } })
+      .toArray();
+
+    res.json(
+      usuarios.map((u) => ({
+        usuarioId: u.id,
+        nombre: u.nombre,
+        telefono: u.telefono,
+        lat: u.ultimaUbicacion!.lat,
+        lng: u.ultimaUbicacion!.lng,
+        actualizadaEn: u.ultimaUbicacion!.actualizadaEn,
+      })),
+    );
+  }
+
   async listarUsuarios(req: Request, res: Response): Promise<void> {
     const status = req.query.status as CreditoEstadoVerificacion | undefined;
     const filtro = status ? { status } : {};

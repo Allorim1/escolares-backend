@@ -17,6 +17,8 @@ router.post('/usuarios/:id/verificacion/aprobar', (req, res) => c.aprobarVerific
 router.post('/usuarios/:id/verificacion/rechazar', (req, res) => c.rechazarVerificacion(req, res));
 router.post('/usuarios/:id/nivel', (req, res) => c.cambiarNivel(req, res));
 
+router.get('/ubicaciones', (req, res) => c.listarUbicaciones(req, res));
+
 router.post('/compras', (req, res) => c.registrarCompra(req, res));
 
 router.get('/solicitudes', (req, res) => c.listarSolicitudes(req, res));

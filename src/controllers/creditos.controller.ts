@@ -35,6 +35,20 @@ function saldoPendienteDe(s: CreditoSolicitud): number {
   return Math.max(0, round(total - montoPagadoDe(s)));
 }
 
+/**
+ * Lat/lng que la app reporta en momentos puntuales (aceptar una compra, declarar un pago)
+ * para verificar presencia. `null` si faltan o son inválidos, para que el caller responda
+ * el 400 con su propio mensaje.
+ */
+function extraerUbicacion(body: any): { lat: number; lng: number } | null {
+  const lat = Number(body?.lat);
+  const lng = Number(body?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return null;
+  }
+  return { lat, lng };
+}
+
 function sinPassword(usuario: CreditoUsuario) {
   const { passwordHash: _passwordHash, ...resto } = usuario;
   return resto;
@@ -387,11 +401,24 @@ export class CreditosController {
       return;
     }
 
-    const cuotaMonto = round((maximo - pagoInicial) / solicitud.cuotas);
+    // Verificación puntual de presencia: sin ubicación no se acepta la compra.
+    const ubicacion = extraerUbicacion(req.body);
+    if (!ubicacion) {
+      res.status(400).json({ error: 'Activa la ubicación de tu teléfono para continuar' });
+      return;
+    }
 
-    await database
-      .getCollection<CreditoSolicitud>('creditos_solicitudes')
-      .updateOne({ id }, { $set: { status: 'esperando_pago', pagoInicial, cuotaMonto } });
+    const cuotaMonto = round((maximo - pagoInicial) / solicitud.cuotas);
+    const usuarioId = req.creditoUser!.userId;
+
+    await Promise.all([
+      database
+        .getCollection<CreditoSolicitud>('creditos_solicitudes')
+        .updateOne({ id }, { $set: { status: 'esperando_pago', pagoInicial, cuotaMonto } }),
+      database
+        .getCollection<CreditoUsuario>('creditos_usuarios')
+        .updateOne({ id: usuarioId }, { $set: { ultimaUbicacion: { ...ubicacion, actualizadaEn: new Date() } } }),
+    ]);
     res.json({ message: 'Compra confirmada, falta registrar el pago inicial', pagoInicial, cuotaMonto });
   }
 
@@ -451,6 +478,13 @@ export class CreditosController {
       return;
     }
 
+    // Verificación puntual de presencia: sin ubicación no se declara el pago.
+    const ubicacion = extraerUbicacion(req.body);
+    if (!ubicacion) {
+      res.status(400).json({ error: 'Activa la ubicación de tu teléfono para continuar' });
+      return;
+    }
+
     const pago: CreditoPago = {
       id: Date.now().toString(),
       solicitudId: String(id),
@@ -460,7 +494,12 @@ export class CreditosController {
       status: 'pendiente_verificacion',
       createdAt: new Date(),
     };
-    await database.getCollection<CreditoPago>('creditos_pagos').insertOne(pago);
+    await Promise.all([
+      database.getCollection<CreditoPago>('creditos_pagos').insertOne(pago),
+      database
+        .getCollection<CreditoUsuario>('creditos_usuarios')
+        .updateOne({ id: usuarioId }, { $set: { ultimaUbicacion: { ...ubicacion, actualizadaEn: new Date() } } }),
+    ]);
     res.status(201).json(pago);
   }
 

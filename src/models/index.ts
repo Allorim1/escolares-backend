@@ -392,6 +392,12 @@ export interface NotificacionRedSocial {
     motivoRechazo?: string;
   }
 
+  export interface CreditoUbicacion {
+    lat: number;
+    lng: number;
+    actualizadaEn: Date;
+  }
+
   export interface CreditoUsuario {
     _id?: string;
     id: string;
@@ -403,6 +409,12 @@ export interface NotificacionRedSocial {
     status: CreditoEstadoVerificacion;
     tutorialVisto: boolean;
     verificacion?: CreditoVerificacion;
+    /**
+     * Última posición reportada por el teléfono al aceptar una compra o declarar un pago
+     * (verificación puntual de presencia, no un rastreo continuo). Ver módulo "Ubicación de
+     * clientes" del panel admin.
+     */
+    ultimaUbicacion?: CreditoUbicacion;
     createdAt: Date;
     updatedAt: Date;
   }
