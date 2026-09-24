@@ -90,6 +90,13 @@ export class CreditosController {
         return;
       }
 
+      // Verificación puntual de presencia: sin ubicación no se completa el registro.
+      const ubicacion = extraerUbicacion(req.body);
+      if (!ubicacion) {
+        res.status(400).json({ error: 'Activa la ubicación de tu teléfono para continuar' });
+        return;
+      }
+
       const passwordHash = await argon2.hash(password, {
         type: argon2.argon2id,
         memoryCost: 65536,
@@ -106,6 +113,7 @@ export class CreditosController {
         nivel: 1,
         status: 'sin_verificar',
         tutorialVisto: false,
+        ultimaUbicacion: { ...ubicacion, actualizadaEn: ahora },
         createdAt: ahora,
         updatedAt: ahora,
       };
@@ -133,7 +141,19 @@ export class CreditosController {
         return;
       }
 
-      res.json(emitirSesion(usuario));
+      // Verificación puntual de presencia: sin ubicación no se completa el inicio de sesión.
+      const ubicacion = extraerUbicacion(req.body);
+      if (!ubicacion) {
+        res.status(400).json({ error: 'Activa la ubicación de tu teléfono para continuar' });
+        return;
+      }
+
+      const ultimaUbicacion = { ...ubicacion, actualizadaEn: new Date() };
+      await database
+        .getCollection<CreditoUsuario>('creditos_usuarios')
+        .updateOne({ id: usuario.id }, { $set: { ultimaUbicacion } });
+
+      res.json(emitirSesion({ ...usuario, ultimaUbicacion }));
     } catch (error) {
       console.error('Error en login de créditos:', error);
       res.status(500).json({ error: 'Error al iniciar sesión' });
