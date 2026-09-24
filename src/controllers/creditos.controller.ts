@@ -3,6 +3,8 @@ import argon2 from 'argon2';
 import {
   CREDITO_DOCUMENTOS,
   CreditoDocumentoCampo,
+  CreditoMetodoPago,
+  CreditoPago,
   CreditoProducto,
   CreditoSolicitud,
   CreditoUsuario,
@@ -20,6 +22,17 @@ function normalizarTelefono(telefono: string): string {
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Cuánto se ha pagado de la factura hasta ahora (con respaldo para créditos activados
+ *  antes de que existiera este campo). */
+function montoPagadoDe(s: CreditoSolicitud): number {
+  return s.montoPagado ?? s.pagoInicial ?? s.factura?.iva ?? 0;
+}
+
+function saldoPendienteDe(s: CreditoSolicitud): number {
+  const total = s.factura?.total ?? s.total;
+  return Math.max(0, round(total - montoPagadoDe(s)));
 }
 
 function sinPassword(usuario: CreditoUsuario) {
@@ -403,6 +416,65 @@ export class CreditosController {
       { $set: { status: 'rechazado', motivoRechazo: (motivo || '').trim() || 'Rechazada por el cliente' } },
     );
     res.json({ message: 'Compra rechazada' });
+  }
+
+  /**
+   * El cliente declara que ya pagó un abono (cuota u otro monto) por Pago Móvil o
+   * Transferencia, fuera de la app. Queda pendiente de que el staff lo verifique contra el
+   * banco antes de que se refleje en la factura.
+   */
+  async crearPago(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const { id } = req.params;
+    const usuarioId = req.creditoUser!.userId;
+    const solicitud = await database
+      .getCollection<CreditoSolicitud>('creditos_solicitudes')
+      .findOne({ id, usuarioId });
+    if (!solicitud) {
+      res.status(404).json({ error: 'Compra no encontrada' });
+      return;
+    }
+    if (solicitud.status !== 'activo') {
+      res.status(400).json({ error: 'Esta factura no está activa' });
+      return;
+    }
+
+    const metodo = req.body?.metodo as CreditoMetodoPago;
+    if (metodo !== 'pago_movil' && metodo !== 'transferencia') {
+      res.status(400).json({ error: 'Método de pago inválido' });
+      return;
+    }
+
+    const saldo = saldoPendienteDe(solicitud);
+    const monto = round(Number(req.body?.monto));
+    if (!Number.isFinite(monto) || monto <= 0 || monto > saldo + 0.01) {
+      res.status(400).json({ error: `El monto debe ser mayor a 0 y no superar el saldo pendiente (${saldo})` });
+      return;
+    }
+
+    const pago: CreditoPago = {
+      id: Date.now().toString(),
+      solicitudId: String(id),
+      usuarioId,
+      monto,
+      metodo,
+      status: 'pendiente_verificacion',
+      createdAt: new Date(),
+    };
+    await database.getCollection<CreditoPago>('creditos_pagos').insertOne(pago);
+    res.status(201).json(pago);
+  }
+
+  /** Para que la app haga polling del estado mientras el staff verifica el pago declarado. */
+  async obtenerPago(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const { id } = req.params;
+    const pago = await database
+      .getCollection<CreditoPago>('creditos_pagos')
+      .findOne({ id, usuarioId: req.creditoUser!.userId });
+    if (!pago) {
+      res.status(404).json({ error: 'Pago no encontrado' });
+      return;
+    }
+    res.json(pago);
   }
 }
 

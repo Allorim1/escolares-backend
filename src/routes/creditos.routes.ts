@@ -46,4 +46,8 @@ router.post('/solicitudes', authenticateCreditoUser, (req, res) => creditosContr
 router.post('/solicitudes/:id/aceptar', authenticateCreditoUser, (req, res) => creditosController.aceptarSolicitud(req, res));
 router.post('/solicitudes/:id/rechazar', authenticateCreditoUser, (req, res) => creditosController.rechazarSolicitud(req, res));
 
+// Abonos a una factura activa (Pago Móvil / Transferencia), pendientes de verificación del staff
+router.post('/solicitudes/:id/pagos', authenticateCreditoUser, (req, res) => creditosController.crearPago(req, res));
+router.get('/pagos/:id', authenticateCreditoUser, (req, res) => creditosController.obtenerPago(req, res));
+
 export default router;

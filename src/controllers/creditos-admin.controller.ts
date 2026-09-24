@@ -5,6 +5,8 @@ import QRCode from 'qrcode';
 import {
   CreditoDocumentoCampo,
   CreditoEstadoVerificacion,
+  CreditoPago,
+  CreditoPagoStatus,
   CreditoProducto,
   CreditoReglas,
   CreditoSolicitud,
@@ -21,6 +23,24 @@ const QR_PREFIJO = 'ESCOLARES-CREDITO:';
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Cuánto se ha pagado de la factura hasta ahora (con respaldo para créditos activados
+ *  antes de que existiera este campo). */
+function montoPagadoDe(s: CreditoSolicitud): number {
+  return s.montoPagado ?? s.pagoInicial ?? s.factura?.iva ?? 0;
+}
+
+/**
+ * Cuánto de la línea de crédito del cliente sigue comprometido por esta solicitud. Para un
+ * crédito activo se va liberando a medida que se paga la factura; en cualquier otro estado
+ * (todavía sin pago confirmado) sigue comprometido el monto completo.
+ */
+function montoComprometido(s: CreditoSolicitud): number {
+  if (s.status === 'activo' && s.factura) {
+    return Math.max(0, round(s.factura.total - montoPagadoDe(s)));
+  }
+  return s.monto;
 }
 
 function nombreAdmin(req: Request): string {
@@ -77,7 +97,7 @@ export class CreditosAdminController {
 
     res.json(
       usuarios.map((u) => {
-        const usado = solicitudes.filter((s) => s.usuarioId === u.id).reduce((sum, s) => sum + s.monto, 0);
+        const usado = solicitudes.filter((s) => s.usuarioId === u.id).reduce((sum, s) => sum + montoComprometido(s), 0);
         const limite = limitePorNivel(reglas, u.nivel);
         return {
           ...sinPassword(u),
@@ -253,7 +273,7 @@ export class CreditosAdminController {
       const existentes = await solicitudesCollection
         .find({ usuarioId, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion', 'esperando_pago'] } })
         .toArray();
-      const usado = existentes.reduce((sum, s) => sum + s.monto, 0);
+      const usado = existentes.reduce((sum, s) => sum + montoComprometido(s), 0);
       const disponible = Math.max(0, limitePorNivel(reglas, usuario.nivel) - usado);
 
       if (subtotal > disponible) {
@@ -336,11 +356,116 @@ export class CreditosAdminController {
       return;
     }
 
+    const montoPagado = solicitud.pagoInicial ?? solicitud.factura?.iva ?? 0;
     await database.getCollection<CreditoSolicitud>('creditos_solicitudes').updateOne(
       { id },
-      { $set: { status: 'activo', activadoEn: new Date(), revisadoPor: nombreAdmin(req) } },
+      { $set: { status: 'activo', activadoEn: new Date(), revisadoPor: nombreAdmin(req), montoPagado } },
     );
     res.json({ message: 'Pago inicial confirmado, crédito activado' });
+  }
+
+  /** Abonos (Pago Móvil / Transferencia) declarados por los clientes, para el módulo de verificación. */
+  async listarPagos(req: Request, res: Response): Promise<void> {
+    const status = req.query.status as CreditoPagoStatus | undefined;
+    const filtro: Record<string, unknown> = {};
+    if (status) filtro.status = status;
+
+    const pagos = await database
+      .getCollection<CreditoPago>('creditos_pagos')
+      .find(filtro)
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const usuarioIds = [...new Set(pagos.map((p) => p.usuarioId))];
+    const solicitudIds = [...new Set(pagos.map((p) => p.solicitudId))];
+    const [usuarios, solicitudes] = await Promise.all([
+      database.getCollection<CreditoUsuario>('creditos_usuarios').find({ id: { $in: usuarioIds } }).toArray(),
+      database.getCollection<CreditoSolicitud>('creditos_solicitudes').find({ id: { $in: solicitudIds } }).toArray(),
+    ]);
+    const usuarioPorId = new Map(usuarios.map((u) => [u.id, u]));
+    const solicitudPorId = new Map(solicitudes.map((s) => [s.id, s]));
+
+    res.json(
+      pagos.map((p) => ({
+        ...p,
+        usuarioNombre: usuarioPorId.get(p.usuarioId)?.nombre,
+        usuarioTelefono: usuarioPorId.get(p.usuarioId)?.telefono,
+        facturaNumero: solicitudPorId.get(p.solicitudId)?.factura?.numero,
+      })),
+    );
+  }
+
+  /**
+   * El staff confirma (contra el estado de cuenta del banco) que el abono declarado sí
+   * llegó: se suma a montoPagado de la solicitud y, si con eso se cubre la factura
+   * completa, el crédito pasa a 'pagado'.
+   */
+  async verificarPago(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const pago = await database.getCollection<CreditoPago>('creditos_pagos').findOne({ id });
+    if (!pago) {
+      res.status(404).json({ error: 'Pago no encontrado' });
+      return;
+    }
+    if (pago.status !== 'pendiente_verificacion') {
+      res.status(400).json({ error: 'Este pago ya fue procesado' });
+      return;
+    }
+
+    const solicitud = await database.getCollection<CreditoSolicitud>('creditos_solicitudes').findOne({ id: pago.solicitudId });
+    if (!solicitud || !solicitud.factura) {
+      res.status(404).json({ error: 'La compra asociada ya no existe' });
+      return;
+    }
+
+    const montoPagado = round(montoPagadoDe(solicitud) + pago.monto);
+    const totalFactura = solicitud.factura.total;
+    const nuevoStatus: CreditoSolicitudStatus = montoPagado >= totalFactura - 0.01 ? 'pagado' : 'activo';
+    // Solo para mostrar el progreso ("2 de 3 cuotas"); el saldo real ya lo maneja montoPagado.
+    const cuotasPagadas = Math.min(
+      solicitud.cuotas,
+      Math.max(0, Math.round((montoPagado - (solicitud.pagoInicial ?? solicitud.factura.iva)) / solicitud.cuotaMonto)),
+    );
+
+    await Promise.all([
+      database.getCollection<CreditoSolicitud>('creditos_solicitudes').updateOne(
+        { id: solicitud.id },
+        { $set: { montoPagado, status: nuevoStatus, cuotasPagadas } },
+      ),
+      database.getCollection<CreditoPago>('creditos_pagos').updateOne(
+        { id },
+        { $set: { status: 'verificado', verificadoPor: nombreAdmin(req), verificadoEn: new Date() } },
+      ),
+    ]);
+    res.json({ message: 'Pago verificado', montoPagado, status: nuevoStatus });
+  }
+
+  /** El staff no encontró el abono declarado en el estado de cuenta del banco. */
+  async rechazarPago(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const { motivo } = req.body;
+    const pago = await database.getCollection<CreditoPago>('creditos_pagos').findOne({ id });
+    if (!pago) {
+      res.status(404).json({ error: 'Pago no encontrado' });
+      return;
+    }
+    if (pago.status !== 'pendiente_verificacion') {
+      res.status(400).json({ error: 'Este pago ya fue procesado' });
+      return;
+    }
+
+    await database.getCollection<CreditoPago>('creditos_pagos').updateOne(
+      { id },
+      {
+        $set: {
+          status: 'rechazado',
+          verificadoPor: nombreAdmin(req),
+          verificadoEn: new Date(),
+          motivoRechazo: (motivo || '').trim() || 'No se encontró el pago en el banco',
+        },
+      },
+    );
+    res.json({ message: 'Pago rechazado' });
   }
 
   async aprobarSolicitud(req: Request, res: Response): Promise<void> {

@@ -462,10 +462,38 @@ export interface NotificacionRedSocial {
     factura?: CreditoFactura;
     /** Cuánto eligió pagar de inicial (mínimo factura.iva); presente desde 'esperando_pago'. */
     pagoInicial?: number;
+    /**
+     * Cuánto se ha pagado en total de factura.total (arranca en pagoInicial al activarse el
+     * crédito). El crédito disponible del cliente se recupera a medida que esto sube:
+     * disponible = factura.total - montoPagado en vez del monto original completo.
+     */
+    montoPagado?: number;
     cuotasPagadas: number;
     createdAt: Date;
     activadoEn?: Date;
     revisadoPor?: string;
+    motivoRechazo?: string;
+  }
+
+  /**
+   * Un abono a una factura ya activa (cuota o "otro monto"), pagado por Pago Móvil o
+   * Transferencia fuera de la app. El cliente declara que lo hizo; el staff lo verifica
+   * contra el estado de cuenta del banco antes de que se refleje en la solicitud.
+   */
+  export type CreditoPagoStatus = 'pendiente_verificacion' | 'verificado' | 'rechazado';
+  export type CreditoMetodoPago = 'pago_movil' | 'transferencia';
+
+  export interface CreditoPago {
+    _id?: string;
+    id: string;
+    solicitudId: string;
+    usuarioId: string;
+    monto: number;
+    metodo: CreditoMetodoPago;
+    status: CreditoPagoStatus;
+    createdAt: Date;
+    verificadoPor?: string;
+    verificadoEn?: Date;
     motivoRechazo?: string;
   }
 

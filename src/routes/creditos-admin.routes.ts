@@ -27,6 +27,11 @@ router.post('/solicitudes/:id/cancelar', (req, res) => c.cancelarCompra(req, res
 router.post('/solicitudes/:id/confirmar-pago', (req, res) => c.confirmarPago(req, res));
 router.post('/solicitudes/:id/registrar-pago', (req, res) => c.registrarPago(req, res));
 
+// Abonos (Pago Móvil / Transferencia) declarados por los clientes, pendientes de verificar
+router.get('/pagos', (req, res) => c.listarPagos(req, res));
+router.post('/pagos/:id/verificar', (req, res) => c.verificarPago(req, res));
+router.post('/pagos/:id/rechazar', (req, res) => c.rechazarPago(req, res));
+
 router.get('/productos', (req, res) => c.listarProductos(req, res));
 router.post('/productos', (req, res) => c.crearProducto(req, res));
 router.put('/productos/:id', (req, res) => c.actualizarProducto(req, res));
