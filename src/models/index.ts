@@ -406,6 +406,12 @@ export interface NotificacionRedSocial {
     email?: string;
     passwordHash: string;
     nivel: number;
+    /** Cuotas pagadas en total (histórico acumulado), lo que sube de nivel automáticamente
+     *  según CreditoReglas.cuotasParaNivel. */
+    cuotasPagadasTotal?: number;
+    /** Crédito adicional otorgado a mano a este cliente puntual, por encima de lo que le
+     *  daría su nivel. Ver módulo "Ampliar Crédito" del panel admin. */
+    extensionCredito?: number;
     status: CreditoEstadoVerificacion;
     tutorialVisto: boolean;
     verificacion?: CreditoVerificacion;
@@ -535,5 +541,14 @@ export interface NotificacionRedSocial {
     ivaTasa: number;
     montoMinimo: number;
     categorias: string[];
+    /** Nombre configurable de cada nivel (índice 0 = nivel 1, ...). */
+    nombresNiveles?: string[];
+    /**
+     * Cuotas que hay que pagar, estando en cada nivel, para subir al siguiente (longitud
+     * nivelMaximo - 1). cuotasParaNivel[0] = cuotas para pasar de nivel 1 a 2,
+     * cuotasParaNivel[1] = cuotas para pasar de 2 a 3, etc. Se compara contra
+     * CreditoUsuario.cuotasPagadasTotal (acumulado, no reinicia al subir de nivel).
+     */
+    cuotasParaNivel?: number[];
     updatedAt: Date;
   }

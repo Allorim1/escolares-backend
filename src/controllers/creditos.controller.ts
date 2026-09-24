@@ -12,7 +12,7 @@ import {
 import { database } from '../config/database';
 import { jwtConfig } from '../config/jwt';
 import { CreditoAuthRequest } from '../middlewares/creditos.middleware';
-import { calcularIva, getReglas, limitePorNivel, simularCredito } from '../services/creditos-reglas.service';
+import { calcularIva, getReglas, limiteTotal, simularCredito } from '../services/creditos-reglas.service';
 import { guardarDocumento, rutaAbsolutaSegura } from '../services/creditos-storage.service';
 import fs from 'fs';
 
@@ -346,7 +346,7 @@ export class CreditosController {
         .find({ usuarioId, status: { $in: ['solicitado', 'activo'] } })
         .toArray();
       const usado = existentes.reduce((sum, s) => sum + s.monto, 0);
-      const disponible = Math.max(0, limitePorNivel(reglas, usuario.nivel) - usado);
+      const disponible = Math.max(0, limiteTotal(reglas, usuario) - usado);
 
       const montoFinal = producto ? producto.precio : montoNum;
       if (montoFinal > disponible) {

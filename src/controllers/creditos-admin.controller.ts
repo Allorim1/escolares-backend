@@ -14,7 +14,7 @@ import {
   CreditoUsuario,
 } from '../models';
 import { database } from '../config/database';
-import { calcularIva, getReglas, limitePorNivel, simularCredito } from '../services/creditos-reglas.service';
+import { calcularIva, getReglas, limiteTotal, nivelPorCuotasPagadas, simularCredito } from '../services/creditos-reglas.service';
 import { rutaAbsolutaSegura } from '../services/creditos-storage.service';
 
 /** Prefijo que identifica un QR de compra de créditos, para no confundirlo con cualquier
@@ -51,6 +51,82 @@ function nombreAdmin(req: Request): string {
 function sinPassword(usuario: CreditoUsuario) {
   const { passwordHash: _passwordHash, ...resto } = usuario;
   return resto;
+}
+
+/**
+ * % de cuotas pagadas a tiempo de un cliente, reconstruido a partir de sus pagos
+ * verificados: para cada cuota ya vencida de cada crédito activo/pagado, se busca cuándo
+ * el acumulado de pagos alcanzó el monto que esa cuota exigía y se compara contra su
+ * fecha de vencimiento (activadoEn + diasEntreCuotas × número de cuota).
+ */
+async function calcularPuntualidad(usuarioId: string): Promise<{ cuotasEvaluadas: number; cuotasATiempo: number; porcentaje: number }> {
+  const reglas = await getReglas();
+  const diasEntreCuotasMs = reglas.diasEntreCuotas * 24 * 60 * 60 * 1000;
+
+  const solicitudes = await database
+    .getCollection<CreditoSolicitud>('creditos_solicitudes')
+    .find({ usuarioId, status: { $in: ['activo', 'pagado'] }, activadoEn: { $exists: true } })
+    .toArray();
+
+  let cuotasEvaluadas = 0;
+  let cuotasATiempo = 0;
+
+  for (const s of solicitudes) {
+    if (!s.activadoEn || !s.factura || !s.cuotaMonto) continue;
+
+    const pagos = await database
+      .getCollection<CreditoPago>('creditos_pagos')
+      .find({ solicitudId: s.id, status: 'verificado' })
+      .sort({ verificadoEn: 1 })
+      .toArray();
+
+    const pagoInicial = s.pagoInicial ?? s.factura.iva;
+    const activado = new Date(s.activadoEn).getTime();
+    const cuotasVencidas = Math.min(s.cuotas, Math.floor((Date.now() - activado) / diasEntreCuotasMs));
+
+    for (let i = 1; i <= cuotasVencidas; i++) {
+      const montoNecesario = pagoInicial + s.cuotaMonto * i;
+      const vencimiento = activado + diasEntreCuotasMs * i;
+
+      let acumulado = pagoInicial;
+      let fechaAlcanzado: number | null = null;
+      for (const p of pagos) {
+        acumulado += p.monto;
+        if (acumulado >= montoNecesario - 0.01) {
+          fechaAlcanzado = p.verificadoEn ? new Date(p.verificadoEn).getTime() : null;
+          break;
+        }
+      }
+
+      cuotasEvaluadas++;
+      if (fechaAlcanzado !== null && fechaAlcanzado <= vencimiento) {
+        cuotasATiempo++;
+      }
+    }
+  }
+
+  const porcentaje = cuotasEvaluadas > 0 ? Math.round((cuotasATiempo / cuotasEvaluadas) * 100) : 100;
+  return { cuotasEvaluadas, cuotasATiempo, porcentaje };
+}
+
+/**
+ * Suma `cantidad` cuotas al acumulado histórico del cliente y, si con eso alcanza el
+ * umbral configurado en Reglas, lo sube de nivel automáticamente. Nunca lo baja: si las
+ * reglas cambiaron y el umbral calculado da un nivel menor al que ya tiene, se conserva el
+ * nivel actual (puede haber sido asignado a mano desde "Cambiar nivel").
+ */
+async function acreditarCuotasPagadas(usuarioId: string, cantidad: number): Promise<void> {
+  if (cantidad <= 0) return;
+  const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id: usuarioId });
+  if (!usuario) return;
+
+  const reglas = await getReglas();
+  const cuotasPagadasTotal = (usuario.cuotasPagadasTotal ?? 0) + cantidad;
+  const nivel = Math.max(usuario.nivel, nivelPorCuotasPagadas(reglas, cuotasPagadasTotal));
+
+  await database
+    .getCollection<CreditoUsuario>('creditos_usuarios')
+    .updateOne({ id: usuarioId }, { $set: { cuotasPagadasTotal, nivel } });
 }
 
 export class CreditosAdminController {
@@ -121,7 +197,7 @@ export class CreditosAdminController {
     res.json(
       usuarios.map((u) => {
         const usado = solicitudes.filter((s) => s.usuarioId === u.id).reduce((sum, s) => sum + montoComprometido(s), 0);
-        const limite = limitePorNivel(reglas, u.nivel);
+        const limite = limiteTotal(reglas, u);
         return {
           ...sinPassword(u),
           disponible: Math.max(0, limite - usado),
@@ -226,6 +302,33 @@ export class CreditosAdminController {
     res.json(sinPassword(result));
   }
 
+  /** Crédito adicional otorgado a mano a un cliente puntual, por encima de lo que le da su nivel. */
+  async actualizarExtensionCredito(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const monto = Number(req.body.monto);
+    if (!Number.isFinite(monto) || monto < 0) {
+      res.status(400).json({ error: 'El monto debe ser un número mayor o igual a 0' });
+      return;
+    }
+
+    const result = await database
+      .getCollection<CreditoUsuario>('creditos_usuarios')
+      .findOneAndUpdate({ id }, { $set: { extensionCredito: round(monto), updatedAt: new Date() } }, { returnDocument: 'after' });
+
+    if (!result) {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+    res.json(sinPassword(result));
+  }
+
+  /** Para el módulo "Ampliar Crédito": % de cuotas que este cliente pagó a tiempo. */
+  async puntualidad(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const resultado = await calcularPuntualidad(String(id));
+    res.json(resultado);
+  }
+
   async listarSolicitudes(req: Request, res: Response): Promise<void> {
     const status = req.query.status as CreditoSolicitudStatus | undefined;
     const usuarioId = req.query.usuarioId as string | undefined;
@@ -297,7 +400,7 @@ export class CreditosAdminController {
         .find({ usuarioId, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion', 'esperando_pago'] } })
         .toArray();
       const usado = existentes.reduce((sum, s) => sum + montoComprometido(s), 0);
-      const disponible = Math.max(0, limitePorNivel(reglas, usuario.nivel) - usado);
+      const disponible = Math.max(0, limiteTotal(reglas, usuario) - usado);
 
       if (subtotal > disponible) {
         res.status(400).json({ error: `El monto (${subtotal}) supera el disponible del usuario (${disponible})` });
@@ -449,6 +552,7 @@ export class CreditosAdminController {
       solicitud.cuotas,
       Math.max(0, Math.round((montoPagado - (solicitud.pagoInicial ?? solicitud.factura.iva)) / solicitud.cuotaMonto)),
     );
+    const cuotasNuevas = Math.max(0, cuotasPagadas - solicitud.cuotasPagadas);
 
     await Promise.all([
       database.getCollection<CreditoSolicitud>('creditos_solicitudes').updateOne(
@@ -459,6 +563,8 @@ export class CreditosAdminController {
         { id },
         { $set: { status: 'verificado', verificadoPor: nombreAdmin(req), verificadoEn: new Date() } },
       ),
+      // Sube de nivel automáticamente según las cuotas que este pago recién completó.
+      acreditarCuotasPagadas(pago.usuarioId, cuotasNuevas),
     ]);
     res.json({ message: 'Pago verificado', montoPagado, status: nuevoStatus });
   }
@@ -545,9 +651,12 @@ export class CreditosAdminController {
     const cuotasPagadas = solicitud.cuotasPagadas + 1;
     const nuevoStatus: CreditoSolicitudStatus = cuotasPagadas >= solicitud.cuotas ? 'pagado' : 'activo';
 
-    await database
-      .getCollection<CreditoSolicitud>('creditos_solicitudes')
-      .updateOne({ id }, { $set: { cuotasPagadas, status: nuevoStatus } });
+    await Promise.all([
+      database
+        .getCollection<CreditoSolicitud>('creditos_solicitudes')
+        .updateOne({ id }, { $set: { cuotasPagadas, status: nuevoStatus } }),
+      acreditarCuotasPagadas(solicitud.usuarioId, 1),
+    ]);
 
     res.json({ message: 'Pago registrado', cuotasPagadas, status: nuevoStatus });
   }
@@ -641,6 +750,17 @@ export class CreditosAdminController {
     }
     if (Array.isArray(req.body.categorias)) {
       cambios.categorias = req.body.categorias;
+    }
+    if (Array.isArray(req.body.nombresNiveles)) {
+      cambios.nombresNiveles = req.body.nombresNiveles.map((n: unknown) => String(n ?? '').trim());
+    }
+    if (Array.isArray(req.body.cuotasParaNivel)) {
+      const cuotasParaNivel = req.body.cuotasParaNivel.map((n: unknown) => Number(n));
+      if (cuotasParaNivel.some((n: number) => !Number.isFinite(n) || n < 0)) {
+        res.status(400).json({ error: 'Valor inválido en cuotas para subir de nivel' });
+        return;
+      }
+      cambios.cuotasParaNivel = cuotasParaNivel;
     }
 
     await getReglas(); // asegura que el documento exista antes de actualizarlo

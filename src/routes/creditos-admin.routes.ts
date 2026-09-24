@@ -16,6 +16,8 @@ router.get('/usuarios/:id/documentos/:campo', (req, res) => c.documentoUsuario(r
 router.post('/usuarios/:id/verificacion/aprobar', (req, res) => c.aprobarVerificacion(req, res));
 router.post('/usuarios/:id/verificacion/rechazar', (req, res) => c.rechazarVerificacion(req, res));
 router.post('/usuarios/:id/nivel', (req, res) => c.cambiarNivel(req, res));
+router.post('/usuarios/:id/extension-credito', (req, res) => c.actualizarExtensionCredito(req, res));
+router.get('/usuarios/:id/puntualidad', (req, res) => c.puntualidad(req, res));
 
 router.get('/ubicaciones', (req, res) => c.listarUbicaciones(req, res));
 
