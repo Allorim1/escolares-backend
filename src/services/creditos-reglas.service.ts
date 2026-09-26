@@ -75,6 +75,13 @@ export function calcularIva(reglas: CreditoReglas, subtotal: number): number {
   return round(subtotal * reglas.ivaTasa);
 }
 
+/** El monto que se ingresa en Registrar Compra y Asignar Compra ya incluye IVA (es lo que
+ *  paga el cliente); esto separa cuánto de eso es subtotal y cuánto es IVA. */
+export function desglosarIva(reglas: CreditoReglas, montoConIva: number): { subtotal: number; iva: number } {
+  const subtotal = round(montoConIva / (1 + reglas.ivaTasa));
+  return { subtotal, iva: round(montoConIva - subtotal) };
+}
+
 /** Total financiado y monto de cada cuota, con interés simple por quincena sobre el subtotal (sin IVA). */
 export function simularCredito(reglas: CreditoReglas, monto: number): { total: number; cuotaMonto: number } {
   const total = round(monto * (1 + reglas.tasaQuincenal * reglas.cuotas));

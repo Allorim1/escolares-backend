@@ -14,7 +14,7 @@ import {
   CreditoUsuario,
 } from '../models';
 import { database } from '../config/database';
-import { calcularIva, getReglas, limiteTotal, nivelPorCuotasPagadas, simularCredito } from '../services/creditos-reglas.service';
+import { desglosarIva, getReglas, limiteTotal, nivelPorCuotasPagadas, simularCredito } from '../services/creditos-reglas.service';
 import { rutaAbsolutaSegura } from '../services/creditos-storage.service';
 
 /** Prefijo que identifica un QR de compra de créditos, para no confundirlo con cualquier
@@ -377,9 +377,11 @@ export class CreditosAdminController {
   async registrarCompra(req: Request, res: Response): Promise<void> {
     try {
       const { usuarioId, monto } = req.body as { usuarioId?: string; monto?: number };
-      const subtotal = round(Number(monto));
+      // El monto que se ingresa aquí ya incluye IVA (es lo que paga el cliente); se desglosa
+      // más abajo para armar la factura.
+      const montoConIva = round(Number(monto));
 
-      if (!usuarioId || !Number.isFinite(subtotal) || subtotal <= 0) {
+      if (!usuarioId || !Number.isFinite(montoConIva) || montoConIva <= 0) {
         res.status(400).json({ error: 'Selecciona un usuario e ingresa un monto válido' });
         return;
       }
@@ -402,12 +404,12 @@ export class CreditosAdminController {
       const usado = existentes.reduce((sum, s) => sum + montoComprometido(s), 0);
       const disponible = Math.max(0, limiteTotal(reglas, usuario) - usado);
 
-      if (subtotal > disponible) {
-        res.status(400).json({ error: `El monto (${subtotal}) supera el disponible del usuario (${disponible})` });
+      if (montoConIva > disponible) {
+        res.status(400).json({ error: `El monto (${montoConIva}) supera el disponible del usuario (${disponible})` });
         return;
       }
 
-      const iva = calcularIva(reglas, subtotal);
+      const { subtotal, iva } = desglosarIva(reglas, montoConIva);
       const sim = simularCredito(reglas, subtotal);
       const ahora = new Date();
       const numeroFactura = `F-${String((await solicitudesCollection.countDocuments({ factura: { $exists: true } })) + 1).padStart(6, '0')}`;
@@ -416,7 +418,7 @@ export class CreditosAdminController {
       const solicitud: CreditoSolicitud = {
         id,
         usuarioId,
-        monto: subtotal,
+        monto: montoConIva,
         cuotas: reglas.cuotas,
         frecuencia: 'quincenal',
         cuotaMonto: sim.cuotaMonto,
@@ -426,7 +428,7 @@ export class CreditosAdminController {
         cuotasPagadas: 0,
         createdAt: ahora,
         registradoPor: nombreAdmin(req),
-        factura: { numero: numeroFactura, emitidaEn: ahora, subtotal, iva, total: round(subtotal + iva) },
+        factura: { numero: numeroFactura, emitidaEn: ahora, subtotal, iva, total: montoConIva },
       };
 
       await solicitudesCollection.insertOne(solicitud);
@@ -447,9 +449,11 @@ export class CreditosAdminController {
   async registrarCompraManual(req: Request, res: Response): Promise<void> {
     try {
       const { usuarioId, monto, pagoInicial } = req.body as { usuarioId?: string; monto?: number; pagoInicial?: number };
-      const subtotal = round(Number(monto));
+      // El monto que se ingresa aquí ya incluye IVA (es lo que paga el cliente); se desglosa
+      // más abajo para armar la factura.
+      const montoConIva = round(Number(monto));
 
-      if (!usuarioId || !Number.isFinite(subtotal) || subtotal <= 0) {
+      if (!usuarioId || !Number.isFinite(montoConIva) || montoConIva <= 0) {
         res.status(400).json({ error: 'Selecciona un usuario e ingresa un monto válido' });
         return;
       }
@@ -472,16 +476,15 @@ export class CreditosAdminController {
       const usado = existentes.reduce((sum, s) => sum + montoComprometido(s), 0);
       const disponible = Math.max(0, limiteTotal(reglas, usuario) - usado);
 
-      if (subtotal > disponible) {
-        res.status(400).json({ error: `El monto (${subtotal}) supera el disponible del usuario (${disponible})` });
+      if (montoConIva > disponible) {
+        res.status(400).json({ error: `El monto (${montoConIva}) supera el disponible del usuario (${disponible})` });
         return;
       }
 
-      const iva = calcularIva(reglas, subtotal);
-      const total = round(subtotal + iva);
+      const { subtotal, iva } = desglosarIva(reglas, montoConIva);
       const inicial = round(Number(pagoInicial));
-      if (!Number.isFinite(inicial) || inicial < iva - 0.01 || inicial > total + 0.01) {
-        res.status(400).json({ error: `El pago inicial debe estar entre ${iva} y ${total}` });
+      if (!Number.isFinite(inicial) || inicial < iva - 0.01 || inicial > montoConIva + 0.01) {
+        res.status(400).json({ error: `El pago inicial debe estar entre ${iva} y ${montoConIva}` });
         return;
       }
 
@@ -493,7 +496,7 @@ export class CreditosAdminController {
       const solicitud: CreditoSolicitud = {
         id,
         usuarioId,
-        monto: subtotal,
+        monto: montoConIva,
         cuotas: reglas.cuotas,
         frecuencia: 'quincenal',
         cuotaMonto: sim.cuotaMonto,
@@ -504,7 +507,7 @@ export class CreditosAdminController {
         cuotasPagadas: 0,
         createdAt: ahora,
         registradoPor: nombreAdmin(req),
-        factura: { numero: numeroFactura, emitidaEn: ahora, subtotal, iva, total },
+        factura: { numero: numeroFactura, emitidaEn: ahora, subtotal, iva, total: montoConIva },
       };
 
       await solicitudesCollection.insertOne(solicitud);
