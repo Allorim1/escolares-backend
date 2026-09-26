@@ -393,7 +393,9 @@ export class CreditosController {
    * El cliente confirma que la compra que armó el staff está correcta y elige cuánto paga
    * de inicial (mínimo el IVA de la factura, ya calculado al 16% del subtotal). El crédito
    * todavía NO arranca: queda 'esperando_pago' hasta que el staff confirme en el panel que
-   * recibió ese pago inicial (efectivo/transferencia).
+   * recibió ese pago inicial (efectivo/transferencia). Excepción: si la compra la asignó
+   * root a mano (pagoInicialAsignado), ese inicial ya se da por pagado y el crédito arranca
+   * de una vez, sin pasar por 'esperando_pago'.
    */
   async aceptarSolicitud(req: CreditoAuthRequest, res: Response): Promise<void> {
     const { id } = req.params;
@@ -439,15 +441,26 @@ export class CreditosController {
     const cuotaMonto = round((maximo - pagoInicial) / solicitud.cuotas);
     const usuarioId = req.creditoUser!.userId;
 
+    // El inicial asignado por root ya se dio por pagado al armar la compra (se resta de una
+    // vez de la factura): el crédito arranca al aceptar, sin pasar por 'esperando_pago' ni por
+    // que el staff confirme un cobro que nunca va a ocurrir.
+    const solicitudUpdate = solicitud.pagoInicialAsignado != null
+      ? { status: 'activo' as const, pagoInicial, cuotaMonto, montoPagado: pagoInicial, activadoEn: new Date() }
+      : { status: 'esperando_pago' as const, pagoInicial, cuotaMonto };
+
     await Promise.all([
       database
         .getCollection<CreditoSolicitud>('creditos_solicitudes')
-        .updateOne({ id }, { $set: { status: 'esperando_pago', pagoInicial, cuotaMonto } }),
+        .updateOne({ id }, { $set: solicitudUpdate }),
       database
         .getCollection<CreditoUsuario>('creditos_usuarios')
         .updateOne({ id: usuarioId }, { $set: { ultimaUbicacion: { ...ubicacion, actualizadaEn: new Date() } } }),
     ]);
-    res.json({ message: 'Compra confirmada, falta registrar el pago inicial', pagoInicial, cuotaMonto });
+
+    const mensaje = solicitud.pagoInicialAsignado != null
+      ? 'Compra confirmada, crédito activado'
+      : 'Compra confirmada, falta registrar el pago inicial';
+    res.json({ message: mensaje, pagoInicial, cuotaMonto, status: solicitudUpdate.status });
   }
 
   /** El cliente rechaza una compra armada por el staff (por ejemplo, si algo está mal). */
