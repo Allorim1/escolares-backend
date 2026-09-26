@@ -415,10 +415,18 @@ export class CreditosController {
 
     const minimo = solicitud.factura.iva;
     const maximo = solicitud.factura.total;
-    const pagoInicial = round(Number(req.body?.pagoInicial));
-    if (!Number.isFinite(pagoInicial) || pagoInicial < minimo - 0.01 || pagoInicial > maximo + 0.01) {
-      res.status(400).json({ error: `El pago inicial debe estar entre ${minimo} y ${maximo}` });
-      return;
+
+    // Si root armó la compra a mano con un inicial ya fijo, se usa ese monto tal cual
+    // (el cliente no puede pedir otro desde el body); si no, elige entre el mínimo y el total.
+    let pagoInicial: number;
+    if (solicitud.pagoInicialAsignado != null) {
+      pagoInicial = solicitud.pagoInicialAsignado;
+    } else {
+      pagoInicial = round(Number(req.body?.pagoInicial));
+      if (!Number.isFinite(pagoInicial) || pagoInicial < minimo - 0.01 || pagoInicial > maximo + 0.01) {
+        res.status(400).json({ error: `El pago inicial debe estar entre ${minimo} y ${maximo}` });
+        return;
+      }
     }
 
     // Verificación puntual de presencia: sin ubicación no se acepta la compra.

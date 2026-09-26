@@ -439,6 +439,82 @@ export class CreditosAdminController {
     }
   }
 
+  /**
+   * Igual que registrarCompra, pero sin QR y con el pago inicial ya decidido por root (no lo
+   * elige el cliente): la solicitud le llega directo a "Por confirmar" en su app con ambos
+   * montos fijos, y solo puede aceptarla o rechazarla. Restringido a root (ver rutas).
+   */
+  async registrarCompraManual(req: Request, res: Response): Promise<void> {
+    try {
+      const { usuarioId, monto, pagoInicial } = req.body as { usuarioId?: string; monto?: number; pagoInicial?: number };
+      const subtotal = round(Number(monto));
+
+      if (!usuarioId || !Number.isFinite(subtotal) || subtotal <= 0) {
+        res.status(400).json({ error: 'Selecciona un usuario e ingresa un monto válido' });
+        return;
+      }
+
+      const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id: usuarioId });
+      if (!usuario) {
+        res.status(404).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+      if (usuario.status !== 'verificado') {
+        res.status(400).json({ error: 'El usuario debe tener la cuenta verificada' });
+        return;
+      }
+
+      const reglas = await getReglas();
+      const solicitudesCollection = database.getCollection<CreditoSolicitud>('creditos_solicitudes');
+      const existentes = await solicitudesCollection
+        .find({ usuarioId, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion', 'esperando_pago'] } })
+        .toArray();
+      const usado = existentes.reduce((sum, s) => sum + montoComprometido(s), 0);
+      const disponible = Math.max(0, limiteTotal(reglas, usuario) - usado);
+
+      if (subtotal > disponible) {
+        res.status(400).json({ error: `El monto (${subtotal}) supera el disponible del usuario (${disponible})` });
+        return;
+      }
+
+      const iva = calcularIva(reglas, subtotal);
+      const total = round(subtotal + iva);
+      const inicial = round(Number(pagoInicial));
+      if (!Number.isFinite(inicial) || inicial < iva - 0.01 || inicial > total + 0.01) {
+        res.status(400).json({ error: `El pago inicial debe estar entre ${iva} y ${total}` });
+        return;
+      }
+
+      const sim = simularCredito(reglas, subtotal);
+      const ahora = new Date();
+      const numeroFactura = `F-${String((await solicitudesCollection.countDocuments({ factura: { $exists: true } })) + 1).padStart(6, '0')}`;
+      const id = Date.now().toString();
+
+      const solicitud: CreditoSolicitud = {
+        id,
+        usuarioId,
+        monto: subtotal,
+        cuotas: reglas.cuotas,
+        frecuencia: 'quincenal',
+        cuotaMonto: sim.cuotaMonto,
+        total: sim.total,
+        proposito: 'Compra asignada por administración',
+        status: 'pendiente_aceptacion',
+        pagoInicialAsignado: inicial,
+        cuotasPagadas: 0,
+        createdAt: ahora,
+        registradoPor: nombreAdmin(req),
+        factura: { numero: numeroFactura, emitidaEn: ahora, subtotal, iva, total },
+      };
+
+      await solicitudesCollection.insertOne(solicitud);
+      res.status(201).json(solicitud);
+    } catch (error) {
+      console.error('Error al asignar compra:', error);
+      res.status(500).json({ error: 'Error al asignar la compra' });
+    }
+  }
+
   /** El staff cancela una compra que armó por error, antes de que el cliente responda. */
   async cancelarCompra(req: Request, res: Response): Promise<void> {
     const { id } = req.params;

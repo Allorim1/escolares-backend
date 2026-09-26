@@ -480,6 +480,9 @@ export interface NotificacionRedSocial {
     factura?: CreditoFactura;
     /** Cuánto eligió pagar de inicial (mínimo factura.iva); presente desde 'esperando_pago'. */
     pagoInicial?: number;
+    /** Solo en compras armadas manualmente por root (sin QR): el inicial ya viene fijo y el
+     *  cliente solo puede aceptarlo o rechazarlo, sin elegir otro monto. */
+    pagoInicialAsignado?: number;
     /**
      * Cuánto se ha pagado en total de factura.total (arranca en pagoInicial al activarse el
      * crédito). El crédito disponible del cliente se recupera a medida que esto sube:

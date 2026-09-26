@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { creditosAdminController as c } from '../controllers/creditos-admin.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { authenticateToken, requireRoot } from '../middlewares/auth.middleware';
 import { requireCreditosPermiso } from '../middlewares/creditos.middleware';
 
 const router = Router();
@@ -22,6 +22,8 @@ router.get('/usuarios/:id/puntualidad', (req, res) => c.puntualidad(req, res));
 router.get('/ubicaciones', (req, res) => c.listarUbicaciones(req, res));
 
 router.post('/compras', (req, res) => c.registrarCompra(req, res));
+// Asignar una compra sin QR, con el inicial ya decidido: solo root, no basta el permiso de créditos.
+router.post('/compras/manual', requireRoot, (req, res) => c.registrarCompraManual(req, res));
 
 router.get('/solicitudes', (req, res) => c.listarSolicitudes(req, res));
 router.get('/solicitudes/:id', (req, res) => c.obtenerSolicitud(req, res));
