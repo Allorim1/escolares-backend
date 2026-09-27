@@ -1,5 +1,7 @@
 import { Response } from 'express';
 import fs from 'fs';
+import crypto from 'crypto';
+import argon2 from 'argon2';
 import { Request } from 'express';
 import QRCode from 'qrcode';
 import {
@@ -11,11 +13,14 @@ import {
   CreditoReglas,
   CreditoSolicitud,
   CreditoSolicitudStatus,
+  CreditoTicket,
+  CreditoTicketEstado,
   CreditoUsuario,
 } from '../models';
 import { database } from '../config/database';
-import { desglosarIva, getReglas, limiteTotal, nivelPorCuotasPagadas, simularCredito } from '../services/creditos-reglas.service';
-import { rutaAbsolutaSegura } from '../services/creditos-storage.service';
+import { desglosarIva, diasAtrasoDe, getReglas, limiteTotal, moraDeProximaCuota, nivelPorCuotasPagadas, penalizacionAcumulada, simularCredito, totalConMora } from '../services/creditos-reglas.service';
+import { enviarPush } from '../services/push.service';
+import { eliminarDocumentosUsuario, rutaAbsolutaSegura } from '../services/creditos-storage.service';
 
 /** Prefijo que identifica un QR de compra de créditos, para no confundirlo con cualquier
  *  otro código que el cliente pueda escanear por error. */
@@ -33,12 +38,13 @@ function montoPagadoDe(s: CreditoSolicitud): number {
 
 /**
  * Cuánto de la línea de crédito del cliente sigue comprometido por esta solicitud. Para un
- * crédito activo se va liberando a medida que se paga la factura; en cualquier otro estado
- * (todavía sin pago confirmado) sigue comprometido el monto completo.
+ * crédito activo se va liberando a medida que se paga la factura (mora incluida: si se
+ * atrasa, sigue comprometiendo línea de crédito hasta que también la salde); en cualquier
+ * otro estado (todavía sin pago confirmado) sigue comprometido el monto completo.
  */
-function montoComprometido(s: CreditoSolicitud): number {
+function montoComprometido(s: CreditoSolicitud, reglas: CreditoReglas): number {
   if (s.status === 'activo' && s.factura) {
-    return Math.max(0, round(s.factura.total - montoPagadoDe(s)));
+    return Math.max(0, round(totalConMora(s, reglas) - montoPagadoDe(s)));
   }
   return s.monto;
 }
@@ -196,7 +202,7 @@ export class CreditosAdminController {
 
     res.json(
       usuarios.map((u) => {
-        const usado = solicitudes.filter((s) => s.usuarioId === u.id).reduce((sum, s) => sum + montoComprometido(s), 0);
+        const usado = solicitudes.filter((s) => s.usuarioId === u.id).reduce((sum, s) => sum + montoComprometido(s, reglas), 0);
         const limite = limiteTotal(reglas, u);
         return {
           ...sinPassword(u),
@@ -281,6 +287,110 @@ export class CreditosAdminController {
     res.json({ message: 'Verificación rechazada' });
   }
 
+  /** Cuentas con una solicitud de eliminación sin resolver, con aviso de si ya se pueden
+   *  eliminar o si primero hay que esperar a que salden un crédito activo. */
+  async listarSolicitudesEliminacion(req: Request, res: Response): Promise<void> {
+    const usuarios = await database
+      .getCollection<CreditoUsuario>('creditos_usuarios')
+      .find({ 'solicitudEliminacion.estado': 'pendiente' })
+      .sort({ 'solicitudEliminacion.solicitadaEn': 1 })
+      .toArray();
+
+    const solicitudesCollection = database.getCollection<CreditoSolicitud>('creditos_solicitudes');
+    const resultado = await Promise.all(
+      usuarios.map(async (u) => {
+        const creditoPendiente = await solicitudesCollection.countDocuments({
+          usuarioId: u.id,
+          status: { $in: ['pendiente_aceptacion', 'esperando_pago', 'solicitado', 'activo'] },
+        });
+        return {
+          id: u.id,
+          nombre: u.nombre,
+          telefono: u.telefono,
+          email: u.email,
+          motivo: u.solicitudEliminacion?.motivo,
+          solicitadaEn: u.solicitudEliminacion?.solicitadaEn,
+          tieneCreditoPendiente: creditoPendiente > 0,
+        };
+      }),
+    );
+    res.json(resultado);
+  }
+
+  /**
+   * Anonimiza la cuenta (nombre, teléfono, email, documentos y contraseña) y la marca como
+   * eliminada; no puede volver a iniciar sesión. Se conserva su historial de facturas/pagos
+   * para contabilidad, ya sin datos personales asociados. Se rechaza si tiene un crédito
+   * activo con saldo pendiente: primero debe saldarlo.
+   */
+  async aprobarEliminacion(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id });
+    if (!usuario) {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+    if (usuario.solicitudEliminacion?.estado !== 'pendiente') {
+      res.status(400).json({ error: 'Este usuario no tiene una solicitud de eliminación pendiente' });
+      return;
+    }
+
+    const creditoPendiente = await database.getCollection<CreditoSolicitud>('creditos_solicitudes').countDocuments({
+      usuarioId: id,
+      status: { $in: ['pendiente_aceptacion', 'esperando_pago', 'solicitado', 'activo'] },
+    });
+    if (creditoPendiente > 0) {
+      res.status(400).json({ error: 'El cliente tiene un crédito activo con saldo pendiente; no se puede eliminar la cuenta hasta que lo salde' });
+      return;
+    }
+
+    eliminarDocumentosUsuario(String(id));
+    await database.getCollection<CreditoUsuario>('creditos_usuarios').updateOne(
+      { id },
+      {
+        $set: {
+          nombre: 'Usuario eliminado',
+          telefono: `eliminado-${id}`,
+          // No es un hash real de argon2: no coincide con ninguna contraseña, así que basta
+          // para bloquear el login sin necesidad de generar un hash de verdad.
+          passwordHash: crypto.randomBytes(32).toString('hex'),
+          eliminadoEn: new Date(),
+          updatedAt: new Date(),
+        },
+        $unset: { email: '', verificacion: '', ultimaUbicacion: '', solicitudEliminacion: '' },
+      },
+    );
+    res.json({ message: 'Cuenta eliminada' });
+  }
+
+  /** El staff rechaza la solicitud (normalmente porque el cliente tiene un crédito activo
+   *  pendiente); la cuenta sigue igual y el cliente ve el motivo en la app. */
+  async rechazarEliminacion(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const { motivo } = req.body;
+    const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id });
+    if (!usuario) {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+    if (usuario.solicitudEliminacion?.estado !== 'pendiente') {
+      res.status(400).json({ error: 'Este usuario no tiene una solicitud de eliminación pendiente' });
+      return;
+    }
+
+    await database.getCollection<CreditoUsuario>('creditos_usuarios').updateOne(
+      { id },
+      {
+        $set: {
+          'solicitudEliminacion.estado': 'rechazada',
+          'solicitudEliminacion.motivoRechazo': (motivo || '').trim() || 'No especificado',
+          updatedAt: new Date(),
+        },
+      },
+    );
+    res.json({ message: 'Solicitud rechazada' });
+  }
+
   async cambiarNivel(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
     const nivel = Number(req.body.nivel);
@@ -348,12 +458,15 @@ export class CreditosAdminController {
       .find({ id: { $in: usuarioIds } })
       .toArray();
     const usuarioPorId = new Map(usuarios.map((u) => [u.id, u]));
+    const reglas = await getReglas();
 
     res.json(
       solicitudes.map((s) => ({
         ...s,
         usuarioNombre: usuarioPorId.get(s.usuarioId)?.nombre,
         usuarioTelefono: usuarioPorId.get(s.usuarioId)?.telefono,
+        diasAtraso: diasAtrasoDe(s, reglas),
+        moraProximaCuota: moraDeProximaCuota(s, reglas),
       })),
     );
   }
@@ -401,7 +514,7 @@ export class CreditosAdminController {
       const existentes = await solicitudesCollection
         .find({ usuarioId, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion', 'esperando_pago'] } })
         .toArray();
-      const usado = existentes.reduce((sum, s) => sum + montoComprometido(s), 0);
+      const usado = existentes.reduce((sum, s) => sum + montoComprometido(s, reglas), 0);
       const disponible = Math.max(0, limiteTotal(reglas, usuario) - usado);
 
       if (montoConIva > disponible) {
@@ -473,7 +586,7 @@ export class CreditosAdminController {
       const existentes = await solicitudesCollection
         .find({ usuarioId, status: { $in: ['solicitado', 'activo', 'pendiente_aceptacion', 'esperando_pago'] } })
         .toArray();
-      const usado = existentes.reduce((sum, s) => sum + montoComprometido(s), 0);
+      const usado = existentes.reduce((sum, s) => sum + montoComprometido(s, reglas), 0);
       const disponible = Math.max(0, limiteTotal(reglas, usuario) - usado);
 
       if (montoConIva > disponible) {
@@ -511,6 +624,7 @@ export class CreditosAdminController {
       };
 
       await solicitudesCollection.insertOne(solicitud);
+      void enviarPush(usuarioId, 'Tienes una compra por confirmar', `Revísala en "Por confirmar" y acéptala o recházala.`, '/tabs/compras');
       res.status(201).json(solicitud);
     } catch (error) {
       console.error('Error al asignar compra:', error);
@@ -623,9 +737,12 @@ export class CreditosAdminController {
       return;
     }
 
+    const reglas = await getReglas();
     const montoPagado = round(montoPagadoDe(solicitud) + pago.monto);
-    const totalFactura = solicitud.factura.total;
-    const nuevoStatus: CreditoSolicitudStatus = montoPagado >= totalFactura - 0.01 ? 'pagado' : 'activo';
+    // Mora calculada sobre lo que se debía antes de este abono: lo que ya estaba vencido no
+    // deja de contar solo porque ahora está pagando.
+    const totalAPagar = totalConMora(solicitud, reglas);
+    const nuevoStatus: CreditoSolicitudStatus = montoPagado >= totalAPagar - 0.01 ? 'pagado' : 'activo';
     // Solo para mostrar el progreso ("2 de 3 cuotas"); el saldo real ya lo maneja montoPagado.
     const cuotasPagadas = Math.min(
       solicitud.cuotas,
@@ -715,6 +832,11 @@ export class CreditosAdminController {
     res.json({ message: 'Solicitud rechazada' });
   }
 
+  /**
+   * Cobro en efectivo de la próxima cuota: a diferencia de crearPago/verificarPago (Pago
+   * Móvil o transferencia, con un monto declarado), acá el staff no escribe un monto —
+   * se asume que cobró la cuota completa más la mora que tenga acumulada esa cuota puntual.
+   */
   async registrarPago(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
     const solicitud = await database.getCollection<CreditoSolicitud>('creditos_solicitudes').findOne({ id });
@@ -727,17 +849,21 @@ export class CreditosAdminController {
       return;
     }
 
+    const reglas = await getReglas();
+    const mora = moraDeProximaCuota(solicitud, reglas);
+    const montoCobrado = round(solicitud.cuotaMonto + mora);
+    const montoPagado = round(montoPagadoDe(solicitud) + montoCobrado);
     const cuotasPagadas = solicitud.cuotasPagadas + 1;
     const nuevoStatus: CreditoSolicitudStatus = cuotasPagadas >= solicitud.cuotas ? 'pagado' : 'activo';
 
     await Promise.all([
       database
         .getCollection<CreditoSolicitud>('creditos_solicitudes')
-        .updateOne({ id }, { $set: { cuotasPagadas, status: nuevoStatus } }),
+        .updateOne({ id }, { $set: { cuotasPagadas, montoPagado, status: nuevoStatus } }),
       acreditarCuotasPagadas(solicitud.usuarioId, 1),
     ]);
 
-    res.json({ message: 'Pago registrado', cuotasPagadas, status: nuevoStatus });
+    res.json({ message: 'Pago registrado', cuotasPagadas, montoPagado, montoCobrado, mora, status: nuevoStatus });
   }
 
   async listarProductos(_req: Request, res: Response): Promise<void> {
@@ -847,6 +973,248 @@ export class CreditosAdminController {
       .getCollection<CreditoReglas>('creditos_reglas')
       .findOneAndUpdate({ id: 'reglas' }, { $set: cambios }, { returnDocument: 'after' });
     res.json(result);
+  }
+
+  /** Clientes sin email que pidieron "olvidé mi contraseña": hay que llamarlos y
+   *  restablecérsela a mano desde acá. */
+  async listarSolicitudesRestablecimiento(_req: Request, res: Response): Promise<void> {
+    const usuarios = await database
+      .getCollection<CreditoUsuario>('creditos_usuarios')
+      .find({ 'solicitudRestablecimiento.solicitadaEn': { $exists: true } })
+      .sort({ 'solicitudRestablecimiento.solicitadaEn': 1 })
+      .toArray();
+    res.json(usuarios.map((u) => ({
+      id: u.id,
+      nombre: u.nombre,
+      telefono: u.telefono,
+      solicitadaEn: u.solicitudRestablecimiento?.solicitadaEn,
+    })));
+  }
+
+  /** Genera una contraseña temporal y se la muestra al staff una sola vez, para que se la
+   *  dicte al cliente por teléfono (o lo que use la tienda para verificar identidad). */
+  async restablecerPassword(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id });
+    if (!usuario) {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+
+    const temporal = crypto.randomBytes(4).toString('hex');
+    const passwordHash = await argon2.hash(temporal, {
+      type: argon2.argon2id,
+      memoryCost: 65536,
+      timeCost: 3,
+      parallelism: 4,
+    });
+
+    await database.getCollection<CreditoUsuario>('creditos_usuarios').updateOne(
+      { id },
+      { $set: { passwordHash, updatedAt: new Date() }, $unset: { solicitudRestablecimiento: '' } },
+    );
+    res.json({ passwordTemporal: temporal });
+  }
+
+  /**
+   * Resumen para el panel de Reportes: cuánto crédito se ha movido, cuánto está pendiente de
+   * cobro, mora, distribución por nivel y el estado del Centro de Ayuda. Todo calculado al
+   * vuelo con lo que ya hay en las colecciones (no hay una tabla de reportes aparte).
+   */
+  async reportes(_req: Request, res: Response): Promise<void> {
+    const [usuarios, solicitudes, tickets] = await Promise.all([
+      database.getCollection<CreditoUsuario>('creditos_usuarios').find({}).toArray(),
+      database.getCollection<CreditoSolicitud>('creditos_solicitudes').find({}).toArray(),
+      database.getCollection<CreditoTicket>('creditos_tickets').find({}).toArray(),
+    ]);
+    const reglas = await getReglas();
+
+    const usuariosVerificados = usuarios.filter((u) => u.status === 'verificado' && !u.eliminadoEn).length;
+
+    const porEstado: Record<string, { cantidad: number; monto: number }> = {};
+    for (const s of solicitudes) {
+      const key = s.status;
+      if (!porEstado[key]) porEstado[key] = { cantidad: 0, monto: 0 };
+      porEstado[key].cantidad += 1;
+      porEstado[key].monto += s.factura?.total ?? s.monto;
+    }
+
+    const activas = solicitudes.filter((s) => s.status === 'activo');
+    const pagadas = solicitudes.filter((s) => s.status === 'pagado');
+    const totalOtorgado = [...activas, ...pagadas].reduce((sum, s) => sum + (s.factura?.total ?? s.monto), 0);
+    const saldoPendienteActivos = activas.reduce((sum, s) => sum + montoComprometido(s, reglas), 0);
+
+    const atrasadas = activas
+      .map((s) => ({ s, dias: diasAtrasoDe(s, reglas) }))
+      .filter((x) => x.dias > 0);
+    const atrasadasMas7 = atrasadas.filter((x) => x.dias > 7);
+    const moraAcumuladaTotal = activas.reduce((sum, s) => sum + penalizacionAcumulada(s, reglas), 0);
+
+    const porNivel: Record<number, number> = {};
+    for (const u of usuarios) {
+      if (u.eliminadoEn) continue;
+      porNivel[u.nivel] = (porNivel[u.nivel] ?? 0) + 1;
+    }
+
+    const ticketsPorEstado = { abierto: 0, en_proceso: 0, cerrado: 0 };
+    let ticketsPagoAtrasado = 0;
+    for (const t of tickets) {
+      ticketsPorEstado[t.estado] += 1;
+      if (t.tipo === 'pago_atrasado') ticketsPagoAtrasado += 1;
+    }
+
+    res.json({
+      usuarios: { total: usuarios.filter((u) => !u.eliminadoEn).length, verificados: usuariosVerificados },
+      credito: {
+        totalOtorgado: round(totalOtorgado),
+        saldoPendienteActivos: round(saldoPendienteActivos),
+        clientesActivos: activas.length,
+        clientesConMora: atrasadas.length,
+        clientesConMoraGrave: atrasadasMas7.length,
+        montoEnMoraGrave: round(atrasadasMas7.reduce((sum, x) => sum + montoComprometido(x.s, reglas), 0)),
+        moraAcumuladaTotal: round(moraAcumuladaTotal),
+      },
+      porEstado,
+      porNivel,
+      tickets: { ...ticketsPorEstado, pagoAtrasado: ticketsPagoAtrasado },
+    });
+  }
+
+  // ---------- Centro de ayuda ----------
+
+  /** Todos los tickets, con nombre/teléfono del cliente y sus días de atraso (si el ticket
+   *  viene de una compra puntual) para que el panel pueda resaltarlos. */
+  async listarTickets(req: Request, res: Response): Promise<void> {
+    const estado = req.query.estado as CreditoTicketEstado | undefined;
+    const filtro: Record<string, unknown> = {};
+    if (estado) filtro.estado = estado;
+
+    const tickets = await database
+      .getCollection<CreditoTicket>('creditos_tickets')
+      .find(filtro)
+      .sort({ actualizadoEn: -1 })
+      .toArray();
+
+    const usuarioIds = [...new Set(tickets.map((t) => t.usuarioId))];
+    const usuarios = await database.getCollection<CreditoUsuario>('creditos_usuarios').find({ id: { $in: usuarioIds } }).toArray();
+    const usuarioPorId = new Map(usuarios.map((u) => [u.id, u]));
+
+    const solicitudIds = [...new Set(tickets.map((t) => t.solicitudId).filter((id): id is string => !!id))];
+    const reglas = await getReglas();
+    const solicitudes = solicitudIds.length
+      ? await database.getCollection<CreditoSolicitud>('creditos_solicitudes').find({ id: { $in: solicitudIds } }).toArray()
+      : [];
+    const diasAtrasoPorSolicitud = new Map(solicitudes.map((s) => [s.id, diasAtrasoDe(s, reglas)]));
+
+    res.json(
+      tickets.map((t) => ({
+        ...t,
+        usuarioNombre: usuarioPorId.get(t.usuarioId)?.nombre,
+        usuarioTelefono: usuarioPorId.get(t.usuarioId)?.telefono,
+        diasAtraso: t.solicitudId ? diasAtrasoPorSolicitud.get(t.solicitudId) ?? 0 : 0,
+      })),
+    );
+  }
+
+  async obtenerTicket(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const ticket = await database.getCollection<CreditoTicket>('creditos_tickets').findOne({ id });
+    if (!ticket) {
+      res.status(404).json({ error: 'Ticket no encontrado' });
+      return;
+    }
+    res.json(ticket);
+  }
+
+  async responderTicket(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const { mensaje } = req.body;
+    if (!mensaje?.trim()) {
+      res.status(400).json({ error: 'Escribe un mensaje' });
+      return;
+    }
+
+    const ticket = await database.getCollection<CreditoTicket>('creditos_tickets').findOne({ id });
+    if (!ticket) {
+      res.status(404).json({ error: 'Ticket no encontrado' });
+      return;
+    }
+
+    const ahora = new Date();
+    await database.getCollection<CreditoTicket>('creditos_tickets').updateOne(
+      { id },
+      {
+        $push: { mensajes: { autor: 'staff', autorNombre: nombreAdmin(req), texto: mensaje.trim(), createdAt: ahora } },
+        $set: { estado: 'en_proceso', actualizadoEn: ahora },
+      },
+    );
+    void enviarPush(ticket.usuarioId, 'Te respondieron en Centro de Ayuda', mensaje.trim(), `/ayuda/${ticket.id}`);
+    res.json({ message: 'Mensaje enviado' });
+  }
+
+  async cerrarTicket(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const ticket = await database.getCollection<CreditoTicket>('creditos_tickets').findOne({ id });
+    if (!ticket) {
+      res.status(404).json({ error: 'Ticket no encontrado' });
+      return;
+    }
+    const ahora = new Date();
+    await database
+      .getCollection<CreditoTicket>('creditos_tickets')
+      .updateOne({ id }, { $set: { estado: 'cerrado', actualizadoEn: ahora, cerradoEn: ahora } });
+    res.json({ message: 'Ticket cerrado' });
+  }
+
+  /** El staff abre un caso de pago atrasado contra una compra activa con más de 7 días de
+   *  atraso (ver diasAtrasoDe). Queda como un ticket normal, tipeado para distinguirlo. */
+  async abrirCasoPagoAtrasado(req: Request, res: Response): Promise<void> {
+    const { solicitudId } = req.body;
+    const solicitud = await database.getCollection<CreditoSolicitud>('creditos_solicitudes').findOne({ id: solicitudId });
+    if (!solicitud) {
+      res.status(404).json({ error: 'Compra no encontrada' });
+      return;
+    }
+
+    const reglas = await getReglas();
+    const diasAtraso = diasAtrasoDe(solicitud, reglas);
+    if (diasAtraso <= 7) {
+      res.status(400).json({ error: 'Esta compra no tiene más de 7 días de atraso' });
+      return;
+    }
+
+    const yaExiste = await database.getCollection<CreditoTicket>('creditos_tickets').countDocuments({
+      solicitudId,
+      tipo: 'pago_atrasado',
+      estado: { $ne: 'cerrado' },
+    });
+    if (yaExiste > 0) {
+      res.status(400).json({ error: 'Ya hay un caso abierto para esta compra' });
+      return;
+    }
+
+    const ahora = new Date();
+    const admin = nombreAdmin(req);
+    const ticket: CreditoTicket = {
+      id: Date.now().toString(),
+      usuarioId: solicitud.usuarioId,
+      solicitudId,
+      tipo: 'pago_atrasado',
+      asunto: `Pago atrasado (${diasAtraso} días) — Factura ${solicitud.factura?.numero ?? solicitud.id}`,
+      estado: 'abierto',
+      creadoPor: 'staff',
+      mensajes: [{
+        autor: 'staff',
+        autorNombre: admin,
+        texto: `Tu cuota lleva ${diasAtraso} días de atraso. Escríbenos aquí para ponernos de acuerdo en cómo ponerte al día.`,
+        createdAt: ahora,
+      }],
+      createdAt: ahora,
+      actualizadoEn: ahora,
+    };
+    await database.getCollection<CreditoTicket>('creditos_tickets').insertOne(ticket);
+    void enviarPush(ticket.usuarioId, 'Tienes un pago atrasado', ticket.mensajes[0].texto, `/ayuda/${ticket.id}`);
+    res.status(201).json(ticket);
   }
 }
 

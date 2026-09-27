@@ -421,6 +421,27 @@ export interface NotificacionRedSocial {
      * clientes" del panel admin.
      */
     ultimaUbicacion?: CreditoUbicacion;
+    /** Presente mientras el cliente tiene una solicitud de eliminación de cuenta sin resolver.
+     *  No se elimina de una vez: si tiene un crédito activo con saldo pendiente, el staff debe
+     *  rechazarla hasta que lo salde. */
+    solicitudEliminacion?: {
+      motivo?: string;
+      solicitadaEn: Date;
+      estado: 'pendiente' | 'rechazada';
+      motivoRechazo?: string;
+    };
+    /** Presente cuando el staff aprobó la eliminación: la cuenta queda anonimizada (nombre,
+     *  teléfono, email, documentos y contraseña ya no son los reales) y no puede volver a
+     *  iniciar sesión. El historial de facturas/pagos se conserva para contabilidad. */
+    eliminadoEn?: Date;
+    /** El cliente no tiene email registrado, así que "olvidé mi contraseña" no puede mandarle
+     *  un OTP: queda esta marca para que el staff lo llame y le restablezca la contraseña a
+     *  mano desde el panel (ver 'Cuentas por restablecer'). */
+    solicitudRestablecimiento?: { solicitadaEn: Date };
+    /** Tokens FCM de los dispositivos donde inició sesión (puede tener más de uno). Vacío si
+     *  nunca dio permiso de notificaciones o si las notificaciones push no están configuradas
+     *  en el servidor (ver services/push.service.ts). */
+    pushTokens?: string[];
     createdAt: Date;
     updatedAt: Date;
   }
@@ -516,6 +537,36 @@ export interface NotificacionRedSocial {
     verificadoPor?: string;
     verificadoEn?: Date;
     motivoRechazo?: string;
+  }
+
+  export type CreditoTicketEstado = 'abierto' | 'en_proceso' | 'cerrado';
+  /** 'pago_atrasado': lo abre el staff contra un cliente con una cuota vencida hace más de 7
+   *  días (ver diasAtrasoDe en creditos-reglas.service). 'consulta': lo abre el cliente por
+   *  cualquier otro motivo desde "Centro de ayuda". */
+  export type CreditoTicketTipo = 'consulta' | 'pago_atrasado';
+  export type CreditoTicketAutor = 'cliente' | 'staff';
+
+  export interface CreditoTicketMensaje {
+    autor: CreditoTicketAutor;
+    autorNombre?: string;
+    texto: string;
+    createdAt: Date;
+  }
+
+  export interface CreditoTicket {
+    _id?: string;
+    id: string;
+    usuarioId: string;
+    /** Presente cuando el ticket es sobre una compra puntual (típicamente pago_atrasado). */
+    solicitudId?: string;
+    tipo: CreditoTicketTipo;
+    asunto: string;
+    estado: CreditoTicketEstado;
+    creadoPor: CreditoTicketAutor;
+    mensajes: CreditoTicketMensaje[];
+    createdAt: Date;
+    actualizadoEn: Date;
+    cerradoEn?: Date;
   }
 
   export interface CreditoProducto {

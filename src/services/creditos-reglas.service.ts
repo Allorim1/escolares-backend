@@ -1,5 +1,5 @@
 import { database } from '../config/database';
-import { CreditoReglas } from '../models';
+import { CreditoReglas, CreditoSolicitud } from '../models';
 
 const REGLAS_ID = 'reglas' as const;
 
@@ -86,4 +86,85 @@ export function desglosarIva(reglas: CreditoReglas, montoConIva: number): { subt
 export function simularCredito(reglas: CreditoReglas, monto: number): { total: number; cuotaMonto: number } {
   const total = round(monto * (1 + reglas.tasaQuincenal * reglas.cuotas));
   return { total, cuotaMonto: round(total / reglas.cuotas) };
+}
+
+/**
+ * Días de atraso de un crédito activo: busca la primera cuota que ya venció sin que
+ * montoPagado la cubra, y devuelve cuántos días pasaron desde su vencimiento. 0 si no está
+ * activo, no tiene fecha de activación, o va al día. Base para resaltar clientes atrasados
+ * y para que el staff abra un caso de "pago atrasado" (Centro de Ayuda) pasados 7 días.
+ */
+export function diasAtrasoDe(s: CreditoSolicitud, reglas: CreditoReglas): number {
+  if (s.status !== 'activo' || !s.activadoEn || !s.factura || !s.cuotaMonto) return 0;
+
+  const DIA_MS = 24 * 60 * 60 * 1000;
+  const diasEntreCuotasMs = reglas.diasEntreCuotas * DIA_MS;
+  const activado = new Date(s.activadoEn).getTime();
+  const pagoInicial = s.pagoInicial ?? s.factura.iva;
+  const montoPagado = s.montoPagado ?? pagoInicial;
+
+  for (let i = 1; i <= s.cuotas; i++) {
+    const montoNecesario = pagoInicial + s.cuotaMonto * i;
+    if (montoPagado < montoNecesario - 0.01) {
+      const vencimiento = activado + diasEntreCuotasMs * i;
+      return Math.max(0, Math.floor((Date.now() - vencimiento) / DIA_MS));
+    }
+  }
+  return 0;
+}
+
+const DIA_MS = 24 * 60 * 60 * 1000;
+const MORA_MONTO = 2;
+const MORA_CADA_DIAS = 3;
+
+/** Mora de una sola cuota, dado hace cuánto venció (en ms). $2 por cada 3 días de atraso;
+ *  0 si `vencimientoMs` todavía no llega. Misma fórmula que penalizacionPorAtraso() en el
+ *  credit.service.ts de la app — no se cobra de más ni de menos de lo que la app le muestra
+ *  al cliente en "Próximos pagos". */
+function moraPorVencimiento(vencimientoMs: number): number {
+  const dias = Math.max(0, Math.floor((Date.now() - vencimientoMs) / DIA_MS));
+  return Math.floor(dias / MORA_CADA_DIAS) * MORA_MONTO;
+}
+
+/** Mora acumulada a hoy de un crédito activo: suma la de CADA cuota vencida y sin pagar (más
+ *  de una a la vez si el cliente se atrasó en varias). */
+export function penalizacionAcumulada(s: CreditoSolicitud, reglas: CreditoReglas): number {
+  if (s.status !== 'activo' || !s.activadoEn || !s.factura || !s.cuotaMonto) return 0;
+
+  const diasEntreCuotasMs = reglas.diasEntreCuotas * DIA_MS;
+  const activado = new Date(s.activadoEn).getTime();
+  const pagoInicial = s.pagoInicial ?? s.factura.iva;
+  const montoPagado = s.montoPagado ?? pagoInicial;
+
+  let total = 0;
+  for (let i = 1; i <= s.cuotas; i++) {
+    const montoNecesario = pagoInicial + s.cuotaMonto * i;
+    if (montoPagado < montoNecesario - 0.01) {
+      total += moraPorVencimiento(activado + diasEntreCuotasMs * i);
+    }
+  }
+  return round(total);
+}
+
+/**
+ * Mora de la próxima cuota sin pagar (la número `cuotasPagadas + 1`), para cuando el staff
+ * cobra en efectivo y hay que saber cuánto pedir además del monto fijo de la cuota (ver
+ * registrarPago en creditos-admin.controller.ts). 0 si el crédito no está activo o esa
+ * cuota todavía no vence.
+ */
+export function moraDeProximaCuota(s: CreditoSolicitud, reglas: CreditoReglas): number {
+  if (s.status !== 'activo' || !s.activadoEn) return 0;
+  const numeroCuota = s.cuotasPagadas + 1;
+  if (numeroCuota > s.cuotas) return 0;
+
+  const activado = new Date(s.activadoEn).getTime();
+  const vencimiento = activado + reglas.diasEntreCuotas * DIA_MS * numeroCuota;
+  return moraPorVencimiento(vencimiento);
+}
+
+/** Lo que realmente hay que pagar para saldar el crédito: la factura más la mora acumulada
+ *  a hoy. Es la cifra que se debe usar para saber si ya está "pagado", no solo factura.total. */
+export function totalConMora(s: CreditoSolicitud, reglas: CreditoReglas): number {
+  const base = s.factura?.total ?? s.total;
+  return round(base + penalizacionAcumulada(s, reglas));
 }

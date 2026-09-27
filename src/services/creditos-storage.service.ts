@@ -53,3 +53,10 @@ export function rutaAbsolutaSegura(rutaRelativa: string): string | null {
   if (!resuelta.startsWith(PRIVATE_UPLOADS_ROOT)) return null;
   return resuelta;
 }
+
+/** Borra del disco todos los documentos de verificación de un usuario (al aprobar la
+ *  eliminación de su cuenta). No falla si la carpeta no existe. */
+export function eliminarDocumentosUsuario(usuarioId: string): void {
+  const carpetaUsuario = path.join(PRIVATE_UPLOADS_ROOT, usuarioId);
+  fs.rmSync(carpetaUsuario, { recursive: true, force: true });
+}

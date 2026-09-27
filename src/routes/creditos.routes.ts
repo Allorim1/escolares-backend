@@ -19,10 +19,14 @@ const uploadVerificacion = multer({
 // Autenticación de la app (cuentas propias, separadas de la tienda web)
 router.post('/auth/registro', (req, res) => creditosController.register(req, res));
 router.post('/auth/login', (req, res) => creditosController.login(req, res));
+router.post('/auth/olvide-password', (req, res) => creditosController.olvidePassword(req, res));
+router.post('/auth/restablecer-password', (req, res) => creditosController.verificarOtpYRestablecer(req, res));
 
 // Perfil del usuario en sesión
 router.get('/me', authenticateCreditoUser, (req, res) => creditosController.me(req, res));
 router.patch('/me/email', authenticateCreditoUser, (req, res) => creditosController.actualizarEmail(req, res));
+router.post('/me/password', authenticateCreditoUser, (req, res) => creditosController.cambiarPassword(req, res));
+router.post('/me/push-token', authenticateCreditoUser, (req, res) => creditosController.registrarPushToken(req, res));
 router.post('/me/tutorial-visto', authenticateCreditoUser, (req, res) => creditosController.marcarTutorialVisto(req, res));
 
 // Parámetros del negocio y catálogo, visibles para cualquier cuenta con sesión
@@ -49,5 +53,15 @@ router.post('/solicitudes/:id/rechazar', authenticateCreditoUser, (req, res) => 
 // Abonos a una factura activa (Pago Móvil / Transferencia), pendientes de verificación del staff
 router.post('/solicitudes/:id/pagos', authenticateCreditoUser, (req, res) => creditosController.crearPago(req, res));
 router.get('/pagos/:id', authenticateCreditoUser, (req, res) => creditosController.obtenerPago(req, res));
+
+// Solicitar (o cancelar) la eliminación de la propia cuenta; la revisa el staff.
+router.post('/me/eliminacion', authenticateCreditoUser, (req, res) => creditosController.solicitarEliminacion(req, res));
+router.delete('/me/eliminacion', authenticateCreditoUser, (req, res) => creditosController.cancelarSolicitudEliminacion(req, res));
+
+// Centro de ayuda: tickets propios (consultas, o casos de pago atrasado que abrió el staff).
+router.get('/tickets', authenticateCreditoUser, (req, res) => creditosController.listarTickets(req, res));
+router.post('/tickets', authenticateCreditoUser, (req, res) => creditosController.crearTicket(req, res));
+router.get('/tickets/:id', authenticateCreditoUser, (req, res) => creditosController.obtenerTicket(req, res));
+router.post('/tickets/:id/mensajes', authenticateCreditoUser, (req, res) => creditosController.responderTicket(req, res));
 
 export default router;

@@ -6,15 +6,37 @@ import {
   CreditoMetodoPago,
   CreditoPago,
   CreditoProducto,
+  CreditoReglas,
   CreditoSolicitud,
+  CreditoTicket,
   CreditoUsuario,
 } from '../models';
 import { database } from '../config/database';
 import { jwtConfig } from '../config/jwt';
 import { CreditoAuthRequest } from '../middlewares/creditos.middleware';
-import { calcularIva, getReglas, limiteTotal, simularCredito } from '../services/creditos-reglas.service';
+import { calcularIva, getReglas, limiteTotal, penalizacionAcumulada, simularCredito } from '../services/creditos-reglas.service';
 import { guardarDocumento, rutaAbsolutaSegura } from '../services/creditos-storage.service';
 import fs from 'fs';
+import nodemailer from 'nodemailer';
+
+// Misma configuración SMTP que auth.controller.ts (transporter aparte, siguiendo la
+// convención ya usada ahí y en cierre-caja.routes.ts: cada archivo arma el suyo).
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+  },
+});
+
+interface CreditoPasswordResetOtp {
+  usuarioId: string;
+  otp: string;
+  expiresAt: Date;
+  used: boolean;
+}
 
 function normalizarTelefono(telefono: string): string {
   return telefono.replace(/\D/g, '');
@@ -30,8 +52,10 @@ function montoPagadoDe(s: CreditoSolicitud): number {
   return s.montoPagado ?? s.pagoInicial ?? s.factura?.iva ?? 0;
 }
 
-function saldoPendienteDe(s: CreditoSolicitud): number {
-  const total = s.factura?.total ?? s.total;
+/** Incluye la mora acumulada: lo que el cliente debe pagar hoy para saldar la factura, no
+ *  solo el monto original. */
+function saldoPendienteDe(s: CreditoSolicitud, reglas: CreditoReglas): number {
+  const total = (s.factura?.total ?? s.total) + penalizacionAcumulada(s, reglas);
   return Math.max(0, round(total - montoPagadoDe(s)));
 }
 
@@ -136,6 +160,10 @@ export class CreditosController {
 
       const tel = normalizarTelefono(telefono);
       const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ telefono: tel });
+      if (usuario?.eliminadoEn) {
+        res.status(401).json({ error: 'Esta cuenta fue eliminada' });
+        return;
+      }
       if (!usuario || !(await argon2.verify(usuario.passwordHash, password))) {
         res.status(401).json({ error: 'Teléfono o contraseña incorrectos' });
         return;
@@ -157,6 +185,163 @@ export class CreditosController {
     } catch (error) {
       console.error('Error en login de créditos:', error);
       res.status(500).json({ error: 'Error al iniciar sesión' });
+    }
+  }
+
+  /**
+   * El teléfono es lo único garantizado; el email es opcional. Si el cliente tiene uno
+   * registrado, le mandamos un OTP igual que en auth.controller.ts. Si no, dejamos una marca
+   * para que el staff lo llame y le restablezca la contraseña a mano desde el panel.
+   */
+  async olvidePassword(req: CreditoAuthRequest, res: Response): Promise<void> {
+    try {
+      const { telefono } = req.body;
+      if (!telefono) {
+        res.status(400).json({ error: 'Ingresa tu teléfono' });
+        return;
+      }
+
+      const tel = normalizarTelefono(telefono);
+      const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ telefono: tel });
+      if (!usuario || usuario.eliminadoEn) {
+        res.status(404).json({ error: 'No hay una cuenta con ese teléfono' });
+        return;
+      }
+
+      if (!usuario.email) {
+        await database
+          .getCollection<CreditoUsuario>('creditos_usuarios')
+          .updateOne({ id: usuario.id }, { $set: { solicitudRestablecimiento: { solicitadaEn: new Date() } } });
+        res.json({ metodo: 'staff', message: 'No tienes un correo registrado. El equipo te va a contactar para restablecer tu contraseña.' });
+        return;
+      }
+
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+      await database
+        .getCollection<CreditoPasswordResetOtp>('creditos_password_reset_otp')
+        .updateOne({ usuarioId: usuario.id }, { $set: { otp, expiresAt, usuarioId: usuario.id, used: false } }, { upsert: true });
+
+      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        try {
+          await transporter.sendMail({
+            from: process.env.SMTP_FROM || process.env.SMTP_USER,
+            to: usuario.email,
+            subject: 'Código de recuperación de contraseña — Escolares Online',
+            html: `<h2>Recuperación de contraseña</h2><p>Tu código de verificación es: <strong>${otp}</strong></p><p>Este código expira en 10 minutos.</p>`,
+          });
+        } catch (emailError) {
+          console.error('Error enviando OTP de créditos:', emailError);
+        }
+      } else {
+        console.log(`OTP créditos para ${usuario.email}: ${otp}`);
+      }
+
+      const emailOculto = usuario.email.replace(/^(.{2}).*(@.*)$/, '$1***$2');
+      res.json({ metodo: 'email', message: 'Te enviamos un código a tu correo', email: emailOculto });
+    } catch (error) {
+      console.error('Error en olvidePassword:', error);
+      res.status(500).json({ error: 'Error al procesar la solicitud' });
+    }
+  }
+
+  async verificarOtpYRestablecer(req: CreditoAuthRequest, res: Response): Promise<void> {
+    try {
+      const { telefono, otp, nuevaPassword } = req.body;
+      if (!telefono || !otp || !nuevaPassword) {
+        res.status(400).json({ error: 'Teléfono, código y nueva contraseña son requeridos' });
+        return;
+      }
+      if (nuevaPassword.length < 6) {
+        res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+        return;
+      }
+
+      const tel = normalizarTelefono(telefono);
+      const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ telefono: tel });
+      if (!usuario) {
+        res.status(404).json({ error: 'No hay una cuenta con ese teléfono' });
+        return;
+      }
+
+      const registro = await database
+        .getCollection<CreditoPasswordResetOtp>('creditos_password_reset_otp')
+        .findOne({ usuarioId: usuario.id });
+      if (!registro || registro.used) {
+        res.status(400).json({ error: 'Solicita un código nuevo' });
+        return;
+      }
+      if (new Date() > registro.expiresAt) {
+        res.status(400).json({ error: 'El código expiró, solicita uno nuevo' });
+        return;
+      }
+      if (registro.otp !== otp) {
+        res.status(400).json({ error: 'Código incorrecto' });
+        return;
+      }
+
+      const passwordHash = await argon2.hash(nuevaPassword, {
+        type: argon2.argon2id,
+        memoryCost: 65536,
+        timeCost: 3,
+        parallelism: 4,
+      });
+      await database.getCollection<CreditoUsuario>('creditos_usuarios').updateOne({ id: usuario.id }, { $set: { passwordHash, updatedAt: new Date() } });
+      await database
+        .getCollection<CreditoPasswordResetOtp>('creditos_password_reset_otp')
+        .updateOne({ usuarioId: usuario.id }, { $set: { used: true } });
+
+      res.json({ message: 'Contraseña actualizada' });
+    } catch (error) {
+      console.error('Error en verificarOtpYRestablecer:', error);
+      res.status(500).json({ error: 'Error al restablecer la contraseña' });
+    }
+  }
+
+  /** Guarda el token FCM del dispositivo para poder mandarle notificaciones push. Un mismo
+   *  usuario puede tener varios (varios teléfonos con sesión iniciada). */
+  async registrarPushToken(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const { token } = req.body;
+    if (!token) {
+      res.status(400).json({ error: 'Falta el token' });
+      return;
+    }
+    await database
+      .getCollection<CreditoUsuario>('creditos_usuarios')
+      .updateOne({ id: req.creditoUser!.userId }, { $addToSet: { pushTokens: token } });
+    res.json({ message: 'Token registrado' });
+  }
+
+  /** Cambio de contraseña estando ya autenticado, desde Perfil. */
+  async cambiarPassword(req: CreditoAuthRequest, res: Response): Promise<void> {
+    try {
+      const { actual, nueva } = req.body;
+      if (!actual || !nueva) {
+        res.status(400).json({ error: 'Escribe tu contraseña actual y la nueva' });
+        return;
+      }
+      if (nueva.length < 6) {
+        res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres' });
+        return;
+      }
+
+      const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id: req.creditoUser!.userId });
+      if (!usuario || !(await argon2.verify(usuario.passwordHash, actual))) {
+        res.status(401).json({ error: 'La contraseña actual no es correcta' });
+        return;
+      }
+
+      const passwordHash = await argon2.hash(nueva, {
+        type: argon2.argon2id,
+        memoryCost: 65536,
+        timeCost: 3,
+        parallelism: 4,
+      });
+      await database.getCollection<CreditoUsuario>('creditos_usuarios').updateOne({ id: usuario.id }, { $set: { passwordHash, updatedAt: new Date() } });
+      res.json({ message: 'Contraseña actualizada' });
+    } catch (error) {
+      console.error('Error en cambiarPassword:', error);
+      res.status(500).json({ error: 'Error al cambiar la contraseña' });
     }
   }
 
@@ -512,7 +697,8 @@ export class CreditosController {
       return;
     }
 
-    const saldo = saldoPendienteDe(solicitud);
+    const reglas = await getReglas();
+    const saldo = saldoPendienteDe(solicitud, reglas);
     const monto = round(Number(req.body?.monto));
     if (!Number.isFinite(monto) || monto <= 0 || monto > saldo + 0.01) {
       res.status(400).json({ error: `El monto debe ser mayor a 0 y no superar el saldo pendiente (${saldo})` });
@@ -555,6 +741,113 @@ export class CreditosController {
       return;
     }
     res.json(pago);
+  }
+
+  /**
+   * El cliente pide que se elimine su cuenta. No se borra de una vez: el staff la revisa
+   * (ver creditos-admin.controller.ts) y solo la aprueba si no tiene un crédito activo con
+   * saldo pendiente. Volver a llamar esto reemplaza una solicitud ya rechazada.
+   */
+  async solicitarEliminacion(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const { motivo } = req.body;
+    await database.getCollection<CreditoUsuario>('creditos_usuarios').updateOne(
+      { id: req.creditoUser!.userId },
+      {
+        $set: {
+          solicitudEliminacion: {
+            motivo: (motivo || '').trim() || undefined,
+            solicitadaEn: new Date(),
+            estado: 'pendiente',
+          },
+          updatedAt: new Date(),
+        },
+      },
+    );
+    res.json({ message: 'Solicitud enviada' });
+  }
+
+  /** El cliente cancela su propia solicitud (por ejemplo, si cambió de opinión). */
+  async cancelarSolicitudEliminacion(req: CreditoAuthRequest, res: Response): Promise<void> {
+    await database
+      .getCollection<CreditoUsuario>('creditos_usuarios')
+      .updateOne({ id: req.creditoUser!.userId }, { $unset: { solicitudEliminacion: '' } });
+    res.json({ message: 'Solicitud cancelada' });
+  }
+
+  // ---------- Centro de ayuda ----------
+
+  async listarTickets(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const tickets = await database
+      .getCollection<CreditoTicket>('creditos_tickets')
+      .find({ usuarioId: req.creditoUser!.userId })
+      .sort({ actualizadoEn: -1 })
+      .toArray();
+    res.json(tickets);
+  }
+
+  async obtenerTicket(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const { id } = req.params;
+    const ticket = await database
+      .getCollection<CreditoTicket>('creditos_tickets')
+      .findOne({ id, usuarioId: req.creditoUser!.userId });
+    if (!ticket) {
+      res.status(404).json({ error: 'Ticket no encontrado' });
+      return;
+    }
+    res.json(ticket);
+  }
+
+  async crearTicket(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const { asunto, mensaje } = req.body;
+    if (!asunto?.trim() || !mensaje?.trim()) {
+      res.status(400).json({ error: 'Escribe un asunto y un mensaje' });
+      return;
+    }
+
+    const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id: req.creditoUser!.userId });
+    const ahora = new Date();
+    const ticket: CreditoTicket = {
+      id: Date.now().toString(),
+      usuarioId: req.creditoUser!.userId,
+      tipo: 'consulta',
+      asunto: asunto.trim(),
+      estado: 'abierto',
+      creadoPor: 'cliente',
+      mensajes: [{ autor: 'cliente', autorNombre: usuario?.nombre, texto: mensaje.trim(), createdAt: ahora }],
+      createdAt: ahora,
+      actualizadoEn: ahora,
+    };
+    await database.getCollection<CreditoTicket>('creditos_tickets').insertOne(ticket);
+    res.status(201).json(ticket);
+  }
+
+  /** El cliente responde en un ticket propio; reabre uno cerrado si hacía falta seguir hablando. */
+  async responderTicket(req: CreditoAuthRequest, res: Response): Promise<void> {
+    const { id } = req.params;
+    const { mensaje } = req.body;
+    if (!mensaje?.trim()) {
+      res.status(400).json({ error: 'Escribe un mensaje' });
+      return;
+    }
+
+    const ticket = await database
+      .getCollection<CreditoTicket>('creditos_tickets')
+      .findOne({ id, usuarioId: req.creditoUser!.userId });
+    if (!ticket) {
+      res.status(404).json({ error: 'Ticket no encontrado' });
+      return;
+    }
+
+    const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id: req.creditoUser!.userId });
+    const ahora = new Date();
+    await database.getCollection<CreditoTicket>('creditos_tickets').updateOne(
+      { id },
+      {
+        $push: { mensajes: { autor: 'cliente', autorNombre: usuario?.nombre, texto: mensaje.trim(), createdAt: ahora } },
+        $set: { estado: 'abierto', actualizadoEn: ahora },
+      },
+    );
+    res.json({ message: 'Mensaje enviado' });
   }
 }
 
