@@ -20,6 +20,7 @@ import {
 import { database } from '../config/database';
 import { desglosarIva, diasAtrasoDe, getReglas, limiteTotal, moraDeProximaCuota, nivelPorCuotasPagadas, penalizacionAcumulada, simularCredito, totalConMora } from '../services/creditos-reglas.service';
 import { enviarPush } from '../services/push.service';
+import { avisarTicketActualizado } from '../services/tickets-realtime.service';
 import { eliminarDocumentosUsuario, rutaAbsolutaSegura } from '../services/creditos-storage.service';
 
 /** Prefijo que identifica un QR de compra de créditos, para no confundirlo con cualquier
@@ -1148,6 +1149,7 @@ export class CreditosAdminController {
         $set: { estado: 'en_proceso', actualizadoEn: ahora },
       },
     );
+    avisarTicketActualizado(req, ticket.id);
     void enviarPush(ticket.usuarioId, 'Te respondieron en Centro de Ayuda', mensaje.trim(), `/ayuda/${ticket.id}`);
     res.json({ message: 'Mensaje enviado' });
   }
@@ -1163,6 +1165,7 @@ export class CreditosAdminController {
     await database
       .getCollection<CreditoTicket>('creditos_tickets')
       .updateOne({ id }, { $set: { estado: 'cerrado', actualizadoEn: ahora, cerradoEn: ahora } });
+    avisarTicketActualizado(req, ticket.id);
     res.json({ message: 'Ticket cerrado' });
   }
 
@@ -1213,6 +1216,7 @@ export class CreditosAdminController {
       actualizadoEn: ahora,
     };
     await database.getCollection<CreditoTicket>('creditos_tickets').insertOne(ticket);
+    avisarTicketActualizado(req, ticket.id);
     void enviarPush(ticket.usuarioId, 'Tienes un pago atrasado', ticket.mensajes[0].texto, `/ayuda/${ticket.id}`);
     res.status(201).json(ticket);
   }

@@ -16,6 +16,7 @@ import { jwtConfig } from '../config/jwt';
 import { CreditoAuthRequest } from '../middlewares/creditos.middleware';
 import { calcularIva, getReglas, limiteTotal, penalizacionAcumulada, simularCredito } from '../services/creditos-reglas.service';
 import { guardarDocumento, rutaAbsolutaSegura } from '../services/creditos-storage.service';
+import { avisarTicketActualizado } from '../services/tickets-realtime.service';
 import fs from 'fs';
 import nodemailer from 'nodemailer';
 
@@ -818,6 +819,7 @@ export class CreditosController {
       actualizadoEn: ahora,
     };
     await database.getCollection<CreditoTicket>('creditos_tickets').insertOne(ticket);
+    avisarTicketActualizado(req, ticket.id);
     res.status(201).json(ticket);
   }
 
@@ -847,6 +849,7 @@ export class CreditosController {
         $set: { estado: 'abierto', actualizadoEn: ahora },
       },
     );
+    avisarTicketActualizado(req, ticket.id);
     res.json({ message: 'Mensaje enviado' });
   }
 }

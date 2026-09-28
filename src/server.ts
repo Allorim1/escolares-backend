@@ -145,6 +145,13 @@ io.on('connection', (socket) => {
     socket.leave(`order-messages-${orderId}`);
     console.log(`Usuario salió de la sala de mensajes del pedido ${orderId}`);
   });
+
+  // Centro de ayuda: chat de un ticket (app y panel) y lista de tickets del panel admin.
+  // Solo reciben el aviso 'ticket-actualizado' con el id (ver tickets-realtime.service).
+  socket.on('join-ticket-room', (ticketId) => socket.join(`ticket-${ticketId}`));
+  socket.on('leave-ticket-room', (ticketId) => socket.leave(`ticket-${ticketId}`));
+  socket.on('join-tickets-admin-room', () => socket.join('tickets-admin'));
+  socket.on('leave-tickets-admin-room', () => socket.leave('tickets-admin'));
 });
 
 const cacheGet = async (key: string): Promise<string | null> => {
