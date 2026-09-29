@@ -114,6 +114,9 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
 
     // Créditos Escolares (app Escolares Online)
     { id: 'creditos_gestionar', nombre: 'Gestionar Créditos Escolares', descripcion: 'Puede ver verificaciones y documentos, aprobar o rechazar cuentas y créditos, y gestionar el catálogo y las reglas', modulo: 'Créditos Escolares' },
+
+    // Empresas
+    { id: 'whatsapp_gestionar', nombre: 'WhatsApp', descripcion: 'Puede ver las conversaciones de WhatsApp de la empresa y responder a los clientes', modulo: 'Empresas' },
   ];
 
 router.get('/permisos', authenticateToken, requireRoot, async (req: Request, res: Response) => {

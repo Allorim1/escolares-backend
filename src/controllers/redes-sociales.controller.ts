@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { database } from '../config/database';
 import { RedSocial, MensajeRedSocial, RespuestaAutomatica, NotificacionRedSocial } from '../models';
+import { firmaWebhookValida } from '../services/whatsapp-api.service';
+import { procesarWebhook } from '../services/whatsapp-inbox.service';
 
 // Declarar tipos globales para Socket.IO
 declare global {
@@ -776,73 +778,26 @@ export class RedesSocialesController {
     }
   }
 
-  // Webhook para recibir mensajes de WhatsApp
+  // Webhook para recibir mensajes de WhatsApp. Se procesan en el módulo Empresas > WhatsApp
+  // (conversaciones por cliente, adjuntos, estados de entrega y tiempo real por socket.io).
   async webhookWhatsApp(req: Request, res: Response): Promise<void> {
     try {
-      const body = req.body;
-      console.log('Webhook recibido:', JSON.stringify(body, null, 2));
+      if (!firmaWebhookValida((req as any).rawBody, req.get('x-hub-signature-256'))) {
+        console.warn('Webhook de WhatsApp rechazado: firma X-Hub-Signature-256 inválida');
+        res.sendStatus(401);
+        return;
+      }
 
-      // Verificar que es un evento de WhatsApp
-      if (body.object !== 'whatsapp_business_account') {
+      const body = req.body;
+      if (body?.object !== 'whatsapp_business_account') {
         res.sendStatus(404);
         return;
       }
 
-      // Procesar cada entrada
-      for (const entry of body.entry || []) {
-        for (const change of entry.changes || []) {
-          if (change.field === 'messages') {
-            const messages = change.value?.messages || [];
-            for (const message of messages) {
-              if (message.type === 'text') {
-                const from = message.from; // número de teléfono del remitente
-                const text = message.text?.body;
-                const messageId = message.id;
-                const timestamp = parseInt(message.timestamp) * 1000; // convertir a milisegundos
-
-                // Crear mensaje en la base de datos
-                const nuevoMensaje: MensajeRedSocial = {
-                  id: `msg-${Date.now()}`,
-                  plataforma: 'WhatsApp',
-                  usuario: from,
-                  texto: text || '',
-                  fecha: new Date(timestamp),
-                  leido: false,
-                  respondido: false,
-                  createdAt: new Date(),
-                  updatedAt: new Date(),
-                };
-
-await database
-                   .getCollection<MensajeRedSocial>('redes-sociales-mensajes')
-                   .insertOne(nuevoMensaje);
-                console.log('Mensaje de WhatsApp guardado:', nuevoMensaje);
-
-                // Emitir evento de nuevo mensaje a todos los administradores conectados
-                if (global.io) {
-                  global.io.to('messages-admin').emit('nuevo-mensaje', nuevoMensaje);
-                }
-
-                // Emitir evento SSE a todos los clientes conectados
-                if ((global as any).sseClients) {
-                  const data = JSON.stringify({ type: 'nuevo-mensaje', mensaje: nuevoMensaje });
-                  (global as any).sseClients.forEach((client: any) => {
-                    try {
-                      client.write(`data: ${data}\n\n`);
-                    } catch (e) {
-                      (global as any).sseClients.delete(client);
-                    }
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Responder 200 OK a Meta
+      await procesarWebhook(req.app.get('io'), body);
       res.sendStatus(200);
     } catch (error) {
+      // 500 hace que Meta reintente; los mensajes ya guardados no se duplican (wamid único).
       console.error('Error procesando webhook de WhatsApp:', error);
       res.sendStatus(500);
     }

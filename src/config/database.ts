@@ -44,7 +44,7 @@ class Database {
     const collections = await this._db.listCollections().toArray();
     const collectionNames = collections.map((c) => c.name);
 
-    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas', 'abonos-polar', 'empresas', 'sessions', 'compras', 'alertas-costos', 'acuerdos-comerciales', 'variaciones-precio', 'gastos-operativos', 'contrasenas', 'creditos_usuarios', 'creditos_solicitudes', 'creditos_productos', 'creditos_reglas'];
+    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas', 'abonos-polar', 'empresas', 'sessions', 'compras', 'alertas-costos', 'acuerdos-comerciales', 'variaciones-precio', 'gastos-operativos', 'contrasenas', 'creditos_usuarios', 'creditos_solicitudes', 'creditos_productos', 'creditos_reglas', 'whatsapp-conversaciones', 'whatsapp-mensajes'];
 
     for (const name of requiredCollections) {
       if (!collectionNames.includes(name)) {
@@ -69,6 +69,19 @@ class Database {
       await this._db.collection('creditos_productos').createIndex({ id: 1 }, { unique: true });
     } catch (indexError) {
       console.error('Error creando índices de créditos:', indexError);
+    }
+
+    try {
+      await this._db.collection('whatsapp-conversaciones').createIndex({ waId: 1 }, { unique: true });
+      await this._db.collection('whatsapp-conversaciones').createIndex({ updatedAt: -1 });
+      await this._db.collection('whatsapp-mensajes').createIndex({ id: 1 }, { unique: true });
+      await this._db.collection('whatsapp-mensajes').createIndex(
+        { waMessageId: 1 },
+        { unique: true, partialFilterExpression: { waMessageId: { $type: 'string' } } },
+      );
+      await this._db.collection('whatsapp-mensajes').createIndex({ waId: 1, fecha: -1 });
+    } catch (indexError) {
+      console.error('Error creando índices de WhatsApp:', indexError);
     }
 
     await this.seedData();

@@ -46,13 +46,21 @@ import invProductosRoutes from './routes/inv-productos.routes';
 import invGrupos1Routes from './routes/inv-grupos1.routes';
 import creditosRoutes from './routes/creditos.routes';
 import creditosAdminRoutes from './routes/creditos-admin.routes';
+import whatsappRoutes from './routes/whatsapp.routes';
+import { registrarSocketWhatsApp } from './services/whatsapp-inbox.service';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
 
 // Trust proxy for proper IP detection behind Nginx reverse proxy
 app.set('trust proxy', 1);
-app.use(express.json({ limit: '50mb' })); 
+app.use(express.json({
+  limit: '50mb',
+  // El webhook de WhatsApp necesita el cuerpo crudo para validar la firma X-Hub-Signature-256.
+  verify: (req, _res, buf) => {
+    if ((req as Request).url?.startsWith('/api/redes-sociales/webhook/whatsapp')) (req as any).rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const swaggerSpec = swaggerJsdoc(swaggerConfig);
@@ -154,6 +162,9 @@ io.on('connection', (socket) => {
   socket.on('leave-tickets-admin-room', () => socket.leave('tickets-admin'));
 });
 
+// Empresas > WhatsApp: sala autenticada con los mensajes en tiempo real.
+registrarSocketWhatsApp(io);
+
 const cacheGet = async (key: string): Promise<string | null> => {
   if (!redis) return null;
   try {
@@ -200,7 +211,8 @@ const withCache = (ttl: number = CACHE_TTL) => {
     // cualquier otra que la pidiera después (mismo path, distinto usuario autenticado). Y
     // '/api/creditos/admin/solicitudes/:id', al no invalidarse nunca, dejaba el polling del
     // panel viendo el mismo estado viejo durante los 5 minutos de TTL.
-    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos')) return next();
+    // '/whatsapp': conversaciones en tiempo real, nunca se cachean.
+    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp')) return next();
 
     const cacheKey = `req:${req.originalUrl}`;
     const cached = await cacheGet(cacheKey);
@@ -1961,7 +1973,8 @@ app.use(withCache(300));
 // /api/creditos/.../documentos/..., que exige ser el propio usuario o un admin con
 // permiso de créditos. Este bloqueo va antes de express.static para que ninguna de
 // las dos rutas ('/uploads' y '/api/uploads') pueda servirlo por su nombre de archivo.
-app.use(['/uploads/creditos', '/api/uploads/creditos'], (_req: Request, res: ExpressResponse) => {
+// Igual con uploads/whatsapp (adjuntos de los chats): solo por /api/whatsapp/media/:id.
+app.use(['/uploads/creditos', '/api/uploads/creditos', '/uploads/whatsapp', '/api/uploads/whatsapp'], (_req: Request, res: ExpressResponse) => {
   res.status(404).json({ error: 'No encontrado' });
 });
 
@@ -2000,6 +2013,7 @@ app.use('/api/inv-grupos1', invGrupos1Routes);
 // Escolares Online (app Android): cuentas de crédito propias, no la tienda web
 app.use('/api/creditos/admin', creditosAdminRoutes);
 app.use('/api/creditos', creditosRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {

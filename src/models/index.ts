@@ -606,3 +606,75 @@ export interface NotificacionRedSocial {
     cuotasParaNivel?: number[];
     updatedAt: Date;
   }
+
+// ===== WhatsApp (Empresas > WhatsApp) =====
+
+export type WhatsAppDireccion = 'entrante' | 'saliente';
+
+export type WhatsAppTipoMensaje =
+  | 'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker'
+  | 'location' | 'contacts' | 'unsupported';
+
+/** Estados de un mensaje saliente según los webhooks de Meta; 'recibido' es el de los entrantes. */
+export type WhatsAppEstadoMensaje = 'enviando' | 'enviado' | 'entregado' | 'leido' | 'fallido' | 'recibido';
+
+export interface WhatsAppMedia {
+  /** Ruta relativa dentro de uploads/whatsapp (nunca se sirve pública: solo vía /api/whatsapp/media/:id). */
+  archivo?: string;
+  mimetype: string;
+  nombre?: string;
+  size?: number;
+  /** 'pendiente' mientras se descarga desde Meta un adjunto entrante. */
+  estado: 'pendiente' | 'listo' | 'error';
+  /** Id del adjunto en Meta (entrantes), para reintentar la descarga. */
+  metaMediaId?: string;
+}
+
+/** Resumen del mensaje citado, copiado al guardar para no tener que buscarlo al pintar. */
+export interface WhatsAppCita {
+  id: string;
+  direccion: WhatsAppDireccion;
+  tipo: WhatsAppTipoMensaje;
+  texto?: string;
+}
+
+export interface WhatsAppMensaje {
+  _id?: string;
+  id: string;
+  /** wamid de Meta. Único: Meta reintenta los webhooks y así no se duplican mensajes. */
+  waMessageId?: string;
+  waId: string;
+  direccion: WhatsAppDireccion;
+  tipo: WhatsAppTipoMensaje;
+  texto?: string;
+  media?: WhatsAppMedia;
+  ubicacion?: { latitud: number; longitud: number; nombre?: string; direccion?: string };
+  estado: WhatsAppEstadoMensaje;
+  error?: string;
+  cita?: WhatsAppCita;
+  reaccion?: string;
+  /** Quién lo envió desde el panel; ausente si vino del teléfono (app WhatsApp Business). */
+  enviadoPor?: { userId: string; nombre: string };
+  fecha: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface WhatsAppConversacion {
+  _id?: string;
+  /** Número del cliente tal como lo da Meta (wa_id, sin "+"). */
+  waId: string;
+  /** Nombre del perfil de WhatsApp del cliente. */
+  nombre?: string;
+  /** Nombre puesto a mano desde el panel; tiene prioridad sobre `nombre`. */
+  alias?: string;
+  /** Cliente de Relación de Cuentas (abonos-polar) con ese teléfono, si existe. */
+  cliente?: { nombre?: string; empresa?: string; planta?: string; cedula?: string };
+  clienteBuscado?: boolean;
+  ultimoMensaje?: Pick<WhatsAppMensaje, 'id' | 'direccion' | 'tipo' | 'texto' | 'estado' | 'fecha'>;
+  noLeidos: number;
+  /** Último mensaje del cliente: define la ventana de 24 h en la que se puede escribir texto libre. */
+  ultimoEntranteEn?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
