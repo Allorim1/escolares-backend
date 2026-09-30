@@ -62,12 +62,25 @@ function leerCookie(header: string | undefined, nombre: string): string | undefi
 export function registrarSocketWhatsApp(io: Server): void {
   io.on('connection', (socket: Socket) => {
     socket.on('join-whatsapp-room', async (token: unknown, ack?: (r: { ok: boolean; error?: string }) => void) => {
-      const responder = typeof ack === 'function' ? ack : () => {};
+      const responder = typeof ack === 'function' ? ack : () => undefined;
       try {
-        const accessToken =
-          (typeof token === 'string' && token) || leerCookie(socket.handshake.headers.cookie, 'accessToken');
-        const payload = accessToken ? jwtConfig.verifyAccessToken(accessToken) : null;
-        if (!accessToken || !payload) return responder({ ok: false, error: 'No autenticado' });
+        // Igual que authenticateToken: vale la cookie o el token del cliente, el que sea
+        // válido. El de localStorage puede estar vencido mientras la cookie sigue vigente
+        // (el REST funciona con la cookie y nunca fuerza a renovarlo).
+        const candidatos = [leerCookie(socket.handshake.headers.cookie, 'accessToken'), typeof token === 'string' ? token : undefined];
+        let accessToken: string | undefined;
+        let payload: TokenPayload | null = null;
+        for (const c of candidatos) {
+          payload = c ? jwtConfig.verifyAccessToken(c) : null;
+          if (payload) {
+            accessToken = c;
+            break;
+          }
+        }
+        if (!accessToken || !payload) {
+          console.warn(`Socket ${socket.id} rechazado en la sala de WhatsApp: token ausente o vencido`);
+          return responder({ ok: false, error: 'No autenticado' });
+        }
 
         const sessionId = jwtConfig.deriveSessionId(accessToken, payload);
         const session = await database.getCollection<UserSession>('sessions').findOne({ id: sessionId });
@@ -75,6 +88,7 @@ export function registrarSocketWhatsApp(io: Server): void {
 
         if (!(await puedeUsarWhatsApp(payload))) return responder({ ok: false, error: 'Sin permiso' });
         socket.join(SALA);
+        console.log(`Socket ${socket.id} unido a la sala de WhatsApp (${payload.nombre || payload.email})`);
         responder({ ok: true });
       } catch (error) {
         console.error('Error uniendo socket a la sala de WhatsApp:', error);
@@ -86,6 +100,7 @@ export function registrarSocketWhatsApp(io: Server): void {
 }
 
 function emitirMensaje(io: Server | undefined, mensaje: WhatsAppMensaje, conversacion?: WhatsAppConversacion | null) {
+  if (!io) console.warn('WhatsApp: socket.io no disponible, el mensaje no se publicó en tiempo real');
   io?.to(SALA).emit('wa:mensaje', { mensaje: limpiar(mensaje), conversacion: conversacion ? limpiar(conversacion) : undefined });
 }
 
