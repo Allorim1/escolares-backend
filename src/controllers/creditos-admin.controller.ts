@@ -18,10 +18,11 @@ import {
   CreditoUsuario,
 } from '../models';
 import { database } from '../config/database';
-import { desglosarIva, diasAtrasoDe, getReglas, limiteTotal, moraDeProximaCuota, nivelPorCuotasPagadas, penalizacionAcumulada, simularCredito, totalConMora } from '../services/creditos-reglas.service';
+import { desglosarIva, diasAtrasoDe, getReglas, limiteTotal, moraDeProximaCuota, penalizacionAcumulada, simularCredito, totalConMora } from '../services/creditos-reglas.service';
 import { enviarPush } from '../services/push.service';
 import { avisarTicketActualizado } from '../services/tickets-realtime.service';
 import { eliminarDocumentosUsuario, rutaAbsolutaSegura } from '../services/creditos-storage.service';
+import { acreditarCuotasPagadas, aplicarPagoVerificado } from '../services/creditos-pagos.service';
 
 /** Prefijo que identifica un QR de compra de créditos, para no confundirlo con cualquier
  *  otro código que el cliente pueda escanear por error. */
@@ -114,26 +115,6 @@ async function calcularPuntualidad(usuarioId: string): Promise<{ cuotasEvaluadas
 
   const porcentaje = cuotasEvaluadas > 0 ? Math.round((cuotasATiempo / cuotasEvaluadas) * 100) : 100;
   return { cuotasEvaluadas, cuotasATiempo, porcentaje };
-}
-
-/**
- * Suma `cantidad` cuotas al acumulado histórico del cliente y, si con eso alcanza el
- * umbral configurado en Reglas, lo sube de nivel automáticamente. Nunca lo baja: si las
- * reglas cambiaron y el umbral calculado da un nivel menor al que ya tiene, se conserva el
- * nivel actual (puede haber sido asignado a mano desde "Cambiar nivel").
- */
-async function acreditarCuotasPagadas(usuarioId: string, cantidad: number): Promise<void> {
-  if (cantidad <= 0) return;
-  const usuario = await database.getCollection<CreditoUsuario>('creditos_usuarios').findOne({ id: usuarioId });
-  if (!usuario) return;
-
-  const reglas = await getReglas();
-  const cuotasPagadasTotal = (usuario.cuotasPagadasTotal ?? 0) + cantidad;
-  const nivel = Math.max(usuario.nivel, nivelPorCuotasPagadas(reglas, cuotasPagadasTotal));
-
-  await database
-    .getCollection<CreditoUsuario>('creditos_usuarios')
-    .updateOne({ id: usuarioId }, { $set: { cuotasPagadasTotal, nivel } });
 }
 
 export class CreditosAdminController {
@@ -738,31 +719,7 @@ export class CreditosAdminController {
       return;
     }
 
-    const reglas = await getReglas();
-    const montoPagado = round(montoPagadoDe(solicitud) + pago.monto);
-    // Mora calculada sobre lo que se debía antes de este abono: lo que ya estaba vencido no
-    // deja de contar solo porque ahora está pagando.
-    const totalAPagar = totalConMora(solicitud, reglas);
-    const nuevoStatus: CreditoSolicitudStatus = montoPagado >= totalAPagar - 0.01 ? 'pagado' : 'activo';
-    // Solo para mostrar el progreso ("2 de 3 cuotas"); el saldo real ya lo maneja montoPagado.
-    const cuotasPagadas = Math.min(
-      solicitud.cuotas,
-      Math.max(0, Math.round((montoPagado - (solicitud.pagoInicial ?? solicitud.factura.iva)) / solicitud.cuotaMonto)),
-    );
-    const cuotasNuevas = Math.max(0, cuotasPagadas - solicitud.cuotasPagadas);
-
-    await Promise.all([
-      database.getCollection<CreditoSolicitud>('creditos_solicitudes').updateOne(
-        { id: solicitud.id },
-        { $set: { montoPagado, status: nuevoStatus, cuotasPagadas } },
-      ),
-      database.getCollection<CreditoPago>('creditos_pagos').updateOne(
-        { id },
-        { $set: { status: 'verificado', verificadoPor: nombreAdmin(req), verificadoEn: new Date() } },
-      ),
-      // Sube de nivel automáticamente según las cuotas que este pago recién completó.
-      acreditarCuotasPagadas(pago.usuarioId, cuotasNuevas),
-    ]);
+    const { montoPagado, status: nuevoStatus } = await aplicarPagoVerificado(pago, solicitud, nombreAdmin(req));
     res.json({ message: 'Pago verificado', montoPagado, status: nuevoStatus });
   }
 

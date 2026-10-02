@@ -537,6 +537,23 @@ export interface NotificacionRedSocial {
     verificadoPor?: string;
     verificadoEn?: Date;
     motivoRechazo?: string;
+    /** Pago declarado desde la app con sus datos (Pago Móvil o transferencia): se verificó
+     *  en el momento contra la API de conciliación de BDV (ver creditos.controller.ts > crearPago). */
+    datosPago?: CreditoDatosPagoBdv;
+  }
+
+  export interface CreditoDatosPagoBdv {
+    cedulaPagador: string;
+    telefonoPagador: string;
+    /** Últimos 6 dígitos, tal como los pide la app. */
+    referencia: string;
+    /** YYYY-MM-DD */
+    fechaPago: string;
+    bancoOrigen: string;
+    /** Bolívares realmente pagados (lo que se consultó a BDV). */
+    importeBs: number;
+    /** Tasa BCV con la que se comprobó que importeBs corresponde a `monto` en $. */
+    tasa: number;
   }
 
   export type CreditoTicketEstado = 'abierto' | 'en_proceso' | 'cerrado';

@@ -5,6 +5,7 @@ import {
   CreditoDocumentoCampo,
   CreditoMetodoPago,
   CreditoPago,
+  CreditoDatosPagoBdv,
   CreditoProducto,
   CreditoReglas,
   CreditoSolicitud,
@@ -17,6 +18,9 @@ import { CreditoAuthRequest } from '../middlewares/creditos.middleware';
 import { calcularIva, getReglas, limiteTotal, penalizacionAcumulada, simularCredito } from '../services/creditos-reglas.service';
 import { guardarDocumento, rutaAbsolutaSegura } from '../services/creditos-storage.service';
 import { avisarTicketActualizado } from '../services/tickets-realtime.service';
+import { consultarPagoBdv } from '../services/bdv.service';
+import { aplicarPagoVerificado } from '../services/creditos-pagos.service';
+import { obtenerTasaUsdBcv } from '../services/tasa-bcv.service';
 import fs from 'fs';
 import nodemailer from 'nodemailer';
 
@@ -72,6 +76,27 @@ function extraerUbicacion(body: any): { lat: number; lng: number } | null {
     return null;
   }
   return { lat, lng };
+}
+
+/**
+ * Datos del Pago Móvil o transferencia que la app manda al declarar el pago, ya normalizados. Devuelve un
+ * string con el error para el cliente si algo no cumple el formato que pide BDV.
+ */
+function extraerDatosPagoBdv(body: any): Omit<CreditoDatosPagoBdv, 'tasa'> | string {
+  const cedulaPagador = String(body?.cedulaPagador ?? '').toUpperCase().replace(/[^VEJP0-9]/g, '');
+  const telefonoPagador = String(body?.telefonoPagador ?? '').replace(/\D/g, '');
+  const referencia = String(body?.referencia ?? '').replace(/\D/g, '');
+  const fechaPago = String(body?.fechaPago ?? '');
+  const bancoOrigen = String(body?.bancoOrigen ?? '');
+  const importeBs = round(Number(body?.importeBs));
+
+  if (!/^[VEJP]\d{5,9}$/.test(cedulaPagador)) return 'Cédula inválida';
+  if (!/^04\d{9}$/.test(telefonoPagador)) return 'El teléfono debe tener 11 dígitos, p.ej. 04141234567';
+  if (!/^\d{6}$/.test(referencia)) return 'La referencia debe ser los últimos 6 dígitos';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaPago) || Number.isNaN(Date.parse(fechaPago))) return 'Fecha de pago inválida';
+  if (!/^\d{4}$/.test(bancoOrigen)) return 'Selecciona el banco desde donde pagaste';
+  if (!(importeBs > 0)) return 'Monto en bolívares inválido';
+  return { cedulaPagador, telefonoPagador, referencia, fechaPago, bancoOrigen, importeBs };
 }
 
 function sinPassword(usuario: CreditoUsuario) {
@@ -713,6 +738,43 @@ export class CreditosController {
       return;
     }
 
+    // Pago Móvil con datos (app nueva): se verifica en el momento contra BDV. Sin datos
+    // (versiones viejas de la app, o transferencia) sigue el flujo de verificación manual.
+    let datosPago: CreditoDatosPagoBdv | undefined;
+    if (metodo === 'pago_movil' && req.body?.datosPago) {
+      const datos = extraerDatosPagoBdv(req.body.datosPago);
+      if (typeof datos === 'string') {
+        res.status(400).json({ error: datos });
+        return;
+      }
+
+      // Los Bs pagados tienen que corresponder a los $ que se van a abonar. Margen del 3%
+      // por si pagó otro día con una tasa un poco distinta; pagar de más no es problema.
+      let tasa: number;
+      try {
+        tasa = await obtenerTasaUsdBcv();
+      } catch {
+        res.status(503).json({ error: 'No pudimos obtener la tasa del dólar. Intenta de nuevo en unos minutos.' });
+        return;
+      }
+      if (datos.importeBs < monto * tasa * 0.97) {
+        res.status(400).json({ error: 'El monto en bolívares no corresponde al monto a pagar. Revisa la tasa e intenta de nuevo.' });
+        return;
+      }
+
+      const repetido = await database.getCollection<CreditoPago>('creditos_pagos').findOne({
+        'datosPago.referencia': datos.referencia,
+        'datosPago.fechaPago': datos.fechaPago,
+        'datosPago.bancoOrigen': datos.bancoOrigen,
+        status: { $ne: 'rechazado' },
+      });
+      if (repetido) {
+        res.status(400).json({ error: 'Este pago ya fue registrado anteriormente.' });
+        return;
+      }
+      datosPago = { ...datos, tasa };
+    }
+
     const pago: CreditoPago = {
       id: Date.now().toString(),
       solicitudId: String(id),
@@ -721,14 +783,61 @@ export class CreditosController {
       metodo,
       status: 'pendiente_verificacion',
       createdAt: new Date(),
+      ...(datosPago ? { datosPago } : {}),
     };
+    // Se guarda ANTES de consultar a BDV: el banco marca el movimiento como conciliado en la
+    // primera consulta, así que si algo fallara después, el pago queda pendiente para que el
+    // staff lo verifique a mano en vez de perderse.
     await Promise.all([
       database.getCollection<CreditoPago>('creditos_pagos').insertOne(pago),
       database
         .getCollection<CreditoUsuario>('creditos_usuarios')
         .updateOne({ id: usuarioId }, { $set: { ultimaUbicacion: { ...ubicacion, actualizadaEn: new Date() } } }),
     ]);
-    res.status(201).json(pago);
+
+    if (!datosPago) {
+      res.status(201).json(pago);
+      return;
+    }
+
+    let resultado: Awaited<ReturnType<typeof consultarPagoBdv>>;
+    try {
+      resultado = await consultarPagoBdv({
+        cedulaPagador: datosPago.cedulaPagador,
+        telefonoPagador: datosPago.telefonoPagador,
+        referencia: datosPago.referencia,
+        fechaPago: datosPago.fechaPago,
+        importe: datosPago.importeBs.toFixed(2),
+        bancoOrigen: datosPago.bancoOrigen,
+      });
+    } catch (error) {
+      // No se sabe si el banco llegó a conciliarlo: queda pendiente para el staff y la app
+      // hace polling como en el flujo manual.
+      console.error('Error consultando BDV:', error);
+      res.status(201).json(pago);
+      return;
+    }
+
+    if (!resultado.valido) {
+      // Datos que no corresponden a un pago (o un pago ya usado): no se registra nada y el
+      // cliente puede corregir y volver a intentar.
+      await database.getCollection<CreditoPago>('creditos_pagos').deleteOne({ id: pago.id });
+      res.status(400).json({
+        error: resultado.yaConciliado
+          ? 'Este pago ya fue registrado anteriormente. Si crees que es un error, escríbenos por el Centro de ayuda.'
+          : `No encontramos el pago en Banco de Venezuela. Revisa los datos e intenta de nuevo. (${resultado.mensaje})`,
+      });
+      return;
+    }
+
+    try {
+      await aplicarPagoVerificado(pago, solicitud, 'BDV (automático)');
+      res.status(201).json({ ...pago, status: 'verificado' });
+    } catch (error) {
+      // El banco ya lo confirmó: queda pendiente con sus datos para que el staff lo apruebe.
+      console.error('Pago confirmado por BDV pero no se pudo aplicar:', error);
+      res.status(201).json(pago);
+    }
   }
 
   /** Para que la app haga polling del estado mientras el staff verifica el pago declarado. */

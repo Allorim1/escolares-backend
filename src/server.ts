@@ -101,7 +101,10 @@ const io = new Server(httpServer, {
       : ['http://localhost:4200', 'http://localhost:3000', 'https://test.escolaresonline.com', 'https://escolaresonline.com'],
     methods: ['GET', 'POST']
   },
-  transports: ['websocket']
+  // 'polling' (HTTP) como respaldo: si el proxy/balanceador que termina el HTTPS delante
+  // del servidor no deja pasar el upgrade a WebSocket, el tiempo real sigue funcionando
+  // por peticiones HTTP normales. Los clientes que piden solo 'websocket' no cambian.
+  transports: ['polling', 'websocket']
 });
 
 // Attach io to app for access in routes
