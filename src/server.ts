@@ -4677,6 +4677,7 @@ app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
       tasa: tasa || 0,
       divisa: divisa || 0,
       status: status || '',
+      fechaReprogramada: req.body.fechaReprogramada ? new Date(req.body.fechaReprogramada) : null,
       empresa: empresa || '',
       supervisor: supervisor || '',
       supervisorId: supervisorId || '',
@@ -4716,6 +4717,10 @@ app.put('/api/abonos-polar/:id', authenticateToken, async (req: Request, res: Ex
       : (abonos || 0);
     const updateData: any = { nombre, planta, cedula, telefono, nFact, montoFactura, iva, diferencia, tasa, divisa, status, empresa, supervisor: supervisor || '', supervisorId: supervisorId || '', abonos: totalAbonos, abonosPagos: Array.isArray(abonosPagos) ? abonosPagos : [], ivaPagado: ivaPagado || false, comisionPorcentaje: comisionPorcentaje || 0, productosPendientes: Array.isArray(productosPendientes) ? productosPendientes : [] };
     if (fecha) updateData.fecha = new Date(fecha);
+    // Solo se toca si el cliente lo envía, para que quien no maneje este campo no lo borre.
+    if (req.body.fechaReprogramada !== undefined) {
+      updateData.fechaReprogramada = req.body.fechaReprogramada ? new Date(req.body.fechaReprogramada) : null;
+    }
     const collection = (database as any).getCollection('abonos-polar');
 
     const abonoAnterior = await collection.findOne({ _id: new ObjectId(id) });
