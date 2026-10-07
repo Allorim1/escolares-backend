@@ -4811,6 +4811,82 @@ app.delete('/api/abonos-polar/:id', authenticateToken, async (req: Request, res:
   }
 });
 
+// Lista Negra (clientes de Relación de Cuentas, únicos por cédula)
+const normalizarCedulaListaNegra = (cedula: unknown): string => String(cedula ?? '').replace(/\D/g, '');
+
+app.get('/api/lista-negra', authenticateToken, async (_req: Request, res: ExpressResponse) => {
+  try {
+    const collection = (database as any).getCollection('lista-negra');
+    const lista = await collection.find({}).sort({ creadoEn: -1 }).toArray();
+    res.json(lista);
+  } catch (error) {
+    console.error('Error obteniendo lista negra:', error);
+    res.status(500).json({ error: 'Error al obtener la lista negra' });
+  }
+});
+
+app.post('/api/lista-negra', authenticateToken, async (req: Request, res: ExpressResponse) => {
+  try {
+    const { nombre, cedula, telefono, empresa, planta, motivo } = req.body;
+    const cedulaNormalizada = normalizarCedulaListaNegra(cedula);
+    if (!cedulaNormalizada) {
+      res.status(400).json({ error: 'La cédula es requerida' });
+      return;
+    }
+    const collection = (database as any).getCollection('lista-negra');
+    const existente = await collection.findOne({ cedula: cedulaNormalizada });
+    if (existente) {
+      res.status(409).json({ error: 'Esta cédula ya se encuentra en la lista negra' });
+      return;
+    }
+    const user = (req as any).user;
+    const registro = {
+      cedula: cedulaNormalizada,
+      nombre: nombre || '',
+      telefono: telefono || '',
+      empresa: empresa || '',
+      planta: planta || '',
+      motivo: motivo || '',
+      creadoPor: user?.nombre || user?.username || user?.email || 'Sistema',
+      creadoEn: new Date(),
+    };
+    const result = await collection.insertOne(registro);
+    res.json({ ...registro, _id: result.insertedId });
+  } catch (error) {
+    console.error('Error agregando a lista negra:', error);
+    res.status(500).json({ error: 'Error al agregar a la lista negra' });
+  }
+});
+
+app.put('/api/lista-negra/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('lista-negra');
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: { motivo: req.body.motivo || '' } });
+    const actualizado = await collection.findOne({ _id: new ObjectId(id) });
+    res.json(actualizado || { success: true });
+  } catch (error) {
+    console.error('Error actualizando lista negra:', error);
+    res.status(500).json({ error: 'Error al actualizar la lista negra' });
+  }
+});
+
+app.delete('/api/lista-negra/:id', authenticateToken, async (req: Request, res: ExpressResponse) => {
+  try {
+    const { ObjectId } = await import('mongodb');
+    const idParam = req.params.id;
+    const id = Array.isArray(idParam) ? idParam[0] : idParam;
+    const collection = (database as any).getCollection('lista-negra');
+    await collection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminando de lista negra:', error);
+    res.status(500).json({ error: 'Error al eliminar de la lista negra' });
+  }
+});
+
 const uploadsRoot = process.env.UPLOADS_PATH
   ? path.resolve(process.env.UPLOADS_PATH)
   : path.resolve(process.cwd(), 'uploads');

@@ -44,7 +44,7 @@ class Database {
     const collections = await this._db.listCollections().toArray();
     const collectionNames = collections.map((c) => c.name);
 
-    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas', 'abonos-polar', 'empresas', 'sessions', 'compras', 'alertas-costos', 'acuerdos-comerciales', 'variaciones-precio', 'gastos-operativos', 'contrasenas', 'creditos_usuarios', 'creditos_solicitudes', 'creditos_productos', 'creditos_reglas', 'whatsapp-conversaciones', 'whatsapp-mensajes'];
+    const requiredCollections = ['marcas', 'lineas', 'ofertas', 'users', 'products', 'costos', 'registros', 'facturas', 'home', 'noticias', 'producto-categorias', 'user-notificaciones', 'passwordResetOtp', 'tasasGuardadas', 'abonos-polar', 'lista-negra', 'empresas', 'sessions', 'compras', 'alertas-costos', 'acuerdos-comerciales', 'variaciones-precio', 'gastos-operativos', 'contrasenas', 'creditos_usuarios', 'creditos_solicitudes', 'creditos_productos', 'creditos_reglas', 'whatsapp-conversaciones', 'whatsapp-mensajes'];
 
     for (const name of requiredCollections) {
       if (!collectionNames.includes(name)) {
