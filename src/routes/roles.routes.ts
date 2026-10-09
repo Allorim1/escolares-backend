@@ -94,6 +94,7 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
 
       // Relaciones
       { id: 'relaciones_eliminar', nombre: 'Eliminar Relaciones', descripcion: 'Puede eliminar relaciones', modulo: 'panel_admin' },
+      { id: 'relaciones_filtro_pagado_en', nombre: 'Filtro Pagado en', descripcion: 'Puede abrir con F3 el filtro de relaciones por fecha en que pasaron a Pagado', modulo: 'panel_admin' },
 
     // Columna relaciones
     { id: 'columna_relaciones_fecha', nombre: 'Fecha', descripcion: 'Puede ver la columna Fecha en Relaciones', modulo: 'Columna relaciones' },

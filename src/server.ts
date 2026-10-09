@@ -4683,6 +4683,8 @@ app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
       supervisorId: supervisorId || '',
       comisionPorcentaje: comisionPorcentaje || 0,
       productosPendientes: Array.isArray(productosPendientes) ? productosPendientes : [],
+      // Momento en que la relación pasó a 'Pagado' (filtro "Pagado en").
+      pagadoEn: status === 'Pagado' ? new Date() : null,
     };
     const collection = (database as any).getCollection('abonos-polar');
     const result = await collection.insertOne(abono);
@@ -4727,6 +4729,8 @@ app.put('/api/abonos-polar/:id', authenticateToken, async (req: Request, res: Ex
     if (abonoAnterior && (abonoAnterior.status || '') !== (status || '')) {
       updateData.statusModificadoPor = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
       updateData.statusModificadoEn = new Date();
+      // Momento en que la relación pasó a 'Pagado' (filtro "Pagado en"); se limpia si deja de estarlo.
+      updateData.pagadoEn = status === 'Pagado' ? updateData.statusModificadoEn : null;
     }
 
     await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
