@@ -236,28 +236,20 @@ const withCache = (ttl: number = CACHE_TTL) => {
   };
 };
 
-const invalidateCache = (req: Request, res: ExpressResponse, next: () => void) => {
+// Cualquier escritura invalida la cache de su módulo (/api/<modulo>*). Antes había una lista
+// fija de módulos y los que faltaban (cotizaciones, tasas-guardadas, compras...) seguían
+// sirviendo la lista vieja durante todo el TTL después de crear/editar/eliminar.
+// Se borra antes del handler y otra vez al terminar la respuesta, porque un GET que llegue
+// mientras se escribe en la BD podría volver a cachear los datos viejos.
+const invalidateCache = async (req: Request, res: ExpressResponse, next: () => void) => {
   if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
-    const path = req.path;
-    
-    if (path.includes('/products')) {
-      cacheDeletePattern('req:/api/products*');
-    } else if (path.includes('/marcas')) {
-      cacheDeletePattern('req:/api/marcas*');
-    } else if (path.includes('/lineas')) {
-      cacheDeletePattern('req:/api/lineas*');
-    } else if (path.includes('/ofertas')) {
-      cacheDeletePattern('req:/api/ofertas*');
-    } else if (path.includes('/home')) {
-      cacheDeletePattern('req:/api/home*');
-    } else if (path.includes('/roles')) {
-      cacheDeletePattern('req:/api/roles*');
-    } else if (path.includes('/manuales')) {
-      cacheDeletePattern('req:/api/manuales*');
-    } else if (path.includes('/notas-entrega')) {
-      cacheDeletePattern('req:/api/notas-entrega*');
-    } else if (path.includes('/supervisores')) {
-      cacheDeletePattern('req:/api/supervisores*');
+    const modulo = req.path.match(/^\/api\/([^/]+)/)?.[1];
+    if (modulo) {
+      const pattern = `req:/api/${modulo}*`;
+      await cacheDeletePattern(pattern);
+      res.on('finish', () => {
+        cacheDeletePattern(pattern);
+      });
     }
   }
   next();
