@@ -1,5 +1,5 @@
-import { readFileSync } from 'fs';
-import { cert, getApps, initializeApp } from 'firebase-admin/app';
+import { existsSync, readFileSync, statSync } from 'fs';
+import { App, cert, getApps, initializeApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import { database } from '../config/database';
 import { CreditoUsuario } from '../models';
@@ -22,7 +22,8 @@ const ERRORES_TOKEN_INVALIDO = new Set([
  * envío de emails por SMTP (creditos.controller.ts): se degrada con gracia si falta config.
  */
 function inicializar(): boolean {
-  if (inicializado) return getApps().length > 0;
+  // Solo la app por defecto: la de autorizaciones (con nombre) no cuenta aquí.
+  if (inicializado) return getApps().some((a) => a.name === '[DEFAULT]');
   inicializado = true;
 
   const ruta = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
@@ -40,6 +41,68 @@ function inicializar(): boolean {
   } catch (error) {
     console.error('Push: no se pudo inicializar firebase-admin:', error);
     return false;
+  }
+}
+
+let appAutorizaciones: App | null | undefined;
+
+/**
+ * La app de supervisores (ion/escolares-pro) es OTRO proyecto de Firebase ("escolares-pro"),
+ * así que usa su propia cuenta de servicio en una app de firebase-admin con nombre, aparte
+ * de la de "escolares-online": AUTORIZACIONES_FIREBASE_SERVICE_ACCOUNT_PATH (ruta al JSON) o
+ * AUTORIZACIONES_FIREBASE_SERVICE_ACCOUNT (el JSON como string). Sin ella, la app de
+ * supervisores solo recibe avisos mientras está abierta (socket.io).
+ */
+function appDeAutorizaciones(): App | null {
+  if (appAutorizaciones !== undefined) return appAutorizaciones;
+  appAutorizaciones = null;
+
+  const ruta = process.env.AUTORIZACIONES_FIREBASE_SERVICE_ACCOUNT_PATH;
+  const json = process.env.AUTORIZACIONES_FIREBASE_SERVICE_ACCOUNT;
+  // Docker crea una carpeta vacía si el archivo montado no existe: por eso isFile().
+  if (!json && (!ruta || !existsSync(ruta) || !statSync(ruta).isFile())) {
+    console.log('Push (autorizaciones): sin AUTORIZACIONES_FIREBASE_SERVICE_ACCOUNT_PATH, la app de supervisores no recibe push en 2do plano.');
+    return null;
+  }
+  try {
+    const cuenta = JSON.parse(json || readFileSync(ruta!, 'utf8'));
+    appAutorizaciones = initializeApp({ credential: cert(cuenta) }, 'autorizaciones');
+    console.log(`Push (autorizaciones): firebase-admin inicializado para el proyecto ${cuenta.project_id}.`);
+  } catch (error) {
+    console.error('Push (autorizaciones): no se pudo inicializar firebase-admin:', error);
+  }
+  return appAutorizaciones;
+}
+
+/**
+ * Envía a una lista de tokens de la app de supervisores (ver
+ * autorizaciones-vinculos.service.ts) y devuelve los que ya no sirven para que quien los
+ * guarda los borre. Canal "autorizaciones" con prioridad alta: hay una caja esperando.
+ */
+export async function enviarPushATokens(
+  tokens: string[],
+  payload: { title: string; body: string; data?: Record<string, string> },
+): Promise<string[]> {
+  const app = tokens.length ? appDeAutorizaciones() : null;
+  if (!app) return [];
+  try {
+    const respuesta = await getMessaging(app).sendEachForMulticast({
+      tokens,
+      notification: { title: payload.title, body: payload.body },
+      data: payload.data,
+      android: { priority: 'high', notification: { sound: 'default', channelId: 'autorizaciones' } },
+    });
+    const invalidos: string[] = [];
+    respuesta.responses.forEach((r, i) => {
+      if (r.success) return;
+      const codigo = r.error?.code ?? '';
+      if (ERRORES_TOKEN_INVALIDO.has(codigo)) invalidos.push(tokens[i]);
+      else console.error(`Push: FCM rechazó el envío (${codigo}):`, r.error?.message);
+    });
+    return invalidos;
+  } catch (error) {
+    console.error('Push: error enviando notificación:', error);
+    return [];
   }
 }
 

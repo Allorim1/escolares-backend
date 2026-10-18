@@ -119,6 +119,28 @@ router.post('/register-simple', authenticateToken, (req: Request, res: Response)
  */
 router.post('/login', authLimiter, verifyTurnstile, (req: Request, res: Response) => authController.login(req, res));
 
+// Login para apps nativas (p. ej. ion/escolares-pro): Turnstile es un captcha web
+// y no se puede resolver desde una app, así que aquí se compensa con límites más
+// estrictos: pocos fallos por cuenta y un tope por IP sin importar la cuenta,
+// contra el relleno de credenciales. Mismo controlador y mismos tokens que /login.
+const appLoginCuentaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  keyGenerator: authKeyGenerator,
+  message: { error: 'Demasiados intentos, intente en 15 minutos' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const appLoginIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  message: { error: 'Demasiados intentos desde esta red, intente en 15 minutos' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+router.post('/login-app', appLoginIpLimiter, appLoginCuentaLimiter, (req: Request, res: Response) => authController.login(req, res));
+
 /**
  * @swagger
  * /api/auth/logout:

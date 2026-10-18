@@ -137,3 +137,4 @@ dist
 
 # Cuenta de servicio de Firebase (llave privada): nunca al repo
 firebase-service-account*.json
+firebase-escolares-pro.json

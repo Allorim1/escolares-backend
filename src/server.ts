@@ -48,6 +48,7 @@ import creditosRoutes from './routes/creditos.routes';
 import creditosAdminRoutes from './routes/creditos-admin.routes';
 import whatsappRoutes from './routes/whatsapp.routes';
 import { registrarSocketWhatsApp } from './services/whatsapp-inbox.service';
+import autorizacionesRoutes, { registrarAutorizaciones } from './routes/autorizaciones.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -168,6 +169,9 @@ io.on('connection', (socket) => {
 // Empresas > WhatsApp: sala autenticada con los mensajes en tiempo real.
 registrarSocketWhatsApp(io);
 
+// App de supervisores (ion/escolares-pro): namespace /autorizaciones.
+registrarAutorizaciones(io);
+
 const cacheGet = async (key: string): Promise<string | null> => {
   if (!redis) return null;
   try {
@@ -215,7 +219,8 @@ const withCache = (ttl: number = CACHE_TTL) => {
     // '/api/creditos/admin/solicitudes/:id', al no invalidarse nunca, dejaba el polling del
     // panel viendo el mismo estado viejo durante los 5 minutos de TTL.
     // '/whatsapp': conversaciones en tiempo real, nunca se cachean.
-    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp')) return next();
+    // '/api/autorizaciones': las cajas sondean el estado de cada solicitud cada 1.5 s.
+    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones')) return next();
 
     const cacheKey = `req:${req.originalUrl}`;
     const cached = await cacheGet(cacheKey);
@@ -261,7 +266,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-dolarvzla-key', 'Origin', 'Accept', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-dolarvzla-key', 'x-dispositivo-id', 'Origin', 'Accept', 'X-Requested-With'],
   exposedHeaders: ['Authorization', 'Content-Type'],
 };
 
@@ -270,7 +275,7 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-dolarvzla-key,Origin,Accept,X-Requested-With');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-dolarvzla-key,x-dispositivo-id,Origin,Accept,X-Requested-With');
     res.header('Access-Control-Allow-Credentials', 'true');
     return res.status(204).end();
   }
@@ -2009,6 +2014,7 @@ app.use('/api/inv-grupos1', invGrupos1Routes);
 app.use('/api/creditos/admin', creditosAdminRoutes);
 app.use('/api/creditos', creditosRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/autorizaciones', autorizacionesRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {
