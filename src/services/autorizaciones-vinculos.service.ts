@@ -166,11 +166,12 @@ export async function desvincular(sellhubUsuarioId: string): Promise<void> {
 export async function enviarPushAUsuarios(
   sellhubUsuarioIds: string[],
   payload: { title: string; body: string; data?: Record<string, string> },
+  canal: 'autorizaciones' | 'eventos' = 'autorizaciones',
 ): Promise<void> {
   if (sellhubUsuarioIds.length === 0) return;
   const col = await coleccion();
   const vinculos = await col.find({ _id: { $in: sellhubUsuarioIds } }, { projection: { pushTokens: 1 } }).toArray();
-  const invalidos = await enviarPushATokens(vinculos.flatMap((v) => v.pushTokens), payload);
+  const invalidos = await enviarPushATokens(vinculos.flatMap((v) => v.pushTokens), payload, canal);
   if (invalidos.length > 0) {
     await col.updateMany({}, { $pull: { pushTokens: { $in: invalidos } } });
   }

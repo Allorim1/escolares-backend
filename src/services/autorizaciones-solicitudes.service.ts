@@ -1,6 +1,20 @@
 import crypto from 'crypto';
 import { emitirAUsuarios } from './autorizaciones-socket.service';
 import { ErrorAutorizaciones, enviarPushAUsuarios, filtrarVinculados } from './autorizaciones-vinculos.service';
+import {
+  DetalleAccion,
+  Evento,
+  RegistroHistorial,
+  TIPOS_EVENTO,
+  TipoEvento,
+  guardarEvento,
+  guardarHistorial,
+  limpiarDetalles,
+  listaIds,
+  texto,
+  vistaEvento,
+  vistaHistorial,
+} from './autorizaciones-historial.service';
 
 /**
  * Ciclo de vida de una solicitud de autorización:
@@ -11,16 +25,17 @@ import { ErrorAutorizaciones, enviarPushAUsuarios, filtrarVinculados } from './a
  *                                                                           ▼
  *                                                          aprobada / bloqueada
  *
- * Además: rechazada (desde el celular), cancelada (la caja cerró el modal) y
- * expirada (nadie respondió a tiempo).
+ * Además: rechazada (desde el celular), cancelada (la caja cerró el modal), expirada
+ * (nadie respondió a tiempo) y aprobada con origen 'caja' (se autorizó con el PIN en la
+ * caja mientras esperaba al celular). Al resolverse pasa al historial permanente
+ * (autorizaciones-historial.service.ts); aquí solo vive mientras está en curso.
  *
- * Quién la recibe lo decide sellhub: manda en `destinatarios` los usuarios
- * cuyo rol tiene el permiso móvil de esa acción, y aquí solo llega a los que
- * tienen celular vinculado. Solo un destinatario puede responderla.
+ * Quién la recibe lo decide sellhub: manda en `destinatarios` los usuarios cuyo rol tiene
+ * el permiso móvil de esa acción, y aquí solo llega a los que tienen celular vinculado.
  *
- * Este backend nunca ve el PIN: el celular lo cifra con la llave pública RSA que
- * generó la caja para esta solicitud, y solo la caja tiene la privada. La caja
- * comprueba que el PIN sea del usuario que respondió (`respondidoPor`).
+ * Este backend nunca ve el PIN: el celular lo cifra con la llave pública RSA que generó la
+ * caja para esta solicitud, y solo la caja tiene la privada. La caja comprueba que el PIN
+ * sea del usuario que respondió (`respondidoPor`).
  */
 export type EstadoSolicitud =
   | 'pendiente'
@@ -34,15 +49,21 @@ export type EstadoSolicitud =
 
 export interface Solicitud {
   id: string;
+  /** Clave de la acción en sellhub (descuento, gaveta...), para filtrar el historial. */
+  accion: string;
   titulo: string;
   subtitulo: string | null;
   motivo: string | null;
   cajero: string;
   equipo: string;
+  detalles: DetalleAccion[];
   /** Llave pública RSA-OAEP (SPKI, base64) para cifrar el PIN. */
   clavePublica: string;
-  /** Usuarios de sellhub (con celular vinculado) que pueden responder. */
+  /** Usuarios de sellhub con permiso (vinculados o no): quienes la verán en el historial. */
+  permitidos: string[];
+  /** De los permitidos, los que tienen celular vinculado: quienes pueden responder ahora. */
   destinatarios: string[];
+  origen: 'celular' | 'caja';
   creadaEn: Date;
   expiraEn: Date;
   estado: EstadoSolicitud;
@@ -56,23 +77,13 @@ export interface Solicitud {
   resueltaEn: Date | null;
 }
 
-/** Aviso informativo (sin respuesta), p. ej. "Solicitar supervisor" desde una caja. */
-export interface Aviso {
-  id: string;
-  titulo: string;
-  cuerpo: string;
-  destinatarios: string[];
-  creadoEn: Date;
-}
-
 export const MAX_INTENTOS = 3;
 const SOLICITUD_TTL_MS = 2 * 60_000;
-/** Las solicitudes resueltas y los avisos se siguen mostrando un rato en el celular como historial reciente. */
-const RETENER_MS = 10 * 60_000;
+/** Tras resolverse, la tarjeta se sigue viendo un momento con su estado final; luego queda solo en el historial. */
+const RETENER_MS = 2 * 60_000;
 const ESTADOS_ABIERTOS: EstadoSolicitud[] = ['pendiente', 'respondida', 'verificando'];
 
 const solicitudes = new Map<string, Solicitud>();
-const avisos = new Map<string, Aviso>();
 
 const abierta = (s: Solicitud) => ESTADOS_ABIERTOS.includes(s.estado);
 
@@ -82,20 +93,52 @@ function obtener(id: string): Solicitud {
   return s;
 }
 
-/** Lo que ve el celular: sin PIN cifrado ni la lista de destinatarios. */
+/** Lo que ve el celular: sin PIN cifrado ni listas de usuarios. */
 export function vistaMovil(s: Solicitud) {
-  const { pinCifrado: _pin, destinatarios: _dest, respondidoPor: _por, ...resto } = s;
+  const { pinCifrado: _pin, destinatarios: _dest, permitidos: _perm, respondidoPor: _por, ...resto } = s;
   return { ...resto, intentosRestantes: MAX_INTENTOS - s.intentosFallidos };
 }
 
 /** Lo que ve la caja: sin la llave pública (ya la tiene). */
 function vistaCaja(s: Solicitud) {
-  const { clavePublica: _clave, ...resto } = s;
+  const { clavePublica: _clave, permitidos: _perm, ...resto } = s;
   return { ...resto, intentosRestantes: MAX_INTENTOS - s.intentosFallidos };
 }
 
 function notificarCambio(s: Solicitud): void {
   emitirAUsuarios(s.destinatarios, 'solicitud', vistaMovil(s));
+}
+
+function aHistorial(s: Solicitud): RegistroHistorial {
+  return {
+    _id: s.id,
+    accion: s.accion,
+    titulo: s.titulo,
+    subtitulo: s.subtitulo,
+    motivo: s.motivo,
+    cajero: s.cajero,
+    equipo: s.equipo,
+    detalles: s.detalles,
+    origen: s.origen,
+    estado: s.estado,
+    supervisor: s.supervisor,
+    respondidoPorNombre: s.respondidoPorNombre,
+    mensaje: s.mensaje,
+    intentosFallidos: s.intentosFallidos,
+    creadaEn: s.creadaEn,
+    resueltaEn: s.resueltaEn ?? new Date(),
+    destinatarios: s.permitidos,
+  };
+}
+
+async function archivar(registro: RegistroHistorial): Promise<void> {
+  try {
+    await guardarHistorial(registro);
+    const vinculados = await filtrarVinculados(registro.destinatarios);
+    emitirAUsuarios(vinculados, 'historial', vistaHistorial(registro));
+  } catch (error) {
+    console.error('Autorizaciones: no se pudo guardar en el historial:', error);
+  }
 }
 
 function resolver(s: Solicitud, estado: EstadoSolicitud, mensaje: string | null = null): void {
@@ -104,22 +147,33 @@ function resolver(s: Solicitud, estado: EstadoSolicitud, mensaje: string | null 
   s.pinCifrado = null;
   s.resueltaEn = new Date();
   notificarCambio(s);
+  void archivar(aHistorial(s));
 }
 
-const texto = (valor: unknown, max: number): string | null =>
-  typeof valor === 'string' && valor.trim() ? valor.trim().slice(0, max) : null;
-
-const listaIds = (valor: unknown): string[] =>
-  Array.isArray(valor) ? [...new Set(valor.map(String).filter(Boolean))].slice(0, 500) : [];
+/** Datos comunes que manda sellhub al crear una solicitud o registrar una autorización. */
+function datosAccion(input: Record<string, unknown>) {
+  const titulo = texto(input.titulo, 120);
+  if (!titulo) throw new ErrorAutorizaciones(400, 'Falta el título');
+  return {
+    accion: texto(input.accion, 40) ?? 'otra',
+    titulo,
+    subtitulo: texto(input.subtitulo, 200),
+    motivo: texto(input.motivo, 200),
+    cajero: texto(input.cajero, 150) ?? 'Cajero',
+    equipo: texto(input.equipo, 150) ?? '',
+    detalles: limpiarDetalles(input.detalles),
+    permitidos: listaIds(input.destinatarios),
+  };
+}
 
 // ---------------------------------------------------------------- caja (sellhub)
 
 export async function crearSolicitud(input: Record<string, unknown>) {
-  const titulo = texto(input.titulo, 120);
+  const datos = datosAccion(input);
   const clavePublica = texto(input.clavePublica, 2000);
-  if (!titulo || !clavePublica) throw new ErrorAutorizaciones(400, 'Faltan el título o la llave pública');
+  if (!clavePublica) throw new ErrorAutorizaciones(400, 'Falta la llave pública');
 
-  const destinatarios = await filtrarVinculados(listaIds(input.destinatarios));
+  const destinatarios = await filtrarVinculados(datos.permitidos);
   if (destinatarios.length === 0) {
     throw new ErrorAutorizaciones(409, 'Ningún supervisor con permiso para esta acción tiene el celular vinculado');
   }
@@ -127,13 +181,10 @@ export async function crearSolicitud(input: Record<string, unknown>) {
   const ahora = new Date();
   const s: Solicitud = {
     id: crypto.randomUUID(),
-    titulo,
-    subtitulo: texto(input.subtitulo, 200),
-    motivo: texto(input.motivo, 200),
-    cajero: texto(input.cajero, 150) ?? 'Cajero',
-    equipo: texto(input.equipo, 150) ?? '',
+    ...datos,
     clavePublica,
     destinatarios,
+    origen: 'celular',
     creadaEn: ahora,
     expiraEn: new Date(ahora.getTime() + SOLICITUD_TTL_MS),
     estado: 'pendiente',
@@ -148,7 +199,8 @@ export async function crearSolicitud(input: Record<string, unknown>) {
   solicitudes.set(s.id, s);
   notificarCambio(s);
 
-  const detalle = [s.cajero, s.equipo, s.motivo].filter(Boolean).join(' · ');
+  const monto = s.detalles.find((d) => d.destacado)?.valor;
+  const detalle = [monto, s.cajero, s.equipo, s.motivo].filter(Boolean).join(' · ');
   enviarPushAUsuarios(destinatarios, {
     title: `🔐 ${s.titulo}`,
     body: detalle || 'Requiere autorización de un supervisor',
@@ -198,22 +250,80 @@ export function cancelarDesdeCaja(id: string): void {
   if (s && abierta(s)) resolver(s, 'cancelada', 'La caja canceló la solicitud');
 }
 
-export async function crearAviso(input: Record<string, unknown>): Promise<{ id: string; enviados: number }> {
-  const titulo = texto(input.titulo, 120);
-  const cuerpo = texto(input.cuerpo, 300) ?? '';
-  if (!titulo) throw new ErrorAutorizaciones(400, 'Falta el título');
+/**
+ * Autorización hecha con el PIN en la propia caja. Si había una solicitud abierta en los
+ * celulares para lo mismo, se cierra como aprobada en caja (un solo registro); si no,
+ * se crea el registro directamente en el historial.
+ */
+export async function registrarAutorizacionEnCaja(input: Record<string, unknown>): Promise<void> {
+  const supervisor = texto(input.supervisor, 150);
+  const abiertaId = texto(input.solicitudId, 60);
+  const s = abiertaId ? solicitudes.get(abiertaId) : undefined;
+  if (s && abierta(s)) {
+    s.origen = 'caja';
+    s.supervisor = supervisor;
+    resolver(s, 'aprobada', 'Autorizada con el PIN en la caja');
+    return;
+  }
 
-  const destinatarios = await filtrarVinculados(listaIds(input.destinatarios));
-  const aviso: Aviso = { id: crypto.randomUUID(), titulo, cuerpo, destinatarios, creadoEn: new Date() };
-  if (destinatarios.length === 0) return { id: aviso.id, enviados: 0 };
+  const datos = datosAccion(input);
+  const ahora = new Date();
+  await archivar({
+    _id: crypto.randomUUID(),
+    accion: datos.accion,
+    titulo: datos.titulo,
+    subtitulo: datos.subtitulo,
+    motivo: datos.motivo,
+    cajero: datos.cajero,
+    equipo: datos.equipo,
+    detalles: datos.detalles,
+    origen: 'caja',
+    estado: 'aprobada',
+    supervisor,
+    respondidoPorNombre: null,
+    mensaje: null,
+    intentosFallidos: 0,
+    creadaEn: ahora,
+    resueltaEn: ahora,
+    destinatarios: datos.permitidos,
+  });
+}
 
-  avisos.set(aviso.id, aviso);
-  const { destinatarios: _dest, ...vista } = aviso;
-  emitirAUsuarios(destinatarios, 'aviso', vista);
-  enviarPushAUsuarios(destinatarios, { title: titulo, body: cuerpo, data: { tipo: 'aviso', avisoId: aviso.id } }).catch((err) =>
-    console.error('Error enviando push:', err),
-  );
-  return { id: aviso.id, enviados: destinatarios.length };
+/** Push solo para lo que pide atención; los inicios/cierres de sesión van a un canal discreto. */
+const PUSH_EVENTO: Record<TipoEvento, 'autorizaciones' | 'eventos'> = {
+  asistencia: 'autorizaciones',
+  sesion_fallida: 'eventos',
+  sesion_inicio: 'eventos',
+  sesion_cierre: 'eventos',
+};
+
+export async function crearEvento(input: Record<string, unknown>): Promise<{ id: string; enviados: number }> {
+  const tipo = TIPOS_EVENTO.find((t) => t === input.tipo);
+  const titulo = texto(input.titulo, 150);
+  if (!tipo || !titulo) throw new ErrorAutorizaciones(400, 'Faltan el tipo o el título del evento');
+
+  const evento: Evento = {
+    _id: crypto.randomUUID(),
+    tipo,
+    titulo,
+    cuerpo: texto(input.cuerpo, 400) ?? '',
+    usuario: texto(input.usuario, 150),
+    equipo: texto(input.equipo, 150),
+    detalles: limpiarDetalles(input.detalles),
+    creadoEn: new Date(),
+    destinatarios: listaIds(input.destinatarios),
+  };
+  if (evento.destinatarios.length === 0) return { id: evento._id, enviados: 0 };
+
+  await guardarEvento(evento);
+  const vinculados = await filtrarVinculados(evento.destinatarios);
+  emitirAUsuarios(vinculados, 'evento', vistaEvento(evento));
+  enviarPushAUsuarios(
+    vinculados,
+    { title: evento.titulo, body: evento.cuerpo, data: { tipo: 'evento', eventoId: evento._id } },
+    PUSH_EVENTO[tipo],
+  ).catch((err) => console.error('Error enviando push:', err));
+  return { id: evento._id, enviados: vinculados.length };
 }
 
 // ---------------------------------------------------------------- celular
@@ -229,13 +339,6 @@ export function listarParaMovil(sellhubUsuarioId: string) {
     .filter((s) => s.destinatarios.includes(sellhubUsuarioId))
     .sort((a, b) => b.creadaEn.getTime() - a.creadaEn.getTime())
     .map(vistaMovil);
-}
-
-export function listarAvisosParaMovil(sellhubUsuarioId: string) {
-  return [...avisos.values()]
-    .filter((a) => a.destinatarios.includes(sellhubUsuarioId))
-    .sort((a, b) => b.creadoEn.getTime() - a.creadoEn.getTime())
-    .map(({ destinatarios: _dest, ...vista }) => vista);
 }
 
 export function aprobarDesdeMovil(id: string, pinCifrado: unknown, sellhubUsuarioId: string, nombre: string) {
@@ -280,9 +383,6 @@ export function iniciarLimpieza(): void {
         solicitudes.delete(s.id);
         emitirAUsuarios(s.destinatarios, 'solicitud:eliminada', { id: s.id });
       }
-    }
-    for (const a of avisos.values()) {
-      if (ahora - a.creadoEn.getTime() > RETENER_MS) avisos.delete(a.id);
     }
   }, 5000);
 }

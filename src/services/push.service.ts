@@ -77,11 +77,13 @@ function appDeAutorizaciones(): App | null {
 /**
  * Envía a una lista de tokens de la app de supervisores (ver
  * autorizaciones-vinculos.service.ts) y devuelve los que ya no sirven para que quien los
- * guarda los borre. Canal "autorizaciones" con prioridad alta: hay una caja esperando.
+ * guarda los borre. Canal "autorizaciones" con prioridad alta (hay una caja esperando) o
+ * "eventos" para avisos informativos (inicios de sesión...), sin interrumpir.
  */
 export async function enviarPushATokens(
   tokens: string[],
   payload: { title: string; body: string; data?: Record<string, string> },
+  canal: 'autorizaciones' | 'eventos' = 'autorizaciones',
 ): Promise<string[]> {
   const app = tokens.length ? appDeAutorizaciones() : null;
   if (!app) return [];
@@ -90,7 +92,10 @@ export async function enviarPushATokens(
       tokens,
       notification: { title: payload.title, body: payload.body },
       data: payload.data,
-      android: { priority: 'high', notification: { sound: 'default', channelId: 'autorizaciones' } },
+      android:
+        canal === 'autorizaciones'
+          ? { priority: 'high', notification: { sound: 'default', channelId: canal } }
+          : { priority: 'normal', notification: { channelId: canal } },
     });
     const invalidos: string[] = [];
     respuesta.responses.forEach((r, i) => {

@@ -6,14 +6,15 @@ import {
   aprobarDesdeMovil,
   cancelarDesdeCaja,
   consultarDesdeCaja,
-  crearAviso,
+  crearEvento,
   crearSolicitud,
   iniciarLimpieza,
-  listarAvisosParaMovil,
   listarParaMovil,
   rechazarDesdeMovil,
+  registrarAutorizacionEnCaja,
   registrarResultado,
 } from '../services/autorizaciones-solicitudes.service';
+import { listarEventos, listarHistorial, obtenerHistorial } from '../services/autorizaciones-historial.service';
 import {
   borrarPushTokens,
   consultarCodigo,
@@ -86,8 +87,15 @@ caja.delete('/solicitudes/:id', (req, res) => {
   res.status(204).end();
 });
 
-caja.post('/avisos', async (req, res) => {
-  res.status(201).json(await crearAviso(req.body ?? {}));
+/** Autorización hecha con el PIN en la propia caja (para el historial). */
+caja.post('/historial', async (req, res) => {
+  await registrarAutorizacionEnCaja(req.body ?? {});
+  res.status(204).end();
+});
+
+/** Notificaciones de lo que pasa en el programa (inicios de sesión, "Solicitar supervisor"...). */
+caja.post('/eventos', async (req, res) => {
+  res.status(201).json(await crearEvento(req.body ?? {}));
 });
 
 // ---------------------------------------------------------------- celular
@@ -146,8 +154,23 @@ movil.get('/solicitudes', exigirVinculo, (req: RequestMovil, res) => {
   res.json(listarParaMovil(req.vinculo!._id));
 });
 
-movil.get('/avisos', exigirVinculo, (req: RequestMovil, res) => {
-  res.json(listarAvisosParaMovil(req.vinculo!._id));
+/** Filtros: desde, hasta (ISO), estado y accion (separados por coma), origen, q; paginación con antes + limite. */
+movil.get('/historial', exigirVinculo, async (req: RequestMovil, res) => {
+  res.json(await listarHistorial(req.vinculo!._id, req.query as Record<string, unknown>));
+});
+
+movil.get('/historial/:id', exigirVinculo, async (req: RequestMovil, res) => {
+  const registro = await obtenerHistorial(req.vinculo!._id, String(req.params.id));
+  if (!registro) {
+    res.status(404).json({ message: 'Registro no encontrado' });
+    return;
+  }
+  res.json(registro);
+});
+
+/** Filtros: desde, hasta (ISO), tipo (separados por coma), q; paginación con antes + limite. */
+movil.get('/eventos', exigirVinculo, async (req: RequestMovil, res) => {
+  res.json(await listarEventos(req.vinculo!._id, req.query as Record<string, unknown>));
 });
 
 movil.post('/solicitudes/:id/aprobar', exigirVinculo, (req: RequestMovil, res) => {
