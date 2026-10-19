@@ -1,6 +1,7 @@
 node_modules
 dist
-.env
-*.log
-firebase-service-account*.json
-firebase-escolares-pro.json
+.git
+.dockerignore
+uploads/
+src/uploads/
+dist/uploads/
