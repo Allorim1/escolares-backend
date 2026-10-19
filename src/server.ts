@@ -95,11 +95,18 @@ const CACHE_TTL = 300;
 
 // Create HTTP server
 const httpServer = http.createServer(app);
+// Origen de las apps Capacitor (Android: https://localhost, iOS: capacitor://localhost).
+// Con WebSocket bloqueado por el proxy, socket.io va por polling (XHR), que sí pasa por
+// CORS: sin estos orígenes las apps móviles (p. ej. ion/escolares-pro) no conectan.
+const ORIGENES_APPS_MOVILES = ['https://localhost', 'http://localhost', 'capacitor://localhost'];
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.ALLOWED_ORIGINS 
-      ? process.env.ALLOWED_ORIGINS.split(',')
-      : ['http://localhost:4200', 'http://localhost:3000', 'https://test.escolaresonline.com', 'https://escolaresonline.com'],
+    origin: [
+      ...(process.env.ALLOWED_ORIGINS
+        ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+        : ['http://localhost:4200', 'http://localhost:3000', 'https://test.escolaresonline.com', 'https://escolaresonline.com']),
+      ...ORIGENES_APPS_MOVILES,
+    ],
     methods: ['GET', 'POST']
   },
   // 'polling' (HTTP) como respaldo: si el proxy/balanceador que termina el HTTPS delante
