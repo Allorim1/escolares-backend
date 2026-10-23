@@ -63,6 +63,8 @@ export interface Solicitud {
   permitidos: string[];
   /** De los permitidos, los que tienen celular vinculado: quienes pueden responder ahora. */
   destinatarios: string[];
+  /** Solo la ven en el historial ya resuelta (marcaron "Historial de autorizaciones" en sellhub). */
+  observadores: string[];
   origen: 'celular' | 'caja';
   creadaEn: Date;
   expiraEn: Date;
@@ -95,13 +97,13 @@ function obtener(id: string): Solicitud {
 
 /** Lo que ve el celular: sin PIN cifrado ni listas de usuarios. */
 export function vistaMovil(s: Solicitud) {
-  const { pinCifrado: _pin, destinatarios: _dest, permitidos: _perm, respondidoPor: _por, ...resto } = s;
+  const { pinCifrado: _pin, destinatarios: _dest, permitidos: _perm, observadores: _obs, respondidoPor: _por, ...resto } = s;
   return { ...resto, intentosRestantes: MAX_INTENTOS - s.intentosFallidos };
 }
 
 /** Lo que ve la caja: sin la llave pública (ya la tiene). */
 function vistaCaja(s: Solicitud) {
-  const { clavePublica: _clave, permitidos: _perm, ...resto } = s;
+  const { clavePublica: _clave, permitidos: _perm, observadores: _obs, ...resto } = s;
   return { ...resto, intentosRestantes: MAX_INTENTOS - s.intentosFallidos };
 }
 
@@ -127,7 +129,7 @@ function aHistorial(s: Solicitud): RegistroHistorial {
     intentosFallidos: s.intentosFallidos,
     creadaEn: s.creadaEn,
     resueltaEn: s.resueltaEn ?? new Date(),
-    destinatarios: s.permitidos,
+    destinatarios: [...new Set([...s.permitidos, ...s.observadores])],
   };
 }
 
@@ -163,6 +165,7 @@ function datosAccion(input: Record<string, unknown>) {
     equipo: texto(input.equipo, 150) ?? '',
     detalles: limpiarDetalles(input.detalles),
     permitidos: listaIds(input.destinatarios),
+    observadores: listaIds(input.observadores),
   };
 }
 
@@ -285,16 +288,22 @@ export async function registrarAutorizacionEnCaja(input: Record<string, unknown>
     intentosFallidos: 0,
     creadaEn: ahora,
     resueltaEn: ahora,
-    destinatarios: datos.permitidos,
+    destinatarios: [...new Set([...datos.permitidos, ...datos.observadores])],
   });
 }
 
-/** Push solo para lo que pide atención; los inicios/cierres de sesión van a un canal discreto. */
+/** Push solo para lo que pide atención; sesiones y registro de actividad van a un canal discreto. */
 const PUSH_EVENTO: Record<TipoEvento, 'autorizaciones' | 'eventos'> = {
   asistencia: 'autorizaciones',
   sesion_fallida: 'eventos',
   sesion_inicio: 'eventos',
   sesion_cierre: 'eventos',
+  facturacion: 'eventos',
+  caja: 'eventos',
+  inventario: 'eventos',
+  clientes: 'eventos',
+  seguridad: 'eventos',
+  configuracion: 'eventos',
 };
 
 export async function crearEvento(input: Record<string, unknown>): Promise<{ id: string; enviados: number }> {

@@ -12,7 +12,7 @@ import { database } from '../config/database';
  *    fallidos, "Solicitar supervisor"...).
  *
  * Quién ve cada registro lo decide sellhub al mandarlo: `destinatarios` son los usuarios
- * cuyo rol tenía el permiso correspondiente en ese momento. Se guarda 1 año (índice TTL).
+ * que en ese momento lo tenían marcado (Seguridad → Usuarios). Se guarda 1 año (índice TTL).
  */
 
 /** Dato suelto de la acción tal como lo muestra sellhub ("Total" → "$ 120,50"). */
@@ -46,8 +46,23 @@ export interface RegistroHistorial {
   destinatarios: string[];
 }
 
-export type TipoEvento = 'sesion_inicio' | 'sesion_fallida' | 'sesion_cierre' | 'asistencia';
-export const TIPOS_EVENTO: TipoEvento[] = ['sesion_inicio', 'sesion_fallida', 'sesion_cierre', 'asistencia'];
+/**
+ * Además de sesiones y "Solicitar supervisor", el registro de actividad de sellhub manda
+ * un tipo por categoría (ver src/services/registroActividad.ts de sellhub).
+ */
+export const TIPOS_EVENTO = [
+  'sesion_inicio',
+  'sesion_fallida',
+  'sesion_cierre',
+  'asistencia',
+  'facturacion',
+  'caja',
+  'inventario',
+  'clientes',
+  'seguridad',
+  'configuracion',
+] as const;
+export type TipoEvento = (typeof TIPOS_EVENTO)[number];
 
 export interface Evento {
   _id: string;
@@ -199,7 +214,7 @@ export function vistaEvento(e: Evento) {
 
 export async function listarEventos(sellhubUsuarioId: string, query: Record<string, unknown>) {
   const f = leerFiltros(query);
-  const tipos = lista(query.tipo).filter((t): t is TipoEvento => TIPOS_EVENTO.includes(t as TipoEvento));
+  const tipos = lista(query.tipo).filter((t): t is TipoEvento => (TIPOS_EVENTO as readonly string[]).includes(t));
   const rango = rangoFechas(f);
 
   const filtro: Filter<Evento> = {
