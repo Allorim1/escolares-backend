@@ -298,6 +298,7 @@ const PUSH_EVENTO: Record<TipoEvento, 'autorizaciones' | 'eventos'> = {
   sesion_fallida: 'eventos',
   sesion_inicio: 'eventos',
   sesion_cierre: 'eventos',
+  factura_emitida: 'eventos',
   facturacion: 'eventos',
   caja: 'eventos',
   inventario: 'eventos',

@@ -55,6 +55,7 @@ export const TIPOS_EVENTO = [
   'sesion_fallida',
   'sesion_cierre',
   'asistencia',
+  'factura_emitida',
   'facturacion',
   'caja',
   'inventario',
