@@ -59,6 +59,7 @@ export const TIPOS_EVENTO = [
   'facturacion',
   'caja',
   'inventario',
+  'cliente_guardado',
   'clientes',
   'seguridad',
   'configuracion',

@@ -302,6 +302,7 @@ const PUSH_EVENTO: Record<TipoEvento, 'autorizaciones' | 'eventos'> = {
   facturacion: 'eventos',
   caja: 'eventos',
   inventario: 'eventos',
+  cliente_guardado: 'eventos',
   clientes: 'eventos',
   seguridad: 'eventos',
   configuracion: 'eventos',
