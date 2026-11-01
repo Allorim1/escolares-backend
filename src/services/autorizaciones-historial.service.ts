@@ -103,6 +103,18 @@ async function eventos() {
   return database.getCollection<Evento>('autorizaciones_eventos');
 }
 
+/**
+ * "Limpiar" las notificaciones no borra nada (otros usuarios ven los mismos
+ * eventos): guarda hasta cuándo limpió cada usuario. La lista sin filtros
+ * muestra solo lo posterior; con cualquier filtro se ve todo.
+ */
+interface LimpiezaEventos {
+  _id: string;
+  hasta: Date;
+}
+
+const limpiezas = () => database.getCollection<LimpiezaEventos>('autorizaciones_eventos_limpiados');
+
 // ---------------------------------------------------------------- validación de entrada
 
 export const texto = (valor: unknown, max: number): string | null =>
@@ -217,14 +229,25 @@ export function vistaEvento(e: Evento) {
 export async function listarEventos(sellhubUsuarioId: string, query: Record<string, unknown>) {
   const f = leerFiltros(query);
   const tipos = lista(query.tipo).filter((t): t is TipoEvento => (TIPOS_EVENTO as readonly string[]).includes(t));
-  const rango = rangoFechas(f);
+  const rango = rangoFechas(f) ?? {};
+
+  const conFiltros = !!(f.desde || f.hasta || f.q || tipos.length);
+  const limpiadoHasta = (await limpiezas().findOne({ _id: sellhubUsuarioId }))?.hasta ?? null;
+  if (limpiadoHasta && !conFiltros) rango.$gt = limpiadoHasta;
 
   const filtro: Filter<Evento> = {
     destinatarios: sellhubUsuarioId,
-    ...(rango ? { creadoEn: rango } : {}),
+    ...(Object.keys(rango).length ? { creadoEn: rango } : {}),
     ...(tipos.length ? { tipo: { $in: tipos } } : {}),
     ...busqueda(f.q, ['titulo', 'cuerpo', 'usuario', 'equipo', 'detalles.valor']),
   };
   const filas = await (await eventos()).find(filtro).sort({ creadoEn: -1 }).limit(f.limite + 1).toArray();
-  return { eventos: filas.slice(0, f.limite).map(vistaEvento), hayMas: filas.length > f.limite };
+  return { eventos: filas.slice(0, f.limite).map(vistaEvento), hayMas: filas.length > f.limite, limpiadoHasta };
+}
+
+/** Oculta de la lista sin filtros todo lo recibido hasta ahora. */
+export async function limpiarEventos(sellhubUsuarioId: string): Promise<{ limpiadoHasta: Date }> {
+  const hasta = new Date();
+  await limpiezas().updateOne({ _id: sellhubUsuarioId }, { $set: { hasta } }, { upsert: true });
+  return { limpiadoHasta: hasta };
 }

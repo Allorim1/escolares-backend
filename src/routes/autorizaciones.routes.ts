@@ -14,7 +14,7 @@ import {
   registrarAutorizacionEnCaja,
   registrarResultado,
 } from '../services/autorizaciones-solicitudes.service';
-import { listarEventos, listarHistorial, obtenerHistorial } from '../services/autorizaciones-historial.service';
+import { limpiarEventos, listarEventos, listarHistorial, obtenerHistorial } from '../services/autorizaciones-historial.service';
 import {
   borrarPushTokens,
   consultarCodigo,
@@ -171,6 +171,11 @@ movil.get('/historial/:id', exigirVinculo, async (req: RequestMovil, res) => {
 /** Filtros: desde, hasta (ISO), tipo (separados por coma), q; paginación con antes + limite. */
 movil.get('/eventos', exigirVinculo, async (req: RequestMovil, res) => {
   res.json(await listarEventos(req.vinculo!._id, req.query as Record<string, unknown>));
+});
+
+/** Limpia la lista de notificaciones: lo anterior solo se ve buscando con filtros. */
+movil.post('/eventos/limpiar', exigirVinculo, async (req: RequestMovil, res) => {
+  res.json(await limpiarEventos(req.vinculo!._id));
 });
 
 movil.post('/solicitudes/:id/aprobar', exigirVinculo, (req: RequestMovil, res) => {
