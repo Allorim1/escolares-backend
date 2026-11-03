@@ -306,6 +306,8 @@ const PUSH_EVENTO: Record<TipoEvento, 'autorizaciones' | 'eventos'> = {
   clientes: 'eventos',
   seguridad: 'eventos',
   configuracion: 'eventos',
+  alerta: 'autorizaciones',
+  reporte: 'eventos',
 };
 
 export async function crearEvento(input: Record<string, unknown>): Promise<{ id: string; enviados: number }> {
@@ -331,7 +333,7 @@ export async function crearEvento(input: Record<string, unknown>): Promise<{ id:
   emitirAUsuarios(vinculados, 'evento', vistaEvento(evento));
   enviarPushAUsuarios(
     vinculados,
-    { title: evento.titulo, body: evento.cuerpo, data: { tipo: 'evento', eventoId: evento._id } },
+    { title: evento.titulo, body: evento.cuerpo, data: { tipo: 'evento', eventoId: evento._id, eventoTipo: evento.tipo } },
     PUSH_EVENTO[tipo],
   ).catch((err) => console.error('Error enviando push:', err));
   return { id: evento._id, enviados: vinculados.length };

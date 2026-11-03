@@ -15,6 +15,8 @@ import {
   registrarResultado,
 } from '../services/autorizaciones-solicitudes.service';
 import { limpiarEventos, listarEventos, listarHistorial, obtenerHistorial } from '../services/autorizaciones-historial.service';
+import { esAdministrador, guardarPanel, iniciarCierreDelDia, panelPara } from '../services/autorizaciones-panel.service';
+import { consultaPara, crearConsulta, responderConsulta, tomarConsultas } from '../services/autorizaciones-consultas.service';
 import {
   borrarPushTokens,
   consultarCodigo,
@@ -98,7 +100,32 @@ caja.post('/eventos', async (req, res) => {
   res.status(201).json(await crearEvento(req.body ?? {}));
 });
 
+/** Resumen del día para la pestaña "Resumen" de la app; va con la lista de admins de sellhub. */
+caja.post('/panel', async (req, res) => {
+  await guardarPanel(req.body ?? {});
+  res.status(204).end();
+});
+
+/** Consultas de los admins (precio y existencia, mensajes): la PC que pregunta se las lleva. */
+caja.get('/consultas', (_req, res) => {
+  res.json(tomarConsultas());
+});
+
+caja.post('/consultas/:id/respuesta', (req, res) => {
+  responderConsulta(String(req.params.id), req.body ?? {});
+  res.status(204).end();
+});
+
 // ---------------------------------------------------------------- celular
+
+/** Además del vínculo, que sea un usuario de sellhub con rol admin. */
+async function exigirAdmin(req: RequestMovil, res: Response, next: NextFunction): Promise<void> {
+  if (!(await esAdministrador(req.vinculo!._id))) {
+    res.status(403).json({ message: 'Solo los administradores pueden usar esta función', codigo: 'no_admin' });
+    return;
+  }
+  next();
+}
 
 const movil = Router();
 movil.use(autenticarMovil);
@@ -107,7 +134,7 @@ movil.use(autenticarMovil);
 movil.get('/estado', async (req: RequestMovil, res) => {
   const vinculo = await vinculoPorEscolares(req.usuario!.userId);
   if (vinculo && vinculo.dispositivoId === req.dispositivoId) {
-    res.json({ estado: 'vinculado', vinculo: vistaVinculo(vinculo) });
+    res.json({ estado: 'vinculado', vinculo: vistaVinculo(vinculo), esAdmin: await esAdministrador(vinculo._id) });
     return;
   }
   if (vinculo) {
@@ -148,6 +175,21 @@ movil.post('/push-token', exigirVinculo, async (req: RequestMovil, res) => {
 movil.delete('/push-token', exigirVinculo, async (req: RequestMovil, res) => {
   await borrarPushTokens(req.vinculo!);
   res.status(204).end();
+});
+
+/** Solo usuarios de sellhub con rol admin (403 para los demás). */
+movil.get('/panel', exigirVinculo, async (req: RequestMovil, res) => {
+  res.json(await panelPara(req.vinculo!._id));
+});
+
+/** Precio y existencia de un producto o mensaje a una sesión abierta: lo contesta una PC de la tienda. */
+movil.post('/consultas', exigirVinculo, exigirAdmin, (req: RequestMovil, res) => {
+  const v = req.vinculo!;
+  res.status(201).json(crearConsulta(v._id, v.sellhubNombre, req.body ?? {}));
+});
+
+movil.get('/consultas/:id', exigirVinculo, (req: RequestMovil, res) => {
+  res.json(consultaPara(req.vinculo!._id, String(req.params.id)));
 });
 
 movil.get('/solicitudes', exigirVinculo, (req: RequestMovil, res) => {
@@ -203,6 +245,7 @@ router.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
 export function registrarAutorizaciones(io: Server): void {
   registrarSocketAutorizaciones(io, vinculoPorEscolares);
   iniciarLimpieza();
+  iniciarCierreDelDia();
 }
 
 export default router;

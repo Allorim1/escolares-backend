@@ -63,6 +63,10 @@ export const TIPOS_EVENTO = [
   'clientes',
   'seguridad',
   'configuracion',
+  // Alertas por umbral para los admins (descuento alto, devolución grande, cuadre con diferencia...).
+  'alerta',
+  // Cierre del día para los admins (ver autorizaciones-panel.service.ts).
+  'reporte',
 ] as const;
 export type TipoEvento = (typeof TIPOS_EVENTO)[number];
 
