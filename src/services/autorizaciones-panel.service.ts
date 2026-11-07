@@ -6,7 +6,7 @@ import { crearEvento } from './autorizaciones-solicitudes.service';
 /**
  * Pestaña "Resumen" de la app de supervisores (ion/escolares-pro): ventas y cuadres del
  * día que sellhub manda cada minuto (POST /caja/panel). Solo la ven los usuarios de sellhub
- * con rol admin: la lista viene con cada envío, porque los roles viven en sellhub.
+ * con rol root: la lista viene con cada envío (campo `administradores`), porque los roles viven en sellhub.
  *
  * Se guarda un solo documento (el último) en Mongo para que sobreviva a un reinicio. Con
  * él se manda también el cierre del día a la hora que se configura en sellhub.
@@ -32,6 +32,18 @@ async function actual(): Promise<PanelGuardado | null> {
   return enMemoria;
 }
 
+/**
+ * Si una PC con una versión vieja de sellhub sigue abierta, sus envíos (sin las partes
+ * nuevas, como el gráfico por hora, y a veces sin la lista de admins) pisarían el de las
+ * PCs actualizadas cada minuto: el gráfico aparecía y desaparecía, y a ratos el celular
+ * decía que el usuario no era root. Por eso un envío con un formato (`esquema`) más viejo
+ * que el guardado se descarta mientras el guardado sea reciente.
+ */
+const VIGENCIA_ESQUEMA_MS = 10 * 60_000;
+
+const esquemaDe = (panel: Record<string, unknown>): number =>
+  typeof panel.esquema === 'number' && Number.isFinite(panel.esquema) ? panel.esquema : 1;
+
 export async function guardarPanel(input: Record<string, unknown>): Promise<void> {
   const panel = input.panel;
   if (!panel || typeof panel !== 'object' || Array.isArray(panel)) {
@@ -40,10 +52,21 @@ export async function guardarPanel(input: Record<string, unknown>): Promise<void
   if (Buffer.byteLength(JSON.stringify(panel)) > LIMITE_BYTES) {
     throw new ErrorAutorizaciones(413, 'El resumen es demasiado grande');
   }
-  const administradores = Array.isArray(input.administradores)
+  const nuevo = panel as Record<string, unknown>;
+  const previo = await actual();
+  if (
+    previo &&
+    esquemaDe(nuevo) < esquemaDe(previo.panel) &&
+    Date.now() - new Date(previo.recibidoEn).getTime() < VIGENCIA_ESQUEMA_MS
+  ) {
+    return;
+  }
+  const recibidos = Array.isArray(input.administradores)
     ? [...new Set(input.administradores.map((v) => String(v).trim()).filter((v) => v && v.length <= 36))].slice(0, 200)
     : [];
-  const campos = { panel: panel as Record<string, unknown>, administradores, recibidoEn: new Date() };
+  // Una lista vacía (PC vieja o fallo al leer los roles) no deja a todos sin acceso.
+  const administradores = recibidos.length ? recibidos : (previo?.administradores ?? []);
+  const campos = { panel: nuevo, administradores, recibidoEn: new Date() };
   // $set (no replace) para conservar reporteEnviado.
   await coleccion().updateOne({ _id: 'actual' }, { $set: campos }, { upsert: true });
   enMemoria = { ...(enMemoria ?? {}), _id: 'actual', ...campos };
@@ -52,7 +75,7 @@ export async function guardarPanel(input: Record<string, unknown>): Promise<void
 
 const vista = (doc: PanelGuardado) => ({ ...doc.panel, recibidoEn: doc.recibidoEn.toISOString() });
 
-/** Si ese usuario de sellhub es admin según el último envío. */
+/** Si ese usuario de sellhub es root según el último envío. */
 export async function esAdministrador(sellhubUsuarioId: string): Promise<boolean> {
   return (await actual())?.administradores.includes(sellhubUsuarioId) ?? false;
 }
@@ -60,7 +83,7 @@ export async function esAdministrador(sellhubUsuarioId: string): Promise<boolean
 export async function panelPara(sellhubUsuarioId: string) {
   const doc = await actual();
   if (!doc?.administradores.includes(sellhubUsuarioId)) {
-    throw new ErrorAutorizaciones(403, 'Solo los administradores ven el resumen');
+    throw new ErrorAutorizaciones(403, 'Solo los usuarios root ven el resumen');
   }
   return vista(doc);
 }

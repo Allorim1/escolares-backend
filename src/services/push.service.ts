@@ -92,10 +92,12 @@ export async function enviarPushATokens(
       tokens,
       notification: { title: payload.title, body: payload.body },
       data: payload.data,
+      // Los canales "_v2" (los crea la app en ion/escolares-pro push.service.ts) llevan los sonidos
+      // propios de res/raw; el sonido también va aquí para Android 7 o anterior, que no tiene canales.
       android:
         canal === 'autorizaciones'
-          ? { priority: 'high', notification: { sound: 'default', channelId: canal } }
-          : { priority: 'normal', notification: { channelId: canal } },
+          ? { priority: 'high', notification: { sound: 'autorizaciones', channelId: 'autorizaciones_v2' } }
+          : { priority: 'normal', notification: { sound: 'noti', channelId: 'eventos_v2' } },
     });
     const invalidos: string[] = [];
     respuesta.responses.forEach((r, i) => {

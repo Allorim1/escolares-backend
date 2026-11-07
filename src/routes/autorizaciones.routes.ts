@@ -16,7 +16,7 @@ import {
 } from '../services/autorizaciones-solicitudes.service';
 import { limpiarEventos, listarEventos, listarHistorial, obtenerHistorial } from '../services/autorizaciones-historial.service';
 import { esAdministrador, guardarPanel, iniciarCierreDelDia, panelPara } from '../services/autorizaciones-panel.service';
-import { consultaPara, crearConsulta, responderConsulta, tomarConsultas } from '../services/autorizaciones-consultas.service';
+import { consultaPara, crearConsulta, estadoTienda, responderConsulta, tomarConsultas } from '../services/autorizaciones-consultas.service';
 import {
   borrarPushTokens,
   consultarCodigo,
@@ -107,8 +107,8 @@ caja.post('/panel', async (req, res) => {
 });
 
 /** Consultas de los admins (precio y existencia, mensajes): la PC que pregunta se las lleva. */
-caja.get('/consultas', (_req, res) => {
-  res.json(tomarConsultas());
+caja.get('/consultas', (req, res) => {
+  res.json(tomarConsultas(req.query.tipos, req.query.equipo));
 });
 
 caja.post('/consultas/:id/respuesta', (req, res) => {
@@ -121,7 +121,7 @@ caja.post('/consultas/:id/respuesta', (req, res) => {
 /** Además del vínculo, que sea un usuario de sellhub con rol admin. */
 async function exigirAdmin(req: RequestMovil, res: Response, next: NextFunction): Promise<void> {
   if (!(await esAdministrador(req.vinculo!._id))) {
-    res.status(403).json({ message: 'Solo los administradores pueden usar esta función', codigo: 'no_admin' });
+    res.status(403).json({ message: 'Solo los usuarios root pueden usar esta función', codigo: 'no_admin' });
     return;
   }
   next();
@@ -186,6 +186,11 @@ movil.get('/panel', exigirVinculo, async (req: RequestMovil, res) => {
 movil.post('/consultas', exigirVinculo, exigirAdmin, (req: RequestMovil, res) => {
   const v = req.vinculo!;
   res.status(201).json(crearConsulta(v._id, v.sellhubNombre, req.body ?? {}));
+});
+
+/** Qué PCs de la tienda están atendiendo consultas ahora (indicador de la pestaña Consultar). */
+movil.get('/tienda', exigirVinculo, exigirAdmin, (_req, res) => {
+  res.json(estadoTienda());
 });
 
 movil.get('/consultas/:id', exigirVinculo, (req: RequestMovil, res) => {
