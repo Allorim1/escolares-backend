@@ -1,7 +1,13 @@
 import crypto from 'crypto';
 import { NextFunction, Request, Response } from 'express';
 import { jwtConfig, TokenPayload } from '../config/jwt';
-import { VinculoAutorizaciones, vinculoPorEscolares } from '../services/autorizaciones-vinculos.service';
+import { tocarSecundario } from '../services/autorizaciones-dispositivos.service';
+import {
+  DispositivoSecundario,
+  secundarioPorDispositivo,
+  VinculoAutorizaciones,
+  vinculoPorEscolares,
+} from '../services/autorizaciones-vinculos.service';
 
 function igualesSeguro(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -27,6 +33,8 @@ export type RequestMovil = Request & {
   usuario?: TokenPayload;
   dispositivoId?: string;
   vinculo?: VinculoAutorizaciones;
+  /** Si el que llama es un celular secundario (vinculado por QR), su registro. */
+  secundario?: DispositivoSecundario;
 };
 
 export const nombreEscolares = (u: TokenPayload) => u.nombre || u.username || u.email || 'Usuario';
@@ -52,7 +60,10 @@ export function autenticarMovil(req: RequestMovil, res: Response, next: NextFunc
   next();
 }
 
-/** Además de la sesión, exige que esta cuenta esté vinculada y precisamente en ESTE celular. */
+/**
+ * Además de la sesión, exige que esta cuenta esté vinculada y que ESTE celular sea el
+ * principal o uno de sus secundarios.
+ */
 export async function exigirVinculo(req: RequestMovil, res: Response, next: NextFunction): Promise<void> {
   const vinculo = await vinculoPorEscolares(req.usuario!.userId);
   if (!vinculo) {
@@ -60,6 +71,14 @@ export async function exigirVinculo(req: RequestMovil, res: Response, next: Next
     return;
   }
   if (vinculo.dispositivoId !== req.dispositivoId) {
+    const secundario = await secundarioPorDispositivo(req.dispositivoId!);
+    if (secundario && secundario.sellhubUsuarioId === vinculo._id) {
+      req.vinculo = vinculo;
+      req.secundario = secundario;
+      tocarSecundario(secundario);
+      next();
+      return;
+    }
     res.status(403).json({
       message: `Tu cuenta está vinculada en otro celular (${vinculo.dispositivoNombre})`,
       codigo: 'otro_dispositivo',

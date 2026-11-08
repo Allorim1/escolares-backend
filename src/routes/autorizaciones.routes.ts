@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response, Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { Server } from 'socket.io';
 import { autenticarCaja, autenticarMovil, exigirVinculo, nombreEscolares, RequestMovil } from '../middlewares/autorizaciones.middleware';
 import { registrarSocketAutorizaciones } from '../services/autorizaciones-socket.service';
@@ -10,6 +11,8 @@ import {
   crearSolicitud,
   iniciarLimpieza,
   listarParaMovil,
+  pendientesParaWidget,
+  solicitudParaMovil,
   rechazarDesdeMovil,
   registrarAutorizacionEnCaja,
   registrarResultado,
@@ -18,13 +21,25 @@ import { limpiarEventos, listarEventos, listarHistorial, obtenerHistorial } from
 import { esAdministrador, guardarPanel, iniciarCierreDelDia, panelPara } from '../services/autorizaciones-panel.service';
 import { consultaPara, crearConsulta, estadoTienda, responderConsulta, tomarConsultas } from '../services/autorizaciones-consultas.service';
 import {
+  consultarEspera,
+  crearQr,
+  escanearQr,
+  estadoQr,
+  listarDispositivos,
+  responderQr,
+  retirarDispositivo,
+} from '../services/autorizaciones-dispositivos.service';
+import {
   borrarPushTokens,
   consultarCodigo,
   desvincular,
   ErrorAutorizaciones,
   generarCodigo,
   guardarPushToken,
+  guardarPushTokenSecundario,
+  borrarPushTokensSecundario,
   listarVinculos,
+  secundarioPorDispositivo,
   vincular,
   vinculoPorDispositivo,
   vinculoPorEscolares,
@@ -39,6 +54,7 @@ import {
  *
  *   /api/autorizaciones/caja/...   sellhub (cabecera x-api-key)
  *   /api/autorizaciones/movil/...  la app (token de escolares + x-dispositivo-id)
+ *   /api/autorizaciones/qr/...     celular nuevo que escanea el QR del principal (sin sesión)
  *   socket.io namespace /autorizaciones   tiempo real para la app
  */
 const router = Router();
@@ -134,7 +150,17 @@ movil.use(autenticarMovil);
 movil.get('/estado', async (req: RequestMovil, res) => {
   const vinculo = await vinculoPorEscolares(req.usuario!.userId);
   if (vinculo && vinculo.dispositivoId === req.dispositivoId) {
-    res.json({ estado: 'vinculado', vinculo: vistaVinculo(vinculo), esAdmin: await esAdministrador(vinculo._id) });
+    res.json({ estado: 'vinculado', vinculo: vistaVinculo(vinculo), principal: true, esAdmin: await esAdministrador(vinculo._id) });
+    return;
+  }
+  const secundario = vinculo ? await secundarioPorDispositivo(req.dispositivoId!) : null;
+  if (vinculo && secundario?.sellhubUsuarioId === vinculo._id) {
+    res.json({
+      estado: 'vinculado',
+      vinculo: { ...vistaVinculo(vinculo), dispositivoNombre: secundario.dispositivoNombre, vinculadoEn: secundario.vinculadoEn },
+      principal: false,
+      esAdmin: await esAdministrador(vinculo._id),
+    });
     return;
   }
   if (vinculo) {
@@ -167,14 +193,62 @@ movil.post('/push-token', exigirVinculo, async (req: RequestMovil, res) => {
     res.status(400).json({ message: 'Falta el token' });
     return;
   }
-  await guardarPushToken(req.vinculo!, token);
+  // nativo: la APK dibuja ella misma la notificación de solicitud (botones Aprobar/Rechazar).
+  const nativo = req.body?.nativo === true;
+  if (req.secundario) await guardarPushTokenSecundario(req.secundario, token, nativo);
+  else await guardarPushToken(req.vinculo!, token, nativo);
   res.status(204).end();
 });
 
-/** Al cerrar sesión en la app: deja de recibir push, pero el vínculo se mantiene. */
+/** Al cerrar sesión en el principal: deja de recibir push, pero el vínculo se mantiene. */
 movil.delete('/push-token', exigirVinculo, async (req: RequestMovil, res) => {
-  await borrarPushTokens(req.vinculo!);
+  if (req.secundario) await borrarPushTokensSecundario(req.secundario);
+  else await borrarPushTokens(req.vinculo!);
   res.status(204).end();
+});
+
+/** Pantalla Perfil: datos de la cuenta, del vínculo y los dispositivos vinculados. */
+movil.get('/perfil', exigirVinculo, async (req: RequestMovil, res) => {
+  const u = req.usuario!;
+  const v = req.vinculo!;
+  res.json({
+    nombre: nombreEscolares(u),
+    usuario: u.username ?? null,
+    email: u.email ?? null,
+    sellhubNombre: v.sellhubNombre,
+    esAdmin: await esAdministrador(v._id),
+    principal: !req.secundario,
+    dispositivos: await listarDispositivos(v, req.dispositivoId!),
+  });
+});
+
+movil.get('/dispositivos', exigirVinculo, async (req: RequestMovil, res) => {
+  res.json(await listarDispositivos(req.vinculo!, req.dispositivoId!));
+});
+
+/** Cerrar sesión en un secundario: se desvincula (para volver hay que escanear otro QR). */
+movil.delete('/dispositivos/este', exigirVinculo, async (req: RequestMovil, res) => {
+  if (req.secundario) await retirarDispositivo(req.vinculo!, req.dispositivoId!, req.secundario.id);
+  res.status(204).end();
+});
+
+/** Un secundario solo puede retirarse a sí mismo; el principal, a cualquiera. */
+movil.delete('/dispositivos/:id', exigirVinculo, async (req: RequestMovil, res) => {
+  await retirarDispositivo(req.vinculo!, req.dispositivoId!, String(req.params.id));
+  res.status(204).end();
+});
+
+/** QR para vincular otro celular (solo el principal). */
+movil.post('/dispositivos/qr', exigirVinculo, async (req: RequestMovil, res) => {
+  res.status(201).json(await crearQr(req.vinculo!, req.dispositivoId!));
+});
+
+movil.get('/dispositivos/qr/:token', exigirVinculo, (req: RequestMovil, res) => {
+  res.json(estadoQr(req.vinculo!, String(req.params.token)));
+});
+
+movil.post('/dispositivos/qr/:token/responder', exigirVinculo, async (req: RequestMovil, res) => {
+  res.json(await responderQr(req.vinculo!, req.dispositivoId!, String(req.params.token), req.body?.aceptar === true, req));
 });
 
 /** Solo usuarios de sellhub con rol admin (403 para los demás). */
@@ -225,6 +299,27 @@ movil.post('/eventos/limpiar', exigirVinculo, async (req: RequestMovil, res) => 
   res.json(await limpiarEventos(req.vinculo!._id));
 });
 
+movil.get('/solicitudes/:id', exigirVinculo, (req: RequestMovil, res) => {
+  res.json(solicitudParaMovil(String(req.params.id), req.vinculo!._id));
+});
+
+/** Widget de la pantalla de inicio: pendientes y, a los root, las ventas de hoy. */
+movil.get('/widget', exigirVinculo, async (req: RequestMovil, res) => {
+  const v = req.vinculo!;
+  let ventas: { usd: number; facturas: number; actualizado: string | null } | null = null;
+  if (await esAdministrador(v._id)) {
+    const panel = (await panelPara(v._id).catch(() => null)) as { hoy?: { ventasUsd: number; facturas: number }; recibidoEn?: Date | string } | null;
+    if (panel?.hoy) {
+      ventas = {
+        usd: panel.hoy.ventasUsd,
+        facturas: panel.hoy.facturas,
+        actualizado: panel.recibidoEn ? new Date(panel.recibidoEn).toISOString() : null,
+      };
+    }
+  }
+  res.json({ ...pendientesParaWidget(v._id), ventas });
+});
+
 movil.post('/solicitudes/:id/aprobar', exigirVinculo, (req: RequestMovil, res) => {
   const v = req.vinculo!;
   res.json(aprobarDesdeMovil(String(req.params.id), req.body?.pinCifrado, v._id, v.sellhubNombre));
@@ -235,8 +330,32 @@ movil.post('/solicitudes/:id/rechazar', exigirVinculo, (req: RequestMovil, res) 
   res.json(rechazarDesdeMovil(String(req.params.id), v._id, v.sellhubNombre));
 });
 
+// ---------------------------------------------------------------- celular nuevo (QR)
+
+/** Sin sesión: el límite frena a quien quiera adivinar códigos cortos. */
+const qrLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Demasiados intentos. Espera un minuto.' },
+});
+
+const qr = Router();
+
+/** Body: qr (texto del QR o código de 8 caracteres), dispositivoId, dispositivoNombre. */
+qr.post('/escanear', qrLimiter, async (req, res) => {
+  res.status(201).json(await escanearQr(req.body ?? {}));
+});
+
+/** El celular nuevo espera la respuesta del principal (sondeo cada pocos segundos). */
+qr.get('/espera/:espera', (req, res) => {
+  res.json(consultarEspera(String(req.params.espera), String(req.header('x-dispositivo-id') ?? '')));
+});
+
 router.use('/caja', caja);
 router.use('/movil', movil);
+router.use('/qr', qr);
 
 router.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
   if (err instanceof ErrorAutorizaciones) {
@@ -248,7 +367,13 @@ router.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
 
 /** Socket.io (namespace /autorizaciones) y la limpieza de solicitudes vencidas. */
 export function registrarAutorizaciones(io: Server): void {
-  registrarSocketAutorizaciones(io, vinculoPorEscolares);
+  registrarSocketAutorizaciones(io, async (escolaresUserId, dispositivoId) => {
+    const vinculo = await vinculoPorEscolares(escolaresUserId);
+    if (!vinculo) return null;
+    if (vinculo.dispositivoId === dispositivoId) return vinculo._id;
+    const secundario = await secundarioPorDispositivo(dispositivoId);
+    return secundario?.sellhubUsuarioId === vinculo._id ? vinculo._id : null;
+  });
   iniciarLimpieza();
   iniciarCierreDelDia();
 }

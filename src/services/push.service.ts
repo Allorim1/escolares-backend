@@ -113,6 +113,30 @@ export async function enviarPushATokens(
   }
 }
 
+/**
+ * Mensaje solo de datos y prioridad alta: lo recibe el código nativo de la APK aunque la app
+ * esté cerrada, y es la APK la que decide si muestra algo (notificación con botones, quitarla,
+ * refrescar el widget). Devuelve los tokens que ya no sirven, igual que enviarPushATokens.
+ */
+export async function enviarDatosATokens(tokens: string[], data: Record<string, string>): Promise<string[]> {
+  const app = tokens.length ? appDeAutorizaciones() : null;
+  if (!app) return [];
+  try {
+    const respuesta = await getMessaging(app).sendEachForMulticast({ tokens, data, android: { priority: 'high', ttl: 5 * 60_000 } });
+    const invalidos: string[] = [];
+    respuesta.responses.forEach((r, i) => {
+      if (r.success) return;
+      const codigo = r.error?.code ?? '';
+      if (ERRORES_TOKEN_INVALIDO.has(codigo)) invalidos.push(tokens[i]);
+      else console.error(`Push: FCM rechazó el envío de datos (${codigo}):`, r.error?.message);
+    });
+    return invalidos;
+  } catch (error) {
+    console.error('Push: error enviando datos:', error);
+    return [];
+  }
+}
+
 /** Manda una notificación a todos los dispositivos del usuario; limpia los tokens que ya no
  *  sirven (desinstaló la app, etc.) en vez de reintentarlos para siempre. */
 export async function enviarPush(usuarioId: string, titulo: string, cuerpo: string, ruta?: string): Promise<void> {

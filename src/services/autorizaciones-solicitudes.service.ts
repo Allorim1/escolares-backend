@@ -150,7 +150,19 @@ function resolver(s: Solicitud, estado: EstadoSolicitud, mensaje: string | null 
   s.resueltaEn = new Date();
   notificarCambio(s);
   void archivar(aHistorial(s));
+  // Solo a las APKs nuevas: quitan (o actualizan) la notificación y refrescan el widget.
+  enviarPushAUsuarios(s.destinatarios, { title: '', body: '' }, 'autorizaciones', {
+    data: { tipo: 'solicitud_cerrada', solicitudId: s.id, estado, mensaje: mensaje ?? '', respondidoPor: s.respondidoPorNombre ?? '' },
+    soloNativos: true,
+  }).catch((err) => console.error('Error enviando push:', err));
 }
+
+/**
+ * Acciones de uso temporal (el supervisor elige por cuántos minutos): desde la notificación
+ * no se pueden elegir, así que "Aprobar" abre la app. Espejo de ACCIONES_TEMPORALES en
+ * ion/escolares-pro/src/app/util.ts.
+ */
+const ACCIONES_TEMPORALES = new Set(['relacion_cuentas', 'relacion_cuentas_ver', 'inventario_productos', 'inventario_precios', 'inventario_catalogos']);
 
 /** Datos comunes que manda sellhub al crear una solicitud o registrar una autorización. */
 function datosAccion(input: Record<string, unknown>) {
@@ -204,11 +216,25 @@ export async function crearSolicitud(input: Record<string, unknown>) {
 
   const monto = s.detalles.find((d) => d.destacado)?.valor;
   const detalle = [monto, s.cajero, s.equipo, s.motivo].filter(Boolean).join(' · ');
-  enviarPushAUsuarios(destinatarios, {
-    title: `🔐 ${s.titulo}`,
-    body: detalle || 'Requiere autorización de un supervisor',
-    data: { tipo: 'solicitud', solicitudId: s.id },
-  }).catch((err) => console.error('Error enviando push:', err));
+  const cuerpo = detalle || 'Requiere autorización de un supervisor';
+  enviarPushAUsuarios(
+    destinatarios,
+    { title: `🔐 ${s.titulo}`, body: cuerpo, data: { tipo: 'solicitud', solicitudId: s.id } },
+    'autorizaciones',
+    // La APK nueva arma la notificación con "Aprobar" (PIN ahí mismo) y "Rechazar": necesita la
+    // llave pública para cifrar el PIN sin abrir la app.
+    {
+      data: {
+        tipo: 'solicitud',
+        solicitudId: s.id,
+        titulo: s.titulo,
+        cuerpo,
+        clavePublica: s.clavePublica,
+        temporal: ACCIONES_TEMPORALES.has(s.accion) ? '1' : '0',
+        expiraEn: s.expiraEn.toISOString(),
+      },
+    },
+  ).catch((err) => console.error('Error enviando push:', err));
 
   return vistaCaja(s);
 }
@@ -243,6 +269,18 @@ export function registrarResultado(id: string, ok: boolean, supervisor: string |
       s.estado = 'pendiente';
       s.mensaje = texto(mensaje, 200) ?? 'PIN de supervisor inválido';
       notificarCambio(s);
+      // Quien escribió el PIN desde la notificación la ve otra vez con el error y "Aprobar".
+      if (s.respondidoPor) {
+        enviarPushAUsuarios([s.respondidoPor], { title: '', body: '' }, 'autorizaciones', {
+          data: {
+            tipo: 'solicitud_pin_incorrecto',
+            solicitudId: s.id,
+            mensaje: s.mensaje,
+            intentosRestantes: String(MAX_INTENTOS - s.intentosFallidos),
+          },
+          soloNativos: true,
+        }).catch((err) => console.error('Error enviando push:', err));
+      }
     }
   }
   return vistaCaja(s);
@@ -352,6 +390,25 @@ export function listarParaMovil(sellhubUsuarioId: string) {
     .filter((s) => s.destinatarios.includes(sellhubUsuarioId))
     .sort((a, b) => b.creadaEn.getTime() - a.creadaEn.getTime())
     .map(vistaMovil);
+}
+
+/** Una solicitud (la notificación nativa pregunta así cómo terminó su PIN). */
+export function solicitudParaMovil(id: string, sellhubUsuarioId: string) {
+  const s = obtener(id);
+  verificarDestinatario(s, sellhubUsuarioId);
+  return vistaMovil(s);
+}
+
+/** Lo que muestra el widget de la pantalla de inicio. */
+export function pendientesParaWidget(sellhubUsuarioId: string) {
+  const pendientes = [...solicitudes.values()]
+    .filter((s) => s.estado === 'pendiente' && s.destinatarios.includes(sellhubUsuarioId))
+    .sort((a, b) => b.creadaEn.getTime() - a.creadaEn.getTime());
+  const ultima = pendientes[0];
+  return {
+    pendientes: pendientes.length,
+    ultima: ultima ? { titulo: ultima.titulo, cajero: ultima.cajero } : null,
+  };
 }
 
 export function aprobarDesdeMovil(id: string, pinCifrado: unknown, sellhubUsuarioId: string, nombre: string) {
