@@ -231,6 +231,8 @@ export async function crearSolicitud(input: Record<string, unknown>) {
         cuerpo,
         clavePublica: s.clavePublica,
         temporal: ACCIONES_TEMPORALES.has(s.accion) ? '1' : '0',
+        // La APK no ofrece "Aprobar con huella" en inicio_sesion (ahí se escribe un número, no el PIN).
+        accion: s.accion,
         expiraEn: s.expiraEn.toISOString(),
       },
     },
