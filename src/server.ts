@@ -49,6 +49,7 @@ import creditosAdminRoutes from './routes/creditos-admin.routes';
 import whatsappRoutes from './routes/whatsapp.routes';
 import { registrarSocketWhatsApp } from './services/whatsapp-inbox.service';
 import autorizacionesRoutes, { registrarAutorizaciones } from './routes/autorizaciones.routes';
+import catalogoWebRoutes from './routes/catalogo-web.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -227,7 +228,7 @@ const withCache = (ttl: number = CACHE_TTL) => {
     // panel viendo el mismo estado viejo durante los 5 minutos de TTL.
     // '/whatsapp': conversaciones en tiempo real, nunca se cachean.
     // '/api/autorizaciones': las cajas sondean el estado de cada solicitud cada 1.5 s.
-    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones')) return next();
+    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones') || path.startsWith('/api/catalogo-web/caja')) return next();
 
     const cacheKey = `req:${req.originalUrl}`;
     const cached = await cacheGet(cacheKey);
@@ -2022,6 +2023,7 @@ app.use('/api/creditos/admin', creditosAdminRoutes);
 app.use('/api/creditos', creditosRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/autorizaciones', autorizacionesRoutes);
+app.use('/api/catalogo-web', catalogoWebRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {
