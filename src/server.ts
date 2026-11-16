@@ -229,7 +229,9 @@ const withCache = (ttl: number = CACHE_TTL) => {
     // panel viendo el mismo estado viejo durante los 5 minutos de TTL.
     // '/whatsapp': conversaciones en tiempo real, nunca se cachean.
     // '/api/autorizaciones': las cajas sondean el estado de cada solicitud cada 1.5 s.
-    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones') || path.startsWith('/api/catalogo-web/caja')) return next();
+    // '/api/multitienda': solo root (Gestión Multienda). Este caché corre ANTES de la autenticación
+    // de la ruta: cacheado, una petición sin sesión recibía la lista de tiendas guardada.
+    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones') || path.startsWith('/api/multitienda') || path.startsWith('/api/catalogo-web/caja')) return next();
 
     const cacheKey = `req:${req.originalUrl}`;
     const cached = await cacheGet(cacheKey);
@@ -275,7 +277,9 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-dolarvzla-key', 'x-dispositivo-id', 'Origin', 'Accept', 'X-Requested-With'],
+  // x-tienda-id: la app de supervisores dice con qué tienda opera (multitienda). Sin él aquí, el
+  // WebView bloquea esas peticiones y la app las ve como "Sin conexión".
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-dolarvzla-key', 'x-dispositivo-id', 'x-tienda-id', 'Origin', 'Accept', 'X-Requested-With'],
   exposedHeaders: ['Authorization', 'Content-Type'],
 };
 
@@ -284,7 +288,7 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-dolarvzla-key,x-dispositivo-id,Origin,Accept,X-Requested-With');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-dolarvzla-key,x-dispositivo-id,x-tienda-id,Origin,Accept,X-Requested-With');
     res.header('Access-Control-Allow-Credentials', 'true');
     return res.status(204).end();
   }
