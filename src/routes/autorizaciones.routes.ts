@@ -1,4 +1,5 @@
-import { NextFunction, Request, Response, Router } from 'express';
+import crypto from 'crypto';
+import express, { NextFunction, Request, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { Server } from 'socket.io';
 import {
@@ -51,11 +52,27 @@ import {
   vincular,
   vinculoPorDispositivo,
   VinculoAutorizaciones,
+  coleccionSecundarios,
+  vinculosDeTienda,
   vinculosPorEscolares,
   vistaVinculo,
   vistaVinculoCaja,
 } from '../services/autorizaciones-vinculos.service';
-import { ErrorTiendas, prepararMultitienda } from '../services/autorizaciones-tiendas.service';
+import { ErrorTiendas, nombreTienda, prepararMultitienda } from '../services/autorizaciones-tiendas.service';
+import {
+  cerrarVista,
+  crearVista,
+  estadoVista,
+  frameDeCelular,
+  frameDePc,
+  frameVista,
+  iniciarLimpiezaPantallas,
+  MAX_FRAME_BYTES,
+  rechazarDesdeCelular,
+  terminarDesdeCelular,
+  vistasDePc,
+} from '../services/autorizaciones-pantallas.service';
+import { celularesConectados } from '../services/autorizaciones-socket.service';
 
 /**
  * Autorizaciones con clave de supervisor desde el celular: une las cajas de sellhub
@@ -155,6 +172,20 @@ caja.get('/consultas', (req, res) => {
 caja.post('/consultas/:id/respuesta', (req, res) => {
   responderConsulta(tiendaDe(req), String(req.params.id), req.body ?? {});
   res.status(204).end();
+});
+
+/** Fotos de pantalla (JPEG crudo, hasta MAX_FRAME_BYTES). */
+const cuerpoImagen = express.raw({ type: 'image/jpeg', limit: MAX_FRAME_BYTES });
+const imagenDe = (req: Request): Buffer => (Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0));
+
+/** "Ver pantalla" desde el celular: lo que piden ver de ESTA sesión de EscolaresPRO. */
+caja.get('/pantallas', (req, res) => {
+  res.json(vistasDePc(tiendaDe(req), String(req.query.sesion ?? '').slice(0, 64)));
+});
+
+/** Una foto de la pantalla de esta PC; { seguir: false } = ya nadie mira. */
+caja.post('/pantallas/:id/frame', cuerpoImagen, (req, res) => {
+  res.json(frameDePc(tiendaDe(req), String(req.params.id), imagenDe(req)));
 });
 
 // ---------------------------------------------------------------- celular
@@ -318,6 +349,112 @@ movil.get('/tienda', exigirVinculo, exigirAdmin, (req: RequestMovil, res) => {
   res.json({ ...estadoTienda(req.vinculo!.tiendaId), tiendaId: req.vinculo!.tiendaId });
 });
 
+// ---------------------------------------------------------------- ver pantallas (solo root)
+
+/** Id público de un celular (no se reparte su dispositivoId). */
+const claveCelular = (dispositivoId: string) => crypto.createHash('sha256').update(dispositivoId).digest('hex').slice(0, 24);
+
+/** Celulares de esa tienda con la app abierta ahora: usuario, celular y en qué pantalla de la app están. */
+async function celularesDeTienda(tiendaId: string, dispositivoActual: string) {
+  const vinculos = await vinculosDeTienda(tiendaId);
+  const porCuenta = new Map(vinculos.map((v) => [v.escolaresUserId, v]));
+  const conectados = celularesConectados().filter((c) => porCuenta.has(c.escolaresUserId));
+  const cuentas = [...new Set(conectados.map((c) => c.escolaresUserId))];
+  const secundarios = cuentas.length ? await (await coleccionSecundarios()).find({ escolaresUserId: { $in: cuentas } }).toArray() : [];
+  return conectados
+    .map((c) => {
+      const v = porCuenta.get(c.escolaresUserId)!;
+      const secundario = secundarios.find((s) => s._id === c.dispositivoId && s.escolaresUserId === c.escolaresUserId);
+      const principal = c.dispositivoId === v.dispositivoId;
+      // Un celular con la sesión abierta pero que no es de la cuenta (ni principal ni secundario) no cuenta.
+      if (!principal && !secundario) return null;
+      return {
+        clave: claveCelular(c.dispositivoId),
+        dispositivoId: c.dispositivoId,
+        escolaresUserId: c.escolaresUserId,
+        usuario: v.sellhubNombre,
+        celular: principal ? v.dispositivoNombre : secundario!.dispositivoNombre,
+        principal,
+        pantalla: c.pantalla,
+        conectadoEn: new Date(c.conectadoEn).toISOString(),
+        esEste: c.dispositivoId === dispositivoActual,
+      };
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null)
+    .sort((a, b) => a.usuario.localeCompare(b.usuario));
+}
+
+movil.get('/celulares', exigirVinculo, exigirAdmin, async (req: RequestMovil, res) => {
+  const lista = await celularesDeTienda(req.vinculo!.tiendaId, req.dispositivoId!);
+  res.json(lista.map(({ dispositivoId: _d, escolaresUserId: _e, ...publico }) => publico));
+});
+
+/** Pedir ver una pantalla. Body: { tipo: 'pc', objetivo: sesionId, nombre } o { tipo: 'celular', objetivo: clave }. */
+movil.post('/pantallas', exigirVinculo, exigirAdmin, async (req: RequestMovil, res) => {
+  const v = req.vinculo!;
+  const tipo = req.body?.tipo === 'celular' ? 'celular' : req.body?.tipo === 'pc' ? 'pc' : null;
+  const objetivo = typeof req.body?.objetivo === 'string' ? req.body.objetivo.trim().slice(0, 64) : '';
+  if (!tipo || !objetivo) throw new ErrorAutorizaciones(400, 'Falta qué pantalla ver');
+  const espectador = { _id: v._id, sellhubNombre: v.sellhubNombre, tiendaId: v.tiendaId };
+  if (tipo === 'pc') {
+    const nombre = typeof req.body?.nombre === 'string' && req.body.nombre.trim() ? req.body.nombre.trim() : 'PC';
+    res.status(201).json(crearVista(espectador, { tipo, objetivo, objetivoNombre: nombre }, nombreTienda(v.tiendaId)));
+    return;
+  }
+  const celular = (await celularesDeTienda(v.tiendaId, req.dispositivoId!)).find((c) => c.clave === objetivo);
+  if (!celular) throw new ErrorAutorizaciones(404, 'Ese celular ya no tiene la app abierta');
+  if (celular.esEste) throw new ErrorAutorizaciones(400, 'Ese es este mismo celular');
+  res.status(201).json(
+    crearVista(
+      espectador,
+      {
+        tipo,
+        objetivo: celular.dispositivoId,
+        objetivoNombre: `${celular.usuario} · ${celular.celular}`,
+        objetivoCuenta: celular.escolaresUserId,
+      },
+      nombreTienda(v.tiendaId),
+    ),
+  );
+});
+
+movil.get('/pantallas/:id', exigirVinculo, (req: RequestMovil, res) => {
+  res.json(estadoVista(req.usuarios!, String(req.params.id)));
+});
+
+/** La última foto (JPEG); 204 si todavía no llegó ninguna. */
+movil.get('/pantallas/:id/frame', exigirVinculo, (req: RequestMovil, res) => {
+  const frame = frameVista(req.usuarios!, String(req.params.id));
+  res.set('Cache-Control', 'no-store');
+  if (!frame) {
+    res.status(204).end();
+    return;
+  }
+  res.type('image/jpeg').send(frame);
+});
+
+movil.delete('/pantallas/:id', exigirVinculo, (req: RequestMovil, res) => {
+  cerrarVista(req.usuarios!, String(req.params.id));
+  res.status(204).end();
+});
+
+/** El celular que se mira: sube una foto ({ seguir: false } = ya nadie mira). */
+movil.post('/pantallas/:id/frame', exigirVinculo, cuerpoImagen, (req: RequestMovil, res) => {
+  res.json(frameDeCelular(String(req.params.id), req.dispositivoId!, imagenDe(req)));
+});
+
+/** El celular que se mira no aceptó (en la app o en el aviso de Android). */
+movil.post('/pantallas/:id/rechazar', exigirVinculo, (req: RequestMovil, res) => {
+  rechazarDesdeCelular(String(req.params.id), req.dispositivoId!, req.body?.motivo);
+  res.status(204).end();
+});
+
+/** El celular que se mira dejó de compartir (botón de su notificación). */
+movil.post('/pantallas/:id/terminar', exigirVinculo, (req: RequestMovil, res) => {
+  terminarDesdeCelular(String(req.params.id), req.dispositivoId!);
+  res.status(204).end();
+});
+
 movil.get('/consultas/:id', exigirVinculo, (req: RequestMovil, res) => {
   res.json(consultaPara(req.usuarios!, String(req.params.id)));
 });
@@ -430,6 +567,7 @@ export function registrarAutorizaciones(io: Server): void {
   });
   prepararMultitienda().catch((error) => console.error('Autorizaciones: no se pudo preparar multitienda:', error));
   iniciarLimpieza();
+  iniciarLimpiezaPantallas();
   iniciarCierreDelDia();
 }
 

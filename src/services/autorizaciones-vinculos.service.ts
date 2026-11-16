@@ -261,6 +261,11 @@ export async function vincular(codigo: string, tiendaId: string, sellhubUsuarioI
   return vinculo;
 }
 
+/** Los vínculos completos de una tienda (uso interno: incluyen el celular). */
+export async function vinculosDeTienda(tiendaId: string): Promise<VinculoAutorizaciones[]> {
+  return (await coleccion()).find({ tiendaId }).toArray();
+}
+
 export async function listarVinculos(tiendaId: string) {
   const vinculos = await (await coleccion()).find({ tiendaId }).sort({ sellhubNombre: 1 }).toArray();
   return vinculos.map(vistaVinculoCaja);

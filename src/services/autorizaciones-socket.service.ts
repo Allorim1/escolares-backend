@@ -40,6 +40,12 @@ export function registrarSocketAutorizaciones(
   });
 
   nsp.on('connection', async (socket) => {
+    socket.data.conectadoEn = Date.now();
+    socket.data.pantalla = '';
+    // En qué pantalla de la app está (Resumen, Autorizaciones…): la ven los root en "Celulares conectados".
+    socket.on('pantalla:actual', (texto: unknown) => {
+      socket.data.pantalla = typeof texto === 'string' ? texto.trim().slice(0, 40) : '';
+    });
     socket.join(salaEscolares(socket.data.escolaresUserId));
     socket.join(salaDispositivo(socket.data.escolaresUserId, socket.data.dispositivoId));
     try {
@@ -79,4 +85,30 @@ export function emitirADispositivo(escolaresUserId: string, dispositivoId: strin
 export function sacarDispositivoDeSalas(escolaresUserId: string, dispositivoId: string, usuarios: string[]): void {
   if (!nsp || usuarios.length === 0) return;
   nsp.in(salaDispositivo(escolaresUserId, dispositivoId)).socketsLeave(usuarios.map(salaUsuario));
+}
+
+export interface CelularConectado {
+  escolaresUserId: string;
+  dispositivoId: string;
+  pantalla: string;
+  conectadoEn: number;
+}
+
+/** Celulares con la app abierta ahora (uno por celular: el socket más reciente). */
+export function celularesConectados(): CelularConectado[] {
+  if (!nsp) return [];
+  const porCelular = new Map<string, CelularConectado>();
+  for (const socket of nsp.sockets.values()) {
+    const d = socket.data as { escolaresUserId?: string; dispositivoId?: string; pantalla?: string; conectadoEn?: number };
+    if (!d.escolaresUserId || !d.dispositivoId) continue;
+    const previo = porCelular.get(d.dispositivoId);
+    if (previo && previo.conectadoEn > (d.conectadoEn ?? 0)) continue;
+    porCelular.set(d.dispositivoId, {
+      escolaresUserId: d.escolaresUserId,
+      dispositivoId: d.dispositivoId,
+      pantalla: d.pantalla ?? '',
+      conectadoEn: d.conectadoEn ?? Date.now(),
+    });
+  }
+  return [...porCelular.values()];
 }
