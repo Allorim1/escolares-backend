@@ -4,7 +4,7 @@ import { database } from '../config/database';
 import { jwtConfig } from '../config/jwt';
 import { createSessionRecord } from '../middlewares/session.middleware';
 import { User } from '../models';
-import { emitirADispositivo, sacarDispositivoDeSalaUsuario } from './autorizaciones-socket.service';
+import { emitirADispositivo, sacarDispositivoDeSalas } from './autorizaciones-socket.service';
 import {
   cerrarSesionesEscolares,
   coleccionSecundarios,
@@ -27,6 +27,9 @@ import {
  *   4. Si acepta, el backend le abre al nuevo una sesión de la misma cuenta de escolares y
  *      lo registra como secundario; el nuevo la recoge con su `espera` (solo él la conoce).
  *
+ * Los secundarios son de la CUENTA de escolares: ven todas las tiendas donde está vinculada.
+ * Cualquier vínculo de la cuenta sirve como `principal` (todos comparten celular principal).
+ *
  * Los pendientes viven en memoria, igual que los códigos de vinculación con sellhub.
  */
 
@@ -42,7 +45,6 @@ type EstadoQr = 'esperando' | 'escaneado' | 'aceptado' | 'rechazado';
 interface QrPendiente {
   token: string;
   codigo: string;
-  sellhubUsuarioId: string;
   escolaresUserId: string;
   principalDispositivoId: string;
   estado: EstadoQr;
@@ -80,7 +82,7 @@ function buscarPorQrOCodigo(texto: string): QrPendiente | undefined {
 function pendienteDe(vinculo: VinculoAutorizaciones, token: string): QrPendiente {
   purgar();
   const p = porToken.get(token);
-  if (!p || p.sellhubUsuarioId !== vinculo._id) throw new ErrorAutorizaciones(404, 'El QR venció. Genera otro.');
+  if (!p || p.escolaresUserId !== vinculo.escolaresUserId) throw new ErrorAutorizaciones(404, 'El QR venció. Genera otro.');
   return p;
 }
 
@@ -94,7 +96,7 @@ function exigirPrincipal(vinculo: VinculoAutorizaciones, dispositivoId: string):
 
 export async function crearQr(vinculo: VinculoAutorizaciones, dispositivoId: string) {
   exigirPrincipal(vinculo, dispositivoId);
-  const cuantos = await (await coleccionSecundarios()).countDocuments({ sellhubUsuarioId: vinculo._id });
+  const cuantos = await (await coleccionSecundarios()).countDocuments({ escolaresUserId: vinculo.escolaresUserId });
   if (cuantos >= MAX_SECUNDARIOS) {
     throw new ErrorAutorizaciones(409, `Ya tienes ${MAX_SECUNDARIOS} dispositivos vinculados. Retira uno para agregar otro.`);
   }
@@ -102,7 +104,7 @@ export async function crearQr(vinculo: VinculoAutorizaciones, dispositivoId: str
   // Un solo QR vivo por usuario: pedir otro invalida el anterior (si nadie lo escaneó todavía).
   purgar();
   for (const [token, p] of porToken) {
-    if (p.sellhubUsuarioId === vinculo._id && p.estado === 'esperando') porToken.delete(token);
+    if (p.escolaresUserId === vinculo.escolaresUserId && p.estado === 'esperando') porToken.delete(token);
   }
 
   const token = crypto.randomBytes(24).toString('base64url');
@@ -113,7 +115,6 @@ export async function crearQr(vinculo: VinculoAutorizaciones, dispositivoId: str
   const pendiente: QrPendiente = {
     token,
     codigo,
-    sellhubUsuarioId: vinculo._id,
     escolaresUserId: vinculo.escolaresUserId,
     principalDispositivoId: vinculo.dispositivoId,
     estado: 'esperando',
@@ -126,7 +127,7 @@ export async function crearQr(vinculo: VinculoAutorizaciones, dispositivoId: str
 export function estadoQr(vinculo: VinculoAutorizaciones, token: string) {
   purgar();
   const p = porToken.get(token);
-  if (!p || p.sellhubUsuarioId !== vinculo._id) return { estado: 'vencido' as const };
+  if (!p || p.escolaresUserId !== vinculo.escolaresUserId) return { estado: 'vencido' as const };
   return { estado: p.estado, candidatoNombre: p.candidato?.nombre ?? null, expiraEn: new Date(p.expiraEn) };
 }
 
@@ -142,7 +143,7 @@ export async function responderQr(vinculo: VinculoAutorizaciones, dispositivoId:
 
   const secundarios = await coleccionSecundarios();
   const yaEra = await secundarios.findOne({ _id: p.candidato.dispositivoId });
-  const cuantos = await secundarios.countDocuments({ sellhubUsuarioId: vinculo._id });
+  const cuantos = await secundarios.countDocuments({ escolaresUserId: vinculo.escolaresUserId });
   if (!yaEra && cuantos >= MAX_SECUNDARIOS) {
     throw new ErrorAutorizaciones(409, `Ya tienes ${MAX_SECUNDARIOS} dispositivos vinculados. Retira uno para agregar otro.`);
   }
@@ -154,7 +155,6 @@ export async function responderQr(vinculo: VinculoAutorizaciones, dispositivoId:
     { _id: p.candidato.dispositivoId },
     {
       id: yaEra?.id ?? crypto.randomUUID(),
-      sellhubUsuarioId: vinculo._id,
       escolaresUserId: vinculo.escolaresUserId,
       dispositivoNombre: p.candidato.nombre,
       pushTokens: [],
@@ -206,7 +206,7 @@ export async function escanearQr(datos: { qr?: unknown; dispositivoId?: unknown;
     throw new ErrorAutorizaciones(409, 'Este celular es el principal de otra cuenta. Primero deben desvincularlo en EscolaresPRO.');
   }
   const secundario = await secundarioPorDispositivo(dispositivoId);
-  if (secundario && secundario.sellhubUsuarioId !== p.sellhubUsuarioId) {
+  if (secundario && secundario.escolaresUserId !== p.escolaresUserId) {
     throw new ErrorAutorizaciones(409, 'Este celular ya está vinculado a otra cuenta. Ciérrale la sesión primero.');
   }
 
@@ -234,7 +234,7 @@ export function consultarEspera(espera: string, dispositivoId: string) {
 
 export async function listarDispositivos(vinculo: VinculoAutorizaciones, dispositivoId: string) {
   const secundarios = await (await coleccionSecundarios())
-    .find({ sellhubUsuarioId: vinculo._id })
+    .find({ escolaresUserId: vinculo.escolaresUserId })
     .sort({ vinculadoEn: 1 })
     .toArray();
   return {
@@ -254,17 +254,25 @@ export async function listarDispositivos(vinculo: VinculoAutorizaciones, disposi
   };
 }
 
-/** El principal retira cualquiera; un secundario solo a sí mismo (al cerrar sesión). */
-export async function retirarDispositivo(vinculo: VinculoAutorizaciones, dispositivoIdActual: string, id: string): Promise<void> {
+/**
+ * El principal retira cualquiera; un secundario solo a sí mismo (al cerrar sesión).
+ * `usuarios`: ids internos de todos los vínculos de la cuenta (salas de las que sale).
+ */
+export async function retirarDispositivo(
+  vinculo: VinculoAutorizaciones,
+  dispositivoIdActual: string,
+  id: string,
+  usuarios: string[],
+): Promise<void> {
   const col = await coleccionSecundarios();
-  const objetivo = await col.findOne({ id, sellhubUsuarioId: vinculo._id });
+  const objetivo = await col.findOne({ id, escolaresUserId: vinculo.escolaresUserId });
   if (!objetivo) throw new ErrorAutorizaciones(404, 'Ese dispositivo ya no está vinculado');
   if (vinculo.dispositivoId !== dispositivoIdActual && objetivo._id !== dispositivoIdActual) {
     throw new ErrorAutorizaciones(403, 'Solo el celular principal puede retirar otros dispositivos');
   }
   await col.deleteOne({ _id: objetivo._id });
   await cerrarSesionesEscolares([objetivo.sessionId], 'dispositivo_retirado');
-  sacarDispositivoDeSalaUsuario(objetivo.escolaresUserId, objetivo._id, objetivo.sellhubUsuarioId);
+  sacarDispositivoDeSalas(objetivo.escolaresUserId, objetivo._id, usuarios);
   emitirADispositivo(objetivo.escolaresUserId, objetivo._id, 'dispositivo:retirado', {});
 }
 

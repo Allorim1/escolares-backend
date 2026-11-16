@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { Request, Response, Router } from 'express';
 import { database } from '../config/database';
-import { autenticarCaja } from '../middlewares/autorizaciones.middleware';
+import { autenticarCaja, RequestCaja } from '../middlewares/autorizaciones.middleware';
 import { obtenerTasaUsdBcv } from '../services/tasa-bcv.service';
 
 /**
@@ -174,6 +174,14 @@ const mensaje = (e: unknown) => (e instanceof Error ? e.message : 'Error inesper
 
 const caja = Router();
 caja.use(autenticarCaja);
+// El catálogo web es de una sola tienda (se marca en Gestión Multienda): las demás no lo tocan.
+caja.use((req: Request, res: Response, next) => {
+  if (!(req as RequestCaja).tienda?.catalogoWeb) {
+    res.status(403).json({ message: 'Esta tienda no alimenta el catálogo web (se configura en Gestión Multienda)' });
+    return;
+  }
+  next();
+});
 
 /** Hash de la foto que tiene cada producto, para que sellhub solo envíe las que cambiaron. */
 caja.get('/estado', async (_req: Request, res: Response) => {

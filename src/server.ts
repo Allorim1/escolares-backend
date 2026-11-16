@@ -50,6 +50,7 @@ import whatsappRoutes from './routes/whatsapp.routes';
 import { registrarSocketWhatsApp } from './services/whatsapp-inbox.service';
 import autorizacionesRoutes, { registrarAutorizaciones } from './routes/autorizaciones.routes';
 import catalogoWebRoutes from './routes/catalogo-web.routes';
+import multitiendaRoutes from './routes/multitienda.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -2024,6 +2025,8 @@ app.use('/api/creditos', creditosRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/autorizaciones', autorizacionesRoutes);
 app.use('/api/catalogo-web', catalogoWebRoutes);
+// Gestión Multienda (app de escritorio): tiendas, claves y celulares vinculados. Solo root.
+app.use('/api/multitienda', multitiendaRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {

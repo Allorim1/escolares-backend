@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { emitirAUsuarios } from './autorizaciones-socket.service';
 import { ErrorAutorizaciones } from './autorizaciones-vinculos.service';
+import { idSellhub } from './autorizaciones-tiendas.service';
 
 /**
  * Consultas que un admin hace desde el celular y que solo puede contestar la tienda (el
@@ -8,6 +9,9 @@ import { ErrorAutorizaciones } from './autorizaciones-vinculos.service';
  * sesión abierta de sellhub. El celular la deja aquí (POST /movil/consultas); las PCs de
  * la tienda con sesión abierta preguntan cada pocos segundos (GET /caja/consultas) y la
  * primera que la pide se la lleva y contesta (POST /caja/consultas/:id/respuesta).
+ *
+ * Multitienda: cada consulta es de una tienda y solo la toman las PCs de esa tienda (las
+ * que llaman con su clave). `usuarioId` es el id interno `tienda:usuario`.
  *
  * Viven solo en memoria: duran segundos.
  */
@@ -21,6 +25,7 @@ const fecha = (v: unknown): string => (typeof v === 'string' && FECHA.test(v.tri
 
 interface Consulta {
   id: string;
+  tiendaId: string;
   tipo: TipoConsulta;
   datos: Record<string, string>;
   usuarioId: string;
@@ -45,19 +50,22 @@ const consultas = new Map<string, Consulta>();
  * puede contestar, se le dice al instante en vez de esperar 25 segundos.
  */
 const VIGENCIA_PC_MS = 15_000;
-const pcs = new Map<string, { visto: number; tipos: TipoConsulta[] }>();
+const pcs = new Map<string, { tiendaId: string; equipo: string; visto: number; tipos: TipoConsulta[] }>();
 
-function pcsActivas() {
+function pcsActivas(tiendaId: string) {
   const limite = Date.now() - VIGENCIA_PC_MS;
-  for (const [equipo, pc] of pcs) if (pc.visto < limite) pcs.delete(equipo);
-  return [...pcs.entries()].map(([equipo, pc]) => ({ equipo, ...pc }));
+  for (const [clave, pc] of pcs) if (pc.visto < limite) pcs.delete(clave);
+  return [...pcs.values()].filter((pc) => pc.tiendaId === tiendaId);
 }
 
+/** Cuántas PCs de la tienda están atendiendo ahora (para Gestión Multienda). */
+export const cantidadPcsActivas = (tiendaId: string) => pcsActivas(tiendaId).length;
+
 /** Para la app: qué PCs están atendiendo y si tienen la versión que contesta todo. */
-export function estadoTienda() {
+export function estadoTienda(tiendaId: string) {
   const ahora = Date.now();
   return {
-    pcs: pcsActivas()
+    pcs: pcsActivas(tiendaId)
       .map((pc) => ({
         equipo: pc.equipo,
         segundos: Math.round((ahora - pc.visto) / 1000),
@@ -74,7 +82,8 @@ function limpiar(): void {
 
 const texto = (v: unknown, max: number): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
-export function crearConsulta(usuarioId: string, usuarioNombre: string, input: Record<string, unknown>): { id: string } {
+/** `usuarioId`: id interno (`tienda:usuario`) del vínculo de esa tienda. */
+export function crearConsulta(tiendaId: string, usuarioId: string, usuarioNombre: string, input: Record<string, unknown>): { id: string } {
   limpiar();
   const tipo = TIPOS.includes(input.tipo as TipoConsulta) ? (input.tipo as TipoConsulta) : null;
   if (!tipo) throw new ErrorAutorizaciones(400, 'Tipo de consulta desconocido');
@@ -109,7 +118,7 @@ export function crearConsulta(usuarioId: string, usuarioNombre: string, input: R
       datos = { sesionId: texto(d.sesionId, 64), mensaje: texto(d.mensaje, 1000) };
       if (!datos.sesionId || !datos.mensaje) throw new ErrorAutorizaciones(400, 'Falta el mensaje o a quién');
   }
-  const activas = pcsActivas();
+  const activas = pcsActivas(tiendaId);
   if (!activas.some((pc) => pc.tipos.includes(tipo))) {
     throw new ErrorAutorizaciones(
       503,
@@ -123,6 +132,7 @@ export function crearConsulta(usuarioId: string, usuarioNombre: string, input: R
 
   const c: Consulta = {
     id: crypto.randomUUID(),
+    tiendaId,
     tipo,
     datos,
     usuarioId,
@@ -138,10 +148,11 @@ export function crearConsulta(usuarioId: string, usuarioNombre: string, input: R
 }
 
 /** Lo que ve el celular de su consulta. */
-export function consultaPara(usuarioId: string, id: string) {
+/** `usuarios`: ids internos de los vínculos de la cuenta. */
+export function consultaPara(usuarios: string[], id: string) {
   limpiar();
   const c = consultas.get(id);
-  if (!c || c.usuarioId !== usuarioId) {
+  if (!c || !usuarios.includes(c.usuarioId)) {
     return { estado: 'expirada', resultado: null, mensaje: 'Ninguna PC de la tienda respondió. ¿Está abierto EscolaresPRO?' };
   }
   return { estado: c.estado, resultado: c.resultado, mensaje: c.mensaje };
@@ -152,16 +163,16 @@ export function consultaPara(usuarioId: string, id: string) {
  * los tipos que dice atender (`tipos`, separados por coma). Sin `tipos` es una versión
  * vieja de sellhub: solo producto y mensaje.
  */
-export function tomarConsultas(tiposTexto?: unknown, equipoTexto?: unknown) {
+export function tomarConsultas(tiendaId: string, tiposTexto?: unknown, equipoTexto?: unknown) {
   limpiar();
   const pedidos = typeof tiposTexto === 'string' ? tiposTexto.split(',').map((t) => t.trim()) : [];
   const atiende = pedidos.length ? TIPOS.filter((t) => pedidos.includes(t)) : TIPOS_VERSION_VIEJA;
   const equipo = texto(equipoTexto, 80) || (pedidos.length ? 'PC sin nombre' : 'PC sin actualizar');
-  pcs.set(equipo, { visto: Date.now(), tipos: atiende });
+  pcs.set(`${tiendaId}|${equipo}`, { tiendaId, equipo, visto: Date.now(), tipos: atiende });
   const ahora = Date.now();
   const tomadas: Consulta[] = [];
   for (const c of consultas.values()) {
-    if (!atiende.includes(c.tipo)) continue;
+    if (c.tiendaId !== tiendaId || !atiende.includes(c.tipo)) continue;
     const libre = c.estado === 'pendiente' || (c.estado === 'tomada' && c.tomadaEn !== null && ahora - c.tomadaEn > REINTENTO_MS);
     if (!libre) continue;
     c.estado = 'tomada';
@@ -169,12 +180,13 @@ export function tomarConsultas(tiposTexto?: unknown, equipoTexto?: unknown) {
     tomadas.push(c);
     if (tomadas.length >= 20) break;
   }
-  return tomadas.map((c) => ({ id: c.id, tipo: c.tipo, datos: c.datos, usuarioId: c.usuarioId, usuarioNombre: c.usuarioNombre }));
+  // A la PC se le da el id de usuario de su sellhub, como siempre.
+  return tomadas.map((c) => ({ id: c.id, tipo: c.tipo, datos: c.datos, usuarioId: idSellhub(c.usuarioId), usuarioNombre: c.usuarioNombre }));
 }
 
-export function responderConsulta(id: string, input: Record<string, unknown>): void {
+export function responderConsulta(tiendaId: string, id: string, input: Record<string, unknown>): void {
   const c = consultas.get(id);
-  if (!c || c.estado === 'respondida' || c.estado === 'fallida') return;
+  if (!c || c.tiendaId !== tiendaId || c.estado === 'respondida' || c.estado === 'fallida') return;
   const resultado = input.resultado ?? null;
   // La imagen de la factura es el HTML del ticket con el logo incrustado: puede pesar más.
   const limite = c.tipo === 'ticket' ? 6 * 1024 * 1024 : 512 * 1024;
@@ -182,5 +194,5 @@ export function responderConsulta(id: string, input: Record<string, unknown>): v
   c.estado = input.ok === true ? 'respondida' : 'fallida';
   c.resultado = resultado;
   c.mensaje = texto(input.mensaje, 300) || null;
-  emitirAUsuarios([c.usuarioId], 'consulta', { id: c.id, estado: c.estado, resultado: c.resultado, mensaje: c.mensaje });
+  emitirAUsuarios([c.usuarioId], 'consulta', { id: c.id, tiendaId: c.tiendaId, estado: c.estado, resultado: c.resultado, mensaje: c.mensaje });
 }

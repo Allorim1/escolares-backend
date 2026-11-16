@@ -1,5 +1,6 @@
 import { Filter } from 'mongodb';
 import { database } from '../config/database';
+import { nombreTienda } from './autorizaciones-tiendas.service';
 
 /**
  * Lo que queda guardado para la app de supervisores (ion/escolares-pro), a diferencia de
@@ -13,6 +14,9 @@ import { database } from '../config/database';
  *
  * Quién ve cada registro lo decide sellhub al mandarlo: `destinatarios` son los usuarios
  * que en ese momento lo tenían marcado (Seguridad → Usuarios). Se guarda 1 año (índice TTL).
+ *
+ * Multitienda: cada registro es de una tienda (`tiendaId`) y sus destinatarios son ids
+ * internos `tienda:usuario`. Una cuenta vinculada en varias tiendas ve lo de todas.
  */
 
 /** Dato suelto de la acción tal como lo muestra sellhub ("Total" → "$ 120,50"). */
@@ -25,6 +29,7 @@ export interface DetalleAccion {
 
 export interface RegistroHistorial {
   _id: string;
+  tiendaId: string;
   accion: string;
   titulo: string;
   subtitulo: string | null;
@@ -72,6 +77,7 @@ export type TipoEvento = (typeof TIPOS_EVENTO)[number];
 
 export interface Evento {
   _id: string;
+  tiendaId: string;
   tipo: TipoEvento;
   titulo: string;
   cuerpo: string;
@@ -189,21 +195,24 @@ export async function guardarHistorial(registro: RegistroHistorial): Promise<voi
   await (await historial()).updateOne({ _id: registro._id }, { $set: registro }, { upsert: true });
 }
 
-/** Lo que ve el celular: sin la lista de destinatarios. */
+/** Lo que ve el celular: sin la lista de destinatarios, con el nombre de la tienda. */
 export function vistaHistorial(r: RegistroHistorial) {
   const { destinatarios: _dest, ...vista } = r;
-  return vista;
+  return { ...vista, tiendaNombre: nombreTienda(r.tiendaId) };
 }
 
-export async function listarHistorial(sellhubUsuarioId: string, query: Record<string, unknown>) {
+/** `usuarios`: ids internos de los vínculos de la cuenta; `query.tienda` filtra por una. */
+export async function listarHistorial(usuarios: string[], query: Record<string, unknown>) {
   const f = leerFiltros(query);
   const estados = lista(query.estado);
   const acciones = lista(query.accion);
   const origen = query.origen === 'caja' || query.origen === 'celular' ? query.origen : undefined;
   const rango = rangoFechas(f);
 
+  const tienda = texto(query.tienda, 60);
   const filtro: Filter<RegistroHistorial> = {
-    destinatarios: sellhubUsuarioId,
+    destinatarios: { $in: usuarios },
+    ...(tienda ? { tiendaId: tienda } : {}),
     ...(rango ? { creadaEn: rango } : {}),
     ...(estados.length ? { estado: { $in: estados } } : {}),
     ...(acciones.length ? { accion: { $in: acciones } } : {}),
@@ -214,8 +223,8 @@ export async function listarHistorial(sellhubUsuarioId: string, query: Record<st
   return { registros: filas.slice(0, f.limite).map(vistaHistorial), hayMas: filas.length > f.limite };
 }
 
-export async function obtenerHistorial(sellhubUsuarioId: string, id: string) {
-  const r = await (await historial()).findOne({ _id: id, destinatarios: sellhubUsuarioId });
+export async function obtenerHistorial(usuarios: string[], id: string) {
+  const r = await (await historial()).findOne({ _id: id, destinatarios: { $in: usuarios } });
   return r ? vistaHistorial(r) : null;
 }
 
@@ -227,20 +236,26 @@ export async function guardarEvento(evento: Evento): Promise<void> {
 
 export function vistaEvento(e: Evento) {
   const { destinatarios: _dest, ...vista } = e;
-  return vista;
+  return { ...vista, tiendaNombre: nombreTienda(e.tiendaId) };
 }
 
-export async function listarEventos(sellhubUsuarioId: string, query: Record<string, unknown>) {
+/** "Limpiar notificaciones" es de la cuenta: vale para todas sus tiendas. */
+const claveLimpieza = (escolaresUserId: string) => `cuenta:${escolaresUserId}`;
+
+/** `usuarios`: ids internos de los vínculos de la cuenta; `query.tienda` filtra por una. */
+export async function listarEventos(usuarios: string[], escolaresUserId: string, query: Record<string, unknown>) {
   const f = leerFiltros(query);
   const tipos = lista(query.tipo).filter((t): t is TipoEvento => (TIPOS_EVENTO as readonly string[]).includes(t));
   const rango = rangoFechas(f) ?? {};
 
+  const tienda = texto(query.tienda, 60);
   const conFiltros = !!(f.desde || f.hasta || f.q || tipos.length);
-  const limpiadoHasta = (await limpiezas().findOne({ _id: sellhubUsuarioId }))?.hasta ?? null;
+  const limpiadoHasta = (await limpiezas().findOne({ _id: claveLimpieza(escolaresUserId) }))?.hasta ?? null;
   if (limpiadoHasta && !conFiltros) rango.$gt = limpiadoHasta;
 
   const filtro: Filter<Evento> = {
-    destinatarios: sellhubUsuarioId,
+    destinatarios: { $in: usuarios },
+    ...(tienda ? { tiendaId: tienda } : {}),
     ...(Object.keys(rango).length ? { creadoEn: rango } : {}),
     ...(tipos.length ? { tipo: { $in: tipos } } : {}),
     ...busqueda(f.q, ['titulo', 'cuerpo', 'usuario', 'equipo', 'detalles.valor']),
@@ -250,8 +265,8 @@ export async function listarEventos(sellhubUsuarioId: string, query: Record<stri
 }
 
 /** Oculta de la lista sin filtros todo lo recibido hasta ahora. */
-export async function limpiarEventos(sellhubUsuarioId: string): Promise<{ limpiadoHasta: Date }> {
+export async function limpiarEventos(escolaresUserId: string): Promise<{ limpiadoHasta: Date }> {
   const hasta = new Date();
-  await limpiezas().updateOne({ _id: sellhubUsuarioId }, { $set: { hasta } }, { upsert: true });
+  await limpiezas().updateOne({ _id: claveLimpieza(escolaresUserId) }, { $set: { hasta } }, { upsert: true });
   return { limpiadoHasta: hasta };
 }

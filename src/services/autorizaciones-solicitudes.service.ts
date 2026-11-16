@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { emitirAUsuarios } from './autorizaciones-socket.service';
-import { ErrorAutorizaciones, enviarPushAUsuarios, filtrarVinculados } from './autorizaciones-vinculos.service';
+import { aIdsSellhub, ErrorAutorizaciones, enviarPushAUsuarios, filtrarVinculados } from './autorizaciones-vinculos.service';
+import { idSellhub, nombreTienda, prefijoTienda, uid } from './autorizaciones-tiendas.service';
 import {
   DetalleAccion,
   Evento,
@@ -33,6 +34,10 @@ import {
  * Quién la recibe lo decide sellhub: manda en `destinatarios` los usuarios cuyo rol tiene
  * el permiso móvil de esa acción, y aquí solo llega a los que tienen celular vinculado.
  *
+ * Multitienda: cada solicitud es de la tienda cuya clave la creó (`tiendaId`); solo esa
+ * tienda la puede consultar o resolver. Los usuarios se guardan como ids internos
+ * `tienda:usuario` y a la caja se le devuelven con su id simple.
+ *
  * Este backend nunca ve el PIN: el celular lo cifra con la llave pública RSA que generó la
  * caja para esta solicitud, y solo la caja tiene la privada. La caja comprueba que el PIN
  * sea del usuario que respondió (`respondidoPor`).
@@ -49,6 +54,7 @@ export type EstadoSolicitud =
 
 export interface Solicitud {
   id: string;
+  tiendaId: string;
   /** Clave de la acción en sellhub (descuento, gaveta...), para filtrar el historial. */
   accion: string;
   titulo: string;
@@ -71,12 +77,18 @@ export interface Solicitud {
   estado: EstadoSolicitud;
   intentosFallidos: number;
   pinCifrado: string | null;
-  /** Usuario de sellhub que respondió por última vez (aprobó o rechazó). */
+  /** Usuario (id interno) que respondió por última vez (aprobó o rechazó). */
   respondidoPor: string | null;
   respondidoPorNombre: string | null;
   supervisor: string | null;
   mensaje: string | null;
   resueltaEn: Date | null;
+}
+
+/** Vínculo con el que un celular responde: uno por tienda. */
+export interface QuienResponde {
+  _id: string;
+  sellhubNombre: string;
 }
 
 export const MAX_INTENTOS = 3;
@@ -95,16 +107,28 @@ function obtener(id: string): Solicitud {
   return s;
 }
 
-/** Lo que ve el celular: sin PIN cifrado ni listas de usuarios. */
-export function vistaMovil(s: Solicitud) {
-  const { pinCifrado: _pin, destinatarios: _dest, permitidos: _perm, observadores: _obs, respondidoPor: _por, ...resto } = s;
-  return { ...resto, intentosRestantes: MAX_INTENTOS - s.intentosFallidos };
+/** Para la caja: solo las de su tienda (otra tienda no puede verlas ni resolverlas). */
+function obtenerDeTienda(tiendaId: string, id: string): Solicitud {
+  const s = obtener(id);
+  if (s.tiendaId !== tiendaId) throw new ErrorAutorizaciones(404, 'La solicitud no existe o ya expiró');
+  return s;
 }
 
-/** Lo que ve la caja: sin la llave pública (ya la tiene). */
+/** Lo que ve el celular: sin PIN cifrado ni listas de usuarios, con el nombre de la tienda. */
+export function vistaMovil(s: Solicitud) {
+  const { pinCifrado: _pin, destinatarios: _dest, permitidos: _perm, observadores: _obs, respondidoPor: _por, ...resto } = s;
+  return { ...resto, tiendaNombre: nombreTienda(s.tiendaId), intentosRestantes: MAX_INTENTOS - s.intentosFallidos };
+}
+
+/** Lo que ve la caja: sin la llave pública (ya la tiene), con los ids de usuario de su sellhub. */
 function vistaCaja(s: Solicitud) {
-  const { clavePublica: _clave, permitidos: _perm, observadores: _obs, ...resto } = s;
-  return { ...resto, intentosRestantes: MAX_INTENTOS - s.intentosFallidos };
+  const { clavePublica: _clave, permitidos: _perm, observadores: _obs, tiendaId: _tienda, ...resto } = s;
+  return {
+    ...resto,
+    destinatarios: aIdsSellhub(s.destinatarios),
+    respondidoPor: s.respondidoPor ? idSellhub(s.respondidoPor) : null,
+    intentosRestantes: MAX_INTENTOS - s.intentosFallidos,
+  };
 }
 
 function notificarCambio(s: Solicitud): void {
@@ -114,6 +138,7 @@ function notificarCambio(s: Solicitud): void {
 function aHistorial(s: Solicitud): RegistroHistorial {
   return {
     _id: s.id,
+    tiendaId: s.tiendaId,
     accion: s.accion,
     titulo: s.titulo,
     subtitulo: s.subtitulo,
@@ -164,8 +189,11 @@ function resolver(s: Solicitud, estado: EstadoSolicitud, mensaje: string | null 
  */
 const ACCIONES_TEMPORALES = new Set(['relacion_cuentas', 'relacion_cuentas_ver', 'inventario_productos', 'inventario_precios', 'inventario_catalogos']);
 
+/** Ids de usuario de un sellhub → ids internos de su tienda. */
+const deTienda = (tiendaId: string, ids: string[]) => ids.map((id) => uid(tiendaId, id));
+
 /** Datos comunes que manda sellhub al crear una solicitud o registrar una autorización. */
-function datosAccion(input: Record<string, unknown>) {
+function datosAccion(tiendaId: string, input: Record<string, unknown>) {
   const titulo = texto(input.titulo, 120);
   if (!titulo) throw new ErrorAutorizaciones(400, 'Falta el título');
   return {
@@ -176,15 +204,15 @@ function datosAccion(input: Record<string, unknown>) {
     cajero: texto(input.cajero, 150) ?? 'Cajero',
     equipo: texto(input.equipo, 150) ?? '',
     detalles: limpiarDetalles(input.detalles),
-    permitidos: listaIds(input.destinatarios),
-    observadores: listaIds(input.observadores),
+    permitidos: deTienda(tiendaId, listaIds(input.destinatarios)),
+    observadores: deTienda(tiendaId, listaIds(input.observadores)),
   };
 }
 
 // ---------------------------------------------------------------- caja (sellhub)
 
-export async function crearSolicitud(input: Record<string, unknown>) {
-  const datos = datosAccion(input);
+export async function crearSolicitud(tiendaId: string, input: Record<string, unknown>) {
+  const datos = datosAccion(tiendaId, input);
   const clavePublica = texto(input.clavePublica, 2000);
   if (!clavePublica) throw new ErrorAutorizaciones(400, 'Falta la llave pública');
 
@@ -196,6 +224,7 @@ export async function crearSolicitud(input: Record<string, unknown>) {
   const ahora = new Date();
   const s: Solicitud = {
     id: crypto.randomUUID(),
+    tiendaId,
     ...datos,
     clavePublica,
     destinatarios,
@@ -217,9 +246,11 @@ export async function crearSolicitud(input: Record<string, unknown>) {
   const monto = s.detalles.find((d) => d.destacado)?.valor;
   const detalle = [monto, s.cajero, s.equipo, s.motivo].filter(Boolean).join(' · ');
   const cuerpo = detalle || 'Requiere autorización de un supervisor';
+  // Con varias tiendas, el aviso dice de cuál es ("Centro · Descuento").
+  const titulo = `${prefijoTienda(tiendaId)}${s.titulo}`;
   enviarPushAUsuarios(
     destinatarios,
-    { title: `🔐 ${s.titulo}`, body: cuerpo, data: { tipo: 'solicitud', solicitudId: s.id } },
+    { title: `🔐 ${titulo}`, body: cuerpo, data: { tipo: 'solicitud', solicitudId: s.id, tiendaId } },
     'autorizaciones',
     // La APK nueva arma la notificación con "Aprobar" (PIN ahí mismo) y "Rechazar": necesita la
     // llave pública para cifrar el PIN sin abrir la app.
@@ -227,7 +258,8 @@ export async function crearSolicitud(input: Record<string, unknown>) {
       data: {
         tipo: 'solicitud',
         solicitudId: s.id,
-        titulo: s.titulo,
+        tiendaId,
+        titulo,
         cuerpo,
         clavePublica: s.clavePublica,
         temporal: ACCIONES_TEMPORALES.has(s.accion) ? '1' : '0',
@@ -245,8 +277,8 @@ export async function crearSolicitud(input: Record<string, unknown>) {
  * Estado actual para la caja. Si el celular ya mandó el PIN, se entrega una
  * sola vez (y pasa a "verificando"): la caja debe responder con registrarResultado.
  */
-export function consultarDesdeCaja(id: string) {
-  const s = obtener(id);
+export function consultarDesdeCaja(tiendaId: string, id: string) {
+  const s = obtenerDeTienda(tiendaId, id);
   const vista = vistaCaja(s);
   if (s.estado === 'respondida' && s.pinCifrado) {
     s.pinCifrado = null;
@@ -256,8 +288,8 @@ export function consultarDesdeCaja(id: string) {
   return vista;
 }
 
-export function registrarResultado(id: string, ok: boolean, supervisor: string | null, mensaje: string | null) {
-  const s = obtener(id);
+export function registrarResultado(tiendaId: string, id: string, ok: boolean, supervisor: string | null, mensaje: string | null) {
+  const s = obtenerDeTienda(tiendaId, id);
   if (s.estado !== 'verificando') throw new ErrorAutorizaciones(409, 'La solicitud no está esperando verificación');
 
   if (ok) {
@@ -277,6 +309,7 @@ export function registrarResultado(id: string, ok: boolean, supervisor: string |
           data: {
             tipo: 'solicitud_pin_incorrecto',
             solicitudId: s.id,
+            tiendaId: s.tiendaId,
             mensaje: s.mensaje,
             intentosRestantes: String(MAX_INTENTOS - s.intentosFallidos),
           },
@@ -288,9 +321,9 @@ export function registrarResultado(id: string, ok: boolean, supervisor: string |
   return vistaCaja(s);
 }
 
-export function cancelarDesdeCaja(id: string): void {
+export function cancelarDesdeCaja(tiendaId: string, id: string): void {
   const s = solicitudes.get(id);
-  if (s && abierta(s)) resolver(s, 'cancelada', 'La caja canceló la solicitud');
+  if (s && s.tiendaId === tiendaId && abierta(s)) resolver(s, 'cancelada', 'La caja canceló la solicitud');
 }
 
 /**
@@ -298,21 +331,22 @@ export function cancelarDesdeCaja(id: string): void {
  * celulares para lo mismo, se cierra como aprobada en caja (un solo registro); si no,
  * se crea el registro directamente en el historial.
  */
-export async function registrarAutorizacionEnCaja(input: Record<string, unknown>): Promise<void> {
+export async function registrarAutorizacionEnCaja(tiendaId: string, input: Record<string, unknown>): Promise<void> {
   const supervisor = texto(input.supervisor, 150);
   const abiertaId = texto(input.solicitudId, 60);
   const s = abiertaId ? solicitudes.get(abiertaId) : undefined;
-  if (s && abierta(s)) {
+  if (s && s.tiendaId === tiendaId && abierta(s)) {
     s.origen = 'caja';
     s.supervisor = supervisor;
     resolver(s, 'aprobada', 'Autorizada con el PIN en la caja');
     return;
   }
 
-  const datos = datosAccion(input);
+  const datos = datosAccion(tiendaId, input);
   const ahora = new Date();
   await archivar({
     _id: crypto.randomUUID(),
+    tiendaId,
     accion: datos.accion,
     titulo: datos.titulo,
     subtitulo: datos.subtitulo,
@@ -350,13 +384,15 @@ const PUSH_EVENTO: Record<TipoEvento, 'autorizaciones' | 'eventos'> = {
   reporte: 'eventos',
 };
 
-export async function crearEvento(input: Record<string, unknown>): Promise<{ id: string; enviados: number }> {
+/** `input.destinatarios`: ids de usuario del sellhub de esa tienda. */
+export async function crearEvento(tiendaId: string, input: Record<string, unknown>): Promise<{ id: string; enviados: number }> {
   const tipo = TIPOS_EVENTO.find((t) => t === input.tipo);
   const titulo = texto(input.titulo, 150);
   if (!tipo || !titulo) throw new ErrorAutorizaciones(400, 'Faltan el tipo o el título del evento');
 
   const evento: Evento = {
     _id: crypto.randomUUID(),
+    tiendaId,
     tipo,
     titulo,
     cuerpo: texto(input.cuerpo, 400) ?? '',
@@ -364,7 +400,7 @@ export async function crearEvento(input: Record<string, unknown>): Promise<{ id:
     equipo: texto(input.equipo, 150),
     detalles: limpiarDetalles(input.detalles),
     creadoEn: new Date(),
-    destinatarios: listaIds(input.destinatarios),
+    destinatarios: deTienda(tiendaId, listaIds(input.destinatarios)),
   };
   if (evento.destinatarios.length === 0) return { id: evento._id, enviados: 0 };
 
@@ -373,7 +409,11 @@ export async function crearEvento(input: Record<string, unknown>): Promise<{ id:
   emitirAUsuarios(vinculados, 'evento', vistaEvento(evento));
   enviarPushAUsuarios(
     vinculados,
-    { title: evento.titulo, body: evento.cuerpo, data: { tipo: 'evento', eventoId: evento._id, eventoTipo: evento.tipo } },
+    {
+      title: `${prefijoTienda(tiendaId)}${evento.titulo}`,
+      body: evento.cuerpo,
+      data: { tipo: 'evento', eventoId: evento._id, eventoTipo: evento.tipo, tiendaId },
+    },
     PUSH_EVENTO[tipo],
   ).catch((err) => console.error('Error enviando push:', err));
   return { id: evento._id, enviados: vinculados.length };
@@ -381,41 +421,45 @@ export async function crearEvento(input: Record<string, unknown>): Promise<{ id:
 
 // ---------------------------------------------------------------- celular
 
-function verificarDestinatario(s: Solicitud, sellhubUsuarioId: string): void {
-  if (!s.destinatarios.includes(sellhubUsuarioId)) {
-    throw new ErrorAutorizaciones(403, 'No tienes permiso para responder esta solicitud');
-  }
+/** Con cuál de sus vínculos (uno por tienda) responde el celular a esta solicitud. */
+function quienResponde(s: Solicitud, vinculos: QuienResponde[]): QuienResponde {
+  const v = vinculos.find((x) => s.destinatarios.includes(x._id));
+  if (!v) throw new ErrorAutorizaciones(403, 'No tienes permiso para responder esta solicitud');
+  return v;
 }
 
-export function listarParaMovil(sellhubUsuarioId: string) {
+const esDe = (s: Solicitud, usuarios: string[]) => s.destinatarios.some((d) => usuarios.includes(d));
+
+/** `usuarios`: ids internos de los vínculos de la cuenta (todas sus tiendas). */
+export function listarParaMovil(usuarios: string[]) {
   return [...solicitudes.values()]
-    .filter((s) => s.destinatarios.includes(sellhubUsuarioId))
+    .filter((s) => esDe(s, usuarios))
     .sort((a, b) => b.creadaEn.getTime() - a.creadaEn.getTime())
     .map(vistaMovil);
 }
 
 /** Una solicitud (la notificación nativa pregunta así cómo terminó su PIN). */
-export function solicitudParaMovil(id: string, sellhubUsuarioId: string) {
+export function solicitudParaMovil(id: string, usuarios: string[]) {
   const s = obtener(id);
-  verificarDestinatario(s, sellhubUsuarioId);
+  if (!esDe(s, usuarios)) throw new ErrorAutorizaciones(403, 'No tienes permiso para responder esta solicitud');
   return vistaMovil(s);
 }
 
 /** Lo que muestra el widget de la pantalla de inicio. */
-export function pendientesParaWidget(sellhubUsuarioId: string) {
+export function pendientesParaWidget(usuarios: string[]) {
   const pendientes = [...solicitudes.values()]
-    .filter((s) => s.estado === 'pendiente' && s.destinatarios.includes(sellhubUsuarioId))
+    .filter((s) => s.estado === 'pendiente' && esDe(s, usuarios))
     .sort((a, b) => b.creadaEn.getTime() - a.creadaEn.getTime());
   const ultima = pendientes[0];
   return {
     pendientes: pendientes.length,
-    ultima: ultima ? { titulo: ultima.titulo, cajero: ultima.cajero } : null,
+    ultima: ultima ? { titulo: `${prefijoTienda(ultima.tiendaId)}${ultima.titulo}`, cajero: ultima.cajero } : null,
   };
 }
 
-export function aprobarDesdeMovil(id: string, pinCifrado: unknown, sellhubUsuarioId: string, nombre: string) {
+export function aprobarDesdeMovil(id: string, pinCifrado: unknown, vinculos: QuienResponde[]) {
   const s = obtener(id);
-  verificarDestinatario(s, sellhubUsuarioId);
+  const v = quienResponde(s, vinculos);
   if (s.estado !== 'pendiente') {
     throw new ErrorAutorizaciones(409, s.estado === 'respondida' || s.estado === 'verificando'
       ? 'Otro supervisor ya está respondiendo esta solicitud'
@@ -426,20 +470,20 @@ export function aprobarDesdeMovil(id: string, pinCifrado: unknown, sellhubUsuari
 
   s.pinCifrado = cifrado;
   s.estado = 'respondida';
-  s.respondidoPor = sellhubUsuarioId;
-  s.respondidoPorNombre = nombre;
+  s.respondidoPor = v._id;
+  s.respondidoPorNombre = v.sellhubNombre;
   s.mensaje = null;
   notificarCambio(s);
   return vistaMovil(s);
 }
 
-export function rechazarDesdeMovil(id: string, sellhubUsuarioId: string, nombre: string) {
+export function rechazarDesdeMovil(id: string, vinculos: QuienResponde[]) {
   const s = obtener(id);
-  verificarDestinatario(s, sellhubUsuarioId);
+  const v = quienResponde(s, vinculos);
   if (s.estado !== 'pendiente') throw new ErrorAutorizaciones(409, 'La solicitud ya no está pendiente');
-  s.respondidoPor = sellhubUsuarioId;
-  s.respondidoPorNombre = nombre;
-  resolver(s, 'rechazada', `Rechazada por ${nombre}`);
+  s.respondidoPor = v._id;
+  s.respondidoPorNombre = v.sellhubNombre;
+  resolver(s, 'rechazada', `Rechazada por ${v.sellhubNombre}`);
   return vistaMovil(s);
 }
 

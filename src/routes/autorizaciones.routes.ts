@@ -1,7 +1,15 @@
 import { NextFunction, Request, Response, Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { Server } from 'socket.io';
-import { autenticarCaja, autenticarMovil, exigirVinculo, nombreEscolares, RequestMovil } from '../middlewares/autorizaciones.middleware';
+import {
+  autenticarCaja,
+  autenticarMovil,
+  esperarMultitienda,
+  exigirVinculo,
+  nombreEscolares,
+  RequestCaja,
+  RequestMovil,
+} from '../middlewares/autorizaciones.middleware';
 import { registrarSocketAutorizaciones } from '../services/autorizaciones-socket.service';
 import {
   aprobarDesdeMovil,
@@ -42,34 +50,51 @@ import {
   secundarioPorDispositivo,
   vincular,
   vinculoPorDispositivo,
-  vinculoPorEscolares,
+  VinculoAutorizaciones,
+  vinculosPorEscolares,
   vistaVinculo,
+  vistaVinculoCaja,
 } from '../services/autorizaciones-vinculos.service';
+import { ErrorTiendas, prepararMultitienda } from '../services/autorizaciones-tiendas.service';
 
 /**
  * Autorizaciones con clave de supervisor desde el celular: une las cajas de sellhub
- * (EscolaresPRO, app de escritorio en la red local de la tienda) con la app de
+ * (EscolaresPRO, app de escritorio en la red local de cada tienda) con la app de
  * supervisores ion/escolares-pro. Este backend es el punto de encuentro porque ambos lo
- * alcanzan por internet; los permisos y la validación del PIN siguen en sellhub.
+ * alcanzan por internet; los permisos y la validación del PIN siguen en el sellhub de
+ * cada tienda.
  *
- *   /api/autorizaciones/caja/...   sellhub (cabecera x-api-key)
- *   /api/autorizaciones/movil/...  la app (token de escolares + x-dispositivo-id)
+ *   /api/autorizaciones/caja/...   sellhub (cabecera x-api-key = clave de SU tienda)
+ *   /api/autorizaciones/movil/...  la app (token de escolares + x-dispositivo-id; con
+ *                                  x-tienda-id o ?tienda= elige la tienda de la operación)
  *   /api/autorizaciones/qr/...     celular nuevo que escanea el QR del principal (sin sesión)
  *   socket.io namespace /autorizaciones   tiempo real para la app
+ *
+ * Multitienda: ver autorizaciones-tiendas.service.ts. Las tiendas se administran en
+ * Gestión Multienda (/api/multitienda).
  */
 const router = Router();
+router.use(esperarMultitienda);
 
 // ---------------------------------------------------------------- caja (sellhub)
 
 const caja = Router();
 caja.use(autenticarCaja);
 
-caja.get('/codigos/:codigo', (req, res) => {
-  res.json(consultarCodigo(req.params.codigo));
+const tiendaDe = (req: Request) => (req as RequestCaja).tienda!._id;
+
+/** De qué tienda es esta clave (sellhub lo muestra y lo usa para probar una clave antes de guardarla). */
+caja.get('/tienda', (req, res) => {
+  const t = (req as RequestCaja).tienda!;
+  res.json({ id: t._id, nombre: t.nombre, rif: t.rif, catalogoWeb: t.catalogoWeb });
 });
 
-caja.get('/vinculos', async (_req, res) => {
-  res.json(await listarVinculos());
+caja.get('/codigos/:codigo', (req, res) => {
+  res.json(consultarCodigo(String(req.params.codigo)));
+});
+
+caja.get('/vinculos', async (req, res) => {
+  res.json(await listarVinculos(tiendaDe(req)));
 });
 
 caja.post('/vinculos', async (req, res) => {
@@ -78,93 +103,116 @@ caja.post('/vinculos', async (req, res) => {
     res.status(400).json({ message: 'Faltan el código o el usuario' });
     return;
   }
-  const { pushTokens: _tokens, ...vinculo } = await vincular(codigo, String(usuarioId), usuarioNombre.trim().slice(0, 150));
-  res.status(201).json(vinculo);
+  const vinculo = await vincular(codigo, tiendaDe(req), String(usuarioId), usuarioNombre.trim().slice(0, 150));
+  res.status(201).json(vistaVinculoCaja(vinculo));
 });
 
 caja.delete('/vinculos/:usuarioId', async (req, res) => {
-  await desvincular(req.params.usuarioId);
+  await desvincular(tiendaDe(req), String(req.params.usuarioId));
   res.status(204).end();
 });
 
 caja.post('/solicitudes', async (req, res) => {
-  res.status(201).json(await crearSolicitud(req.body ?? {}));
+  res.status(201).json(await crearSolicitud(tiendaDe(req), req.body ?? {}));
 });
 
 caja.get('/solicitudes/:id', (req, res) => {
-  res.json(consultarDesdeCaja(req.params.id));
+  res.json(consultarDesdeCaja(tiendaDe(req), String(req.params.id)));
 });
 
 caja.post('/solicitudes/:id/resultado', (req, res) => {
   const { ok, supervisor, mensaje } = req.body ?? {};
-  res.json(registrarResultado(req.params.id, ok === true, supervisor ?? null, mensaje ?? null));
+  res.json(registrarResultado(tiendaDe(req), String(req.params.id), ok === true, supervisor ?? null, mensaje ?? null));
 });
 
 caja.delete('/solicitudes/:id', (req, res) => {
-  cancelarDesdeCaja(req.params.id);
+  cancelarDesdeCaja(tiendaDe(req), String(req.params.id));
   res.status(204).end();
 });
 
 /** Autorización hecha con el PIN en la propia caja (para el historial). */
 caja.post('/historial', async (req, res) => {
-  await registrarAutorizacionEnCaja(req.body ?? {});
+  await registrarAutorizacionEnCaja(tiendaDe(req), req.body ?? {});
   res.status(204).end();
 });
 
 /** Notificaciones de lo que pasa en el programa (inicios de sesión, "Solicitar supervisor"...). */
 caja.post('/eventos', async (req, res) => {
-  res.status(201).json(await crearEvento(req.body ?? {}));
+  res.status(201).json(await crearEvento(tiendaDe(req), req.body ?? {}));
 });
 
-/** Resumen del día para la pestaña "Resumen" de la app; va con la lista de admins de sellhub. */
+/** Resumen del día para la pestaña "Resumen" de la app; va con la lista de admins de ese sellhub. */
 caja.post('/panel', async (req, res) => {
-  await guardarPanel(req.body ?? {});
+  await guardarPanel(tiendaDe(req), req.body ?? {});
   res.status(204).end();
 });
 
 /** Consultas de los admins (precio y existencia, mensajes): la PC que pregunta se las lleva. */
 caja.get('/consultas', (req, res) => {
-  res.json(tomarConsultas(req.query.tipos, req.query.equipo));
+  res.json(tomarConsultas(tiendaDe(req), req.query.tipos, req.query.equipo));
 });
 
 caja.post('/consultas/:id/respuesta', (req, res) => {
-  responderConsulta(String(req.params.id), req.body ?? {});
+  responderConsulta(tiendaDe(req), String(req.params.id), req.body ?? {});
   res.status(204).end();
 });
 
 // ---------------------------------------------------------------- celular
 
-/** Además del vínculo, que sea un usuario de sellhub con rol admin. */
+/** Las tiendas de la cuenta, con si es root en cada una. */
+async function tiendasDe(vinculos: VinculoAutorizaciones[]) {
+  return Promise.all(vinculos.map(async (v) => ({ ...vistaVinculo(v), esAdmin: await esAdministrador(v) })));
+}
+
+const pidioTienda = (req: Request) => !!(req.header('x-tienda-id') || req.query.tienda);
+
+/**
+ * Además del vínculo, que sea root en la tienda de la operación. Si la app no dijo tienda
+ * (versión vieja), se usa la primera donde sea root.
+ */
 async function exigirAdmin(req: RequestMovil, res: Response, next: NextFunction): Promise<void> {
-  if (!(await esAdministrador(req.vinculo!._id))) {
+  let elegido: VinculoAutorizaciones | null = null;
+  if (pidioTienda(req)) {
+    elegido = (await esAdministrador(req.vinculo!)) ? req.vinculo! : null;
+  } else {
+    for (const v of req.vinculos!) {
+      if (await esAdministrador(v)) {
+        elegido = v;
+        break;
+      }
+    }
+  }
+  if (!elegido) {
     res.status(403).json({ message: 'Solo los usuarios root pueden usar esta función', codigo: 'no_admin' });
     return;
   }
+  req.vinculo = elegido;
   next();
 }
 
 const movil = Router();
 movil.use(autenticarMovil);
 
-/** Estado del vínculo de esta cuenta en este celular. */
+/** Estado de esta cuenta en este celular, con sus tiendas. */
 movil.get('/estado', async (req: RequestMovil, res) => {
-  const vinculo = await vinculoPorEscolares(req.usuario!.userId);
-  if (vinculo && vinculo.dispositivoId === req.dispositivoId) {
-    res.json({ estado: 'vinculado', vinculo: vistaVinculo(vinculo), principal: true, esAdmin: await esAdministrador(vinculo._id) });
-    return;
-  }
-  const secundario = vinculo ? await secundarioPorDispositivo(req.dispositivoId!) : null;
-  if (vinculo && secundario?.sellhubUsuarioId === vinculo._id) {
-    res.json({
-      estado: 'vinculado',
-      vinculo: { ...vistaVinculo(vinculo), dispositivoNombre: secundario.dispositivoNombre, vinculadoEn: secundario.vinculadoEn },
-      principal: false,
-      esAdmin: await esAdministrador(vinculo._id),
-    });
-    return;
-  }
-  if (vinculo) {
-    res.json({ estado: 'otro_dispositivo', dispositivoNombre: vinculo.dispositivoNombre });
+  const vinculos = await vinculosPorEscolares(req.usuario!.userId);
+  if (vinculos.length > 0) {
+    const principal = vinculos[0].dispositivoId === req.dispositivoId;
+    const secundario = principal ? null : await secundarioPorDispositivo(req.dispositivoId!);
+    if (principal || secundario?.escolaresUserId === req.usuario!.userId) {
+      const tiendas = await tiendasDe(vinculos);
+      const primera = vistaVinculo(vinculos[0]);
+      res.json({
+        estado: 'vinculado',
+        // `vinculo` y `esAdmin`: lo que entienden las versiones de la app de antes de multitienda.
+        vinculo: secundario ? { ...primera, dispositivoNombre: secundario.dispositivoNombre, vinculadoEn: secundario.vinculadoEn } : primera,
+        principal,
+        esAdmin: tiendas.some((t) => t.esAdmin),
+        tiendas,
+      });
+      return;
+    }
+    res.json({ estado: 'otro_dispositivo', dispositivoNombre: vinculos[0].dispositivoNombre });
     return;
   }
   const vinculoDelCelular = await vinculoPorDispositivo(req.dispositivoId!);
@@ -175,6 +223,7 @@ movil.get('/estado', async (req: RequestMovil, res) => {
   res.json({ estado: 'sin_vincular' });
 });
 
+/** Código para vincular esta cuenta en una tienda (la primera o una más, desde el celular principal). */
 movil.post('/codigo', async (req: RequestMovil, res) => {
   const nombre = typeof req.body?.dispositivoNombre === 'string' ? req.body.dispositivoNombre.trim().slice(0, 80) : '';
   res.status(201).json(
@@ -196,28 +245,30 @@ movil.post('/push-token', exigirVinculo, async (req: RequestMovil, res) => {
   // nativo: la APK dibuja ella misma la notificación de solicitud (botones Aprobar/Rechazar).
   const nativo = req.body?.nativo === true;
   if (req.secundario) await guardarPushTokenSecundario(req.secundario, token, nativo);
-  else await guardarPushToken(req.vinculo!, token, nativo);
+  else await guardarPushToken(req.usuario!.userId, token, nativo);
   res.status(204).end();
 });
 
-/** Al cerrar sesión en el principal: deja de recibir push, pero el vínculo se mantiene. */
+/** Al cerrar sesión en el principal: deja de recibir push, pero los vínculos se mantienen. */
 movil.delete('/push-token', exigirVinculo, async (req: RequestMovil, res) => {
   if (req.secundario) await borrarPushTokensSecundario(req.secundario);
-  else await borrarPushTokens(req.vinculo!);
+  else await borrarPushTokens(req.usuario!.userId);
   res.status(204).end();
 });
 
-/** Pantalla Perfil: datos de la cuenta, del vínculo y los dispositivos vinculados. */
+/** Pantalla Perfil: datos de la cuenta, sus tiendas y los dispositivos vinculados. */
 movil.get('/perfil', exigirVinculo, async (req: RequestMovil, res) => {
   const u = req.usuario!;
   const v = req.vinculo!;
+  const tiendas = await tiendasDe(req.vinculos!);
   res.json({
     nombre: nombreEscolares(u),
     usuario: u.username ?? null,
     email: u.email ?? null,
     sellhubNombre: v.sellhubNombre,
-    esAdmin: await esAdministrador(v._id),
+    esAdmin: tiendas.some((t) => t.esAdmin),
     principal: !req.secundario,
+    tiendas,
     dispositivos: await listarDispositivos(v, req.dispositivoId!),
   });
 });
@@ -228,13 +279,13 @@ movil.get('/dispositivos', exigirVinculo, async (req: RequestMovil, res) => {
 
 /** Cerrar sesión en un secundario: se desvincula (para volver hay que escanear otro QR). */
 movil.delete('/dispositivos/este', exigirVinculo, async (req: RequestMovil, res) => {
-  if (req.secundario) await retirarDispositivo(req.vinculo!, req.dispositivoId!, req.secundario.id);
+  if (req.secundario) await retirarDispositivo(req.vinculo!, req.dispositivoId!, req.secundario.id, req.usuarios!);
   res.status(204).end();
 });
 
 /** Un secundario solo puede retirarse a sí mismo; el principal, a cualquiera. */
 movil.delete('/dispositivos/:id', exigirVinculo, async (req: RequestMovil, res) => {
-  await retirarDispositivo(req.vinculo!, req.dispositivoId!, String(req.params.id));
+  await retirarDispositivo(req.vinculo!, req.dispositivoId!, String(req.params.id), req.usuarios!);
   res.status(204).end();
 });
 
@@ -251,37 +302,38 @@ movil.post('/dispositivos/qr/:token/responder', exigirVinculo, async (req: Reque
   res.json(await responderQr(req.vinculo!, req.dispositivoId!, String(req.params.token), req.body?.aceptar === true, req));
 });
 
-/** Solo usuarios de sellhub con rol admin (403 para los demás). */
-movil.get('/panel', exigirVinculo, async (req: RequestMovil, res) => {
-  res.json(await panelPara(req.vinculo!._id));
+/** Resumen de una tienda: solo root en esa tienda (403 para los demás). */
+movil.get('/panel', exigirVinculo, exigirAdmin, async (req: RequestMovil, res) => {
+  res.json(await panelPara(req.vinculo!));
 });
 
-/** Precio y existencia de un producto o mensaje a una sesión abierta: lo contesta una PC de la tienda. */
+/** Precio y existencia de un producto o mensaje a una sesión abierta: lo contesta una PC de esa tienda. */
 movil.post('/consultas', exigirVinculo, exigirAdmin, (req: RequestMovil, res) => {
   const v = req.vinculo!;
-  res.status(201).json(crearConsulta(v._id, v.sellhubNombre, req.body ?? {}));
+  res.status(201).json({ ...crearConsulta(v.tiendaId, v._id, v.sellhubNombre, req.body ?? {}), tiendaId: v.tiendaId });
 });
 
 /** Qué PCs de la tienda están atendiendo consultas ahora (indicador de la pestaña Consultar). */
-movil.get('/tienda', exigirVinculo, exigirAdmin, (_req, res) => {
-  res.json(estadoTienda());
+movil.get('/tienda', exigirVinculo, exigirAdmin, (req: RequestMovil, res) => {
+  res.json({ ...estadoTienda(req.vinculo!.tiendaId), tiendaId: req.vinculo!.tiendaId });
 });
 
 movil.get('/consultas/:id', exigirVinculo, (req: RequestMovil, res) => {
-  res.json(consultaPara(req.vinculo!._id, String(req.params.id)));
+  res.json(consultaPara(req.usuarios!, String(req.params.id)));
 });
 
+/** Las solicitudes en curso de todas las tiendas de la cuenta. */
 movil.get('/solicitudes', exigirVinculo, (req: RequestMovil, res) => {
-  res.json(listarParaMovil(req.vinculo!._id));
+  res.json(listarParaMovil(req.usuarios!));
 });
 
-/** Filtros: desde, hasta (ISO), estado y accion (separados por coma), origen, q; paginación con antes + limite. */
+/** Filtros: desde, hasta (ISO), estado y accion (separados por coma), origen, q, tienda; paginación con antes + limite. */
 movil.get('/historial', exigirVinculo, async (req: RequestMovil, res) => {
-  res.json(await listarHistorial(req.vinculo!._id, req.query as Record<string, unknown>));
+  res.json(await listarHistorial(req.usuarios!, req.query as Record<string, unknown>));
 });
 
 movil.get('/historial/:id', exigirVinculo, async (req: RequestMovil, res) => {
-  const registro = await obtenerHistorial(req.vinculo!._id, String(req.params.id));
+  const registro = await obtenerHistorial(req.usuarios!, String(req.params.id));
   if (!registro) {
     res.status(404).json({ message: 'Registro no encontrado' });
     return;
@@ -289,45 +341,46 @@ movil.get('/historial/:id', exigirVinculo, async (req: RequestMovil, res) => {
   res.json(registro);
 });
 
-/** Filtros: desde, hasta (ISO), tipo (separados por coma), q; paginación con antes + limite. */
+/** Filtros: desde, hasta (ISO), tipo (separados por coma), q, tienda; paginación con antes + limite. */
 movil.get('/eventos', exigirVinculo, async (req: RequestMovil, res) => {
-  res.json(await listarEventos(req.vinculo!._id, req.query as Record<string, unknown>));
+  res.json(await listarEventos(req.usuarios!, req.usuario!.userId, req.query as Record<string, unknown>));
 });
 
-/** Limpia la lista de notificaciones: lo anterior solo se ve buscando con filtros. */
+/** Limpia la lista de notificaciones (de todas las tiendas): lo anterior solo se ve buscando con filtros. */
 movil.post('/eventos/limpiar', exigirVinculo, async (req: RequestMovil, res) => {
-  res.json(await limpiarEventos(req.vinculo!._id));
+  res.json(await limpiarEventos(req.usuario!.userId));
 });
 
 movil.get('/solicitudes/:id', exigirVinculo, (req: RequestMovil, res) => {
-  res.json(solicitudParaMovil(String(req.params.id), req.vinculo!._id));
+  res.json(solicitudParaMovil(String(req.params.id), req.usuarios!));
 });
 
-/** Widget de la pantalla de inicio: pendientes y, a los root, las ventas de hoy. */
+/** Widget de la pantalla de inicio: pendientes y, a los root, las ventas de hoy (sumadas entre sus tiendas). */
 movil.get('/widget', exigirVinculo, async (req: RequestMovil, res) => {
-  const v = req.vinculo!;
-  let ventas: { usd: number; facturas: number; actualizado: string | null } | null = null;
-  if (await esAdministrador(v._id)) {
-    const panel = (await panelPara(v._id).catch(() => null)) as { hoy?: { ventasUsd: number; facturas: number }; recibidoEn?: Date | string } | null;
-    if (panel?.hoy) {
-      ventas = {
-        usd: panel.hoy.ventasUsd,
-        facturas: panel.hoy.facturas,
-        actualizado: panel.recibidoEn ? new Date(panel.recibidoEn).toISOString() : null,
-      };
-    }
+  let hay = false;
+  let usd = 0;
+  let facturas = 0;
+  let actualizado: string | null = null;
+  for (const v of req.vinculos!) {
+    if (!(await esAdministrador(v))) continue;
+    const panel = (await panelPara(v).catch(() => null)) as { hoy?: { ventasUsd: number; facturas: number }; recibidoEn?: string } | null;
+    if (!panel?.hoy) continue;
+    hay = true;
+    usd += panel.hoy.ventasUsd;
+    facturas += panel.hoy.facturas;
+    const recibido = panel.recibidoEn ? new Date(panel.recibidoEn).toISOString() : null;
+    // El dato más viejo: "actualizado" no debe aparentar más frescura de la que hay.
+    if (recibido && (!actualizado || recibido < actualizado)) actualizado = recibido;
   }
-  res.json({ ...pendientesParaWidget(v._id), ventas });
+  res.json({ ...pendientesParaWidget(req.usuarios!), ventas: hay ? { usd, facturas, actualizado } : null });
 });
 
 movil.post('/solicitudes/:id/aprobar', exigirVinculo, (req: RequestMovil, res) => {
-  const v = req.vinculo!;
-  res.json(aprobarDesdeMovil(String(req.params.id), req.body?.pinCifrado, v._id, v.sellhubNombre));
+  res.json(aprobarDesdeMovil(String(req.params.id), req.body?.pinCifrado, req.vinculos!));
 });
 
 movil.post('/solicitudes/:id/rechazar', exigirVinculo, (req: RequestMovil, res) => {
-  const v = req.vinculo!;
-  res.json(rechazarDesdeMovil(String(req.params.id), v._id, v.sellhubNombre));
+  res.json(rechazarDesdeMovil(String(req.params.id), req.vinculos!));
 });
 
 // ---------------------------------------------------------------- celular nuevo (QR)
@@ -358,22 +411,24 @@ router.use('/movil', movil);
 router.use('/qr', qr);
 
 router.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
-  if (err instanceof ErrorAutorizaciones) {
+  if (err instanceof ErrorAutorizaciones || err instanceof ErrorTiendas) {
     res.status(err.status).json({ message: err.message });
     return;
   }
   next(err);
 });
 
-/** Socket.io (namespace /autorizaciones) y la limpieza de solicitudes vencidas. */
+/** Socket.io (namespace /autorizaciones), la migración a multitienda y las tareas periódicas. */
 export function registrarAutorizaciones(io: Server): void {
   registrarSocketAutorizaciones(io, async (escolaresUserId, dispositivoId) => {
-    const vinculo = await vinculoPorEscolares(escolaresUserId);
-    if (!vinculo) return null;
-    if (vinculo.dispositivoId === dispositivoId) return vinculo._id;
+    await prepararMultitienda();
+    const vinculos = await vinculosPorEscolares(escolaresUserId);
+    if (vinculos.length === 0) return [];
+    if (vinculos[0].dispositivoId === dispositivoId) return vinculos.map((v) => v._id);
     const secundario = await secundarioPorDispositivo(dispositivoId);
-    return secundario?.sellhubUsuarioId === vinculo._id ? vinculo._id : null;
+    return secundario?.escolaresUserId === escolaresUserId ? vinculos.map((v) => v._id) : [];
   });
+  prepararMultitienda().catch((error) => console.error('Autorizaciones: no se pudo preparar multitienda:', error));
   iniciarLimpieza();
   iniciarCierreDelDia();
 }
