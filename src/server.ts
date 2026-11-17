@@ -51,6 +51,7 @@ import { registrarSocketWhatsApp } from './services/whatsapp-inbox.service';
 import autorizacionesRoutes, { registrarAutorizaciones } from './routes/autorizaciones.routes';
 import catalogoWebRoutes from './routes/catalogo-web.routes';
 import multitiendaRoutes from './routes/multitienda.routes';
+import aegisRoutes from './routes/aegis.routes';
 
 const app: Express = express();
 const PORT = process.env.PORT || 3000;
@@ -231,7 +232,7 @@ const withCache = (ttl: number = CACHE_TTL) => {
     // '/api/autorizaciones': las cajas sondean el estado de cada solicitud cada 1.5 s.
     // '/api/multitienda': solo root (Gestión Multienda). Este caché corre ANTES de la autenticación
     // de la ruta: cacheado, una petición sin sesión recibía la lista de tiendas guardada.
-    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones') || path.startsWith('/api/multitienda') || path.startsWith('/api/catalogo-web/caja')) return next();
+    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones') || path.startsWith('/api/multitienda') || path.startsWith('/api/aegis') || path.startsWith('/api/catalogo-web/caja')) return next();
 
     const cacheKey = `req:${req.originalUrl}`;
     const cached = await cacheGet(cacheKey);
@@ -2031,6 +2032,8 @@ app.use('/api/autorizaciones', autorizacionesRoutes);
 app.use('/api/catalogo-web', catalogoWebRoutes);
 // Gestión Multienda (app de escritorio): tiendas, claves y celulares vinculados. Solo root.
 app.use('/api/multitienda', multitiendaRoutes);
+// Aegis (versión comercial de sellhub): licencias revocables y reportes de errores.
+app.use('/api/aegis', aegisRoutes);
 
 // Ruta /api/users para compatibilidad con frontend (redirige a /api/auth/users)
 app.get('/api/users', authenticateToken, async (req: Request, res: ExpressResponse) => {
