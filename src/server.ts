@@ -50,6 +50,7 @@ import whatsappRoutes from './routes/whatsapp.routes';
 import { registrarSocketWhatsApp } from './services/whatsapp-inbox.service';
 import autorizacionesRoutes, { registrarAutorizaciones } from './routes/autorizaciones.routes';
 import catalogoWebRoutes from './routes/catalogo-web.routes';
+import pagoQrRoutes from './routes/pago-qr.routes';
 import multitiendaRoutes from './routes/multitienda.routes';
 import aegisRoutes from './routes/aegis.routes';
 
@@ -232,7 +233,7 @@ const withCache = (ttl: number = CACHE_TTL) => {
     // '/api/autorizaciones': las cajas sondean el estado de cada solicitud cada 1.5 s.
     // '/api/multitienda': solo root (Gestión Multienda). Este caché corre ANTES de la autenticación
     // de la ruta: cacheado, una petición sin sesión recibía la lista de tiendas guardada.
-    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones') || path.startsWith('/api/multitienda') || path.startsWith('/api/aegis') || path.startsWith('/api/catalogo-web/caja')) return next();
+    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones') || path.startsWith('/api/multitienda') || path.startsWith('/api/aegis') || path.startsWith('/api/catalogo-web/caja') || path.startsWith('/api/pago-qr')) return next();
 
     const cacheKey = `req:${req.originalUrl}`;
     const cached = await cacheGet(cacheKey);
@@ -2030,6 +2031,7 @@ app.use('/api/creditos', creditosRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/autorizaciones', autorizacionesRoutes);
 app.use('/api/catalogo-web', catalogoWebRoutes);
+app.use('/api/pago-qr', pagoQrRoutes);
 // Gestión Multienda (app de escritorio): tiendas, claves y celulares vinculados. Solo root.
 app.use('/api/multitienda', multitiendaRoutes);
 // Aegis (versión comercial de sellhub): licencias revocables y reportes de errores.
@@ -4646,6 +4648,33 @@ app.delete('/api/empresas/:id', async (req: Request, res: ExpressResponse) => {
 });
 
 // Abonos Polar
+
+/**
+ * Entrada del historial de status de una relación (misma forma que escribe sellhub en
+ * services/abonos.ts). Registra cada cambio de status y cada nueva fecha estando en
+ * 'Reprogramado'; devuelve null si no cambió nada de eso.
+ */
+function entradaHistorialAbono(
+  anterior: { status?: string; fechaReprogramada?: Date | null } | null,
+  nuevo: { status: string; fechaReprogramada: Date | null },
+  usuario: string
+) {
+  const REPROGRAMADO = 'Reprogramado';
+  const tiempo = (v: Date | string | null | undefined) => (v ? new Date(v).getTime() : null);
+  const de = anterior?.status || '';
+  const a = nuevo.status || '';
+  const cambioStatus = de !== a;
+  const reprogramada = !!anterior && !cambioStatus && a === REPROGRAMADO && tiempo(anterior.fechaReprogramada) !== tiempo(nuevo.fechaReprogramada);
+  if (!cambioStatus && !reprogramada) return null;
+  const fechaReprogramada = a === REPROGRAMADO ? nuevo.fechaReprogramada : de === REPROGRAMADO ? anterior?.fechaReprogramada ?? null : null;
+  return { de, a, fecha: new Date(), usuario: usuario || 'Sistema', origen: 'web' as const, fechaReprogramada };
+}
+
+function usuarioDeRequest(req: Request): string {
+  const u = (req as any).user;
+  return u?.nombre || u?.username || u?.email || 'Sistema';
+}
+
 app.get('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
   try {
     const collection = (database as any).getCollection('abonos-polar');
@@ -4702,7 +4731,10 @@ app.post('/api/abonos-polar', async (req: Request, res: ExpressResponse) => {
       productosPendientes: Array.isArray(productosPendientes) ? productosPendientes : [],
       // Momento en que la relación pasó a 'Pagado' (filtro "Pagado en").
       pagadoEn: status === 'Pagado' ? new Date() : null,
+      historialStatus: [] as any[],
     };
+    const entradaInicial = entradaHistorialAbono(null, { status: abono.status, fechaReprogramada: abono.fechaReprogramada }, usuarioDeRequest(req));
+    if (entradaInicial) abono.historialStatus.push(entradaInicial);
     const collection = (database as any).getCollection('abonos-polar');
     const result = await collection.insertOne(abono);
 
@@ -4744,13 +4776,27 @@ app.put('/api/abonos-polar/:id', authenticateToken, async (req: Request, res: Ex
 
     const abonoAnterior = await collection.findOne({ _id: new ObjectId(id) });
     if (abonoAnterior && (abonoAnterior.status || '') !== (status || '')) {
-      updateData.statusModificadoPor = (req as any).user?.nombre || (req as any).user?.username || (req as any).user?.email || 'Sistema';
+      updateData.statusModificadoPor = usuarioDeRequest(req);
       updateData.statusModificadoEn = new Date();
       // Momento en que la relación pasó a 'Pagado' (filtro "Pagado en"); se limpia si deja de estarlo.
       updateData.pagadoEn = status === 'Pagado' ? updateData.statusModificadoEn : null;
     }
+    const entradaHistorial = abonoAnterior
+      ? entradaHistorialAbono(
+          abonoAnterior,
+          {
+            status: status || '',
+            // Si el cliente no envía la fecha, se conserva la guardada.
+            fechaReprogramada: 'fechaReprogramada' in updateData ? updateData.fechaReprogramada : abonoAnterior.fechaReprogramada ?? null,
+          },
+          usuarioDeRequest(req)
+        )
+      : null;
 
-    await collection.updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+    await collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData, ...(entradaHistorial && { $push: { historialStatus: entradaHistorial } }) }
+    );
 
     if (supervisor) {
       await collection.updateMany(
