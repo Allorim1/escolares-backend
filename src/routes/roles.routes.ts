@@ -45,26 +45,15 @@ const DEFAULT_PERMISOS: { id: string; nombre: string; descripcion: string; modul
    { id: 'pedidos_ver', nombre: 'Ver Pedidos', descripcion: 'Puede ver los pedidos', modulo: 'panel_admin' },
    
    // Panel Admin - Costos y Tasas
-   { id: 'tasas_gestionar', nombre: 'Gestionar Tasas', descripcion: 'Puede gestionar costos y tasas', modulo: 'panel_admin' },
-   { id: 'tasas_ver', nombre: 'Ver Tasas', descripcion: 'Puede ver histórico de costos', modulo: 'panel_admin' },
    
 // Panel Admin - Registro/Facturación
     { id: 'facturas_registrar', nombre: 'Registrar Facturas', descripcion: 'Puede registrar facturas', modulo: 'panel_admin' },
-    { id: 'facturas_gestionar', nombre: 'Gestionar Facturas', descripcion: 'Puede gestionar facturación', modulo: 'panel_admin' },
     { id: 'cotizaciones_gestionar', nombre: 'Gestionar Cotizaciones', descripcion: 'Puede gestionar cotizaciones Alcadía', modulo: 'panel_admin' },
    
    // Panel Admin - Otros
-   { id: 'gastos_gestionar', nombre: 'Gestionar Gastos', descripcion: 'Puede gestionar gastos', modulo: 'panel_admin' },
-   { id: 'nomina_ver', nombre: 'Ver Nómina', descripcion: 'Puede ver nómina', modulo: 'panel_admin' },
-   { id: 'documentos_ver', nombre: 'Ver Galería de Documentos', descripcion: 'Puede ver documentos', modulo: 'panel_admin' },
-   { id: 'conversion_gestionar', nombre: 'Gestionar Conversión', descripcion: 'Puede gestionar conversión', modulo: 'panel_admin' },
    { id: 'chat_ver', nombre: 'Ver Chat', descripcion: 'Puede acceder al chat', modulo: 'panel_admin' },
-   { id: 'caja_ver', nombre: 'Ver Cierre de Caja', descripcion: 'Puede ver cierre de caja', modulo: 'panel_admin' },
    
    // Cuentas por Pagar
-   { id: 'ver_proveedores', nombre: 'Ver Proveedores', descripcion: 'Puede ver proveedores', modulo: 'cuentas_por_pagar' },
-   { id: 'ver_retenciones', nombre: 'Ver Retenciones', descripcion: 'Puede ver retenciones', modulo: 'cuentas_por_pagar' },
-   { id: 'ver_libro_compras', nombre: 'Ver Libro de Compras', descripcion: 'Puede ver libro de compras', modulo: 'cuentas_por_pagar' },
    
    // Panel Web - Inicio
    { id: 'inicio_gestionar', nombre: 'Gestionar Inicio', descripcion: 'Puede gestionar página de inicio', modulo: 'panel_web' },

@@ -25,7 +25,7 @@ import fs from 'fs';
 import nodemailer from 'nodemailer';
 
 // Misma configuración SMTP que auth.controller.ts (transporter aparte, siguiendo la
-// convención ya usada ahí y en cierre-caja.routes.ts: cada archivo arma el suyo).
+// convención ya usada ahí: cada archivo arma el suyo).
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: parseInt(process.env.SMTP_PORT || '587'),
