@@ -61,7 +61,7 @@ interface SolicitudPagoQr {
 }
 
 const COLECCION = 'pagos_qr';
-const VIGENCIA_MS = 15 * 60_000;
+const VIGENCIA_MS = 10 * 60_000;
 const CONSERVAR_MS = 60 * 60_000;
 const MAX_INTENTOS = 5;
 
