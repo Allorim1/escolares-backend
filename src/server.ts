@@ -209,10 +209,14 @@ const cacheDelete = async (key: string): Promise<void> => {
 const cacheDeletePattern = async (pattern: string): Promise<void> => {
   if (!redis) return;
   try {
-    const keys = await redis.keys(pattern);
-    if (keys.length > 0) {
-      await redis.del(...keys);
-    }
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+      cursor = nextCursor;
+      if (keys.length > 0) {
+        await redis.del(...keys);
+      }
+    } while (cursor !== '0');
   } catch (e) {}
 };
 
@@ -221,17 +225,23 @@ const withCache = (ttl: number = CACHE_TTL) => {
     if (req.method !== 'GET') return next();
     
     const path = req.path;
-    // '/creditos': datos personales y en tiempo real (compras, cuotas, estado de pago).
-    // La cache key es la URL tal cual, sin distinguir usuario, así que cachear
-    // '/api/creditos/solicitudes' servía la lista de LA PRIMERA persona que la pidiera a
-    // cualquier otra que la pidiera después (mismo path, distinto usuario autenticado). Y
-    // '/api/creditos/admin/solicitudes/:id', al no invalidarse nunca, dejaba el polling del
-    // panel viendo el mismo estado viejo durante los 5 minutos de TTL.
-    // '/whatsapp': conversaciones en tiempo real, nunca se cachean.
-    // '/api/autorizaciones': las cajas sondean el estado de cada solicitud cada 1.5 s.
-    // '/api/multitienda': solo root (Gestión Multienda). Este caché corre ANTES de la autenticación
-    // de la ruta: cacheado, una petición sin sesión recibía la lista de tiendas guardada.
-    if (path.includes('/users') || path.includes('/profile') || path.includes('/creditos') || path.includes('/whatsapp') || path.startsWith('/api/autorizaciones') || path.startsWith('/api/multitienda') || path.startsWith('/api/aegis') || path.startsWith('/api/catalogo-web/caja') || path.startsWith('/api/pago-qr')) return next();
+    // Opt-in conservador: no cachear peticiones autenticadas ni rutas sensibles/en tiempo real.
+    // Para cachear datos específicos por usuario habría que incluir identidad en la key.
+    const hasAuth = Boolean(req.headers.authorization || req.cookies?.accessToken);
+    if (hasAuth) return next();
+    if (
+      path.includes('/users') ||
+      path.includes('/profile') ||
+      path.includes('/creditos') ||
+      path.includes('/whatsapp') ||
+      path.startsWith('/api/auth') ||
+      path.startsWith('/api/orders') ||
+      path.startsWith('/api/autorizaciones') ||
+      path.startsWith('/api/multitienda') ||
+      path.startsWith('/api/aegis') ||
+      path.startsWith('/api/catalogo-web/caja') ||
+      path.startsWith('/api/pago-qr')
+    ) return next();
 
     const cacheKey = `req:${req.originalUrl}`;
     const cached = await cacheGet(cacheKey);
@@ -271,9 +281,20 @@ const invalidateCache = async (req: Request, res: ExpressResponse, next: () => v
   next();
 };
 
+const allowedOrigins = [
+  ...(process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+    : ['http://localhost:4200', 'http://localhost:3000', 'https://test.escolaresonline.com', 'https://escolaresonline.com']),
+  ...ORIGENES_APPS_MOVILES,
+];
+
 const corsOptions = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    callback(null, true);
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -286,10 +307,14 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+    }
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-dolarvzla-key,x-dispositivo-id,x-tienda-id,Origin,Accept,X-Requested-With');
-    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Vary', 'Origin');
     return res.status(204).end();
   }
   next();

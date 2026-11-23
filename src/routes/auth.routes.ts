@@ -1,9 +1,10 @@
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authController } from '../controllers/auth.controller';
-import { authenticateToken } from '../middlewares/auth.middleware';
+import { authenticateToken, requireRoot } from '../middlewares/auth.middleware';
 import { trackSession } from '../middlewares/session.middleware';
 import { verifyTurnstile } from '../middlewares/turnstile.middleware';
+import { validateBody } from '../middlewares/validate.middleware';
 import { database } from '../config/database';
 
 const router = Router();
@@ -83,9 +84,9 @@ const crearRegistro = async (accion: string, modulo: string, descripcion: string
  *             schema:
  *               $ref: '#/components/schemas/User'
  */
-router.post('/register', authLimiter, verifyTurnstile, (req: Request, res: Response) => authController.register(req, res));
+router.post('/register', authLimiter, verifyTurnstile, validateBody({ username:{required:true,type:'string',minLength:2,maxLength:80}, email:{required:true,type:'string',pattern:/^[^\s@]+@[^\s@]+\.[^\s@]+$/}, password:{required:true,type:'string',minLength:6,maxLength:128}, rif:{required:true,type:'string',minLength:3,maxLength:40}, telefono:{required:true,type:'string',minLength:7,maxLength:30}, direccion:{required:true,type:'string',minLength:3,maxLength:300}, tipoPersona:{type:'string',enum:['natural','juridica']}, turnstileToken:{type:'string'} }), (req: Request, res: Response) => authController.register(req, res));
 
-router.post('/register-simple', authenticateToken, (req: Request, res: Response) => authController.registerSimple(req, res));
+router.post('/register-simple', authenticateToken, requireRoot, trackSession, validateBody({ username:{required:true,type:'string',minLength:2,maxLength:80}, email:{required:true,type:'string',pattern:/^[^\s@]+@[^\s@]+\.[^\s@]+$/}, password:{required:true,type:'string',minLength:6,maxLength:128}, nombreCompleto:{type:'string',maxLength:120}, apellido:{type:'string',maxLength:120}, telefono:{type:'string',maxLength:30}, direccion:{type:'string',maxLength:300}, comentarios:{type:'string',maxLength:1000}, rol:{type:'string',enum:['usuario','repartidor','root','admin']}, rolId:{type:'string',maxLength:120} }), (req: Request, res: Response) => authController.registerSimple(req, res));
 
 /**
  * @swagger
@@ -117,7 +118,7 @@ router.post('/register-simple', authenticateToken, (req: Request, res: Response)
  *       401:
  *         description: Credenciales inválidas
  */
-router.post('/login', authLimiter, verifyTurnstile, (req: Request, res: Response) => authController.login(req, res));
+router.post('/login', authLimiter, verifyTurnstile, validateBody({ email:{type:'string',maxLength:120}, username:{type:'string',maxLength:120}, password:{required:true,type:'string',minLength:1,maxLength:128}, turnstileToken:{type:'string'}, customCheck:{custom:(_v: unknown,b: any)=> (b.email||b.username)?null:'email o username es requerido'} }), (req: Request, res: Response) => authController.login(req, res));
 
 // Login para apps nativas (p. ej. ion/escolares-pro): Turnstile es un captcha web
 // y no se puede resolver desde una app, así que aquí se compensa con límites más
@@ -139,7 +140,7 @@ const appLoginIpLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-router.post('/login-app', appLoginIpLimiter, appLoginCuentaLimiter, (req: Request, res: Response) => authController.login(req, res));
+router.post('/login-app', appLoginIpLimiter, appLoginCuentaLimiter, validateBody({ email:{type:'string',maxLength:120}, username:{type:'string',maxLength:120}, password:{required:true,type:'string',minLength:1,maxLength:128}, customCheck:{custom:(_v: unknown,b: any)=> (b.email||b.username)?null:'email o username es requerido'} }), (req: Request, res: Response) => authController.login(req, res));
 
 /**
  * @swagger
@@ -177,142 +178,81 @@ router.post('/refresh', (req: Request, res: Response) => authController.refreshT
  *       200:
  *         description: Lista de usuarios
  */
-router.get('/users', authenticateToken, trackSession, async (req: Request, res: Response) => {
-   try {
-     await authController.getAll(req, res);
-   } catch (error) {
-     res.status(500).json({ error: 'Error al obtener usuarios' });
-   }
- });
+router.get('/users', authenticateToken, requireRoot, trackSession, async (req: Request, res: Response) => {
+  try {
+    await authController.getAll(req, res);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
 
- router.get('/profile', authenticateToken, trackSession, (req: Request, res: Response) =>
-   authController.getProfile(req, res),
- );
+router.get('/profile', authenticateToken, trackSession, (req: Request, res: Response) =>
+  authController.getProfile(req, res),
+);
 
- router.put('/profile', authenticateToken, trackSession, (req: Request, res: Response) =>
-   authController.update(req, res),
- );
-
- router.put('/users/rol', authenticateToken, trackSession, (req: Request, res: Response) =>
-   authController.updateRol(req, res),
- );
-
- router.put('/users/update-email', authenticateToken, trackSession, (req: Request, res: Response) =>
-   authController.updateEmail(req, res),
- );
-
- router.put('/users/update-password', authenticateToken, trackSession, (req: Request, res: Response) =>
-   authController.updatePassword(req, res),
- );
-
- router.put('/users/:id', authenticateToken, trackSession, (req: Request, res: Response) =>
-   authController.updateUserById(req, res),
- );
-
- router.delete('/users/:id', authenticateToken, trackSession, (req: Request, res: Response) =>
-    authController.deleteUser(req, res),
-  );
-
-  router.put('/users/:id/password', authenticateToken, trackSession, (req: Request, res: Response) =>
-    authController.updateUserPassword(req, res),
-  );
-
-/**
- * @swagger
- * /api/auth/profile:
- *   put:
- *     summary: Actualizar perfil del usuario
- *     tags: [Auth]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               username:
- *                 type: string
- *               email:
- *                 type: string
- *               nombreCompleto:
- *                 type: string
- *               direccion:
- *                 type: string
- *               telefono:
- *                 type: string
- *               cedula:
- *                 type: string
- *               supervisorKey:
- *                 type: string
- *     responses:
- *       200:
- *         description: Perfil actualizado
- */
-router.put('/profile', authenticateToken, (req: Request, res: Response) =>
+router.put('/profile', authenticateToken, trackSession, (req: Request, res: Response) =>
   authController.update(req, res),
 );
 
-router.put('/users/rol', authenticateToken, (req: Request, res: Response) =>
+router.put('/users/rol', authenticateToken, requireRoot, trackSession, validateBody({ targetUserId:{required:true,type:'string',minLength:1}, rol:{type:'string',enum:['usuario','repartidor','root','admin']}, rolId:{type:'string',maxLength:120}, customCheck:{custom:(_v: unknown,b: any)=> (b.rol||b.rolId)?null:'rol o rolId es requerido'} }), (req: Request, res: Response) =>
   authController.updateRol(req, res),
 );
 
-router.put('/users/update-email', authenticateToken, (req: Request, res: Response) =>
+router.put('/users/update-email', authenticateToken, trackSession, validateBody({ email:{required:true,type:'string',pattern:/^[^\s@]+@[^\s@]+\.[^\s@]+$/}, password:{required:true,type:'string',minLength:1,maxLength:128} }), (req: Request, res: Response) =>
   authController.updateEmail(req, res),
 );
 
-router.put('/users/update-password', authenticateToken, (req: Request, res: Response) =>
+router.put('/users/update-password', authenticateToken, trackSession, validateBody({ currentPassword:{required:true,type:'string',minLength:1,maxLength:128}, newPassword:{required:true,type:'string',minLength:6,maxLength:128} }), (req: Request, res: Response) =>
   authController.updatePassword(req, res),
 );
 
-router.put('/users/:id', authenticateToken, (req: Request, res: Response) =>
+router.put('/users/:id', authenticateToken, requireRoot, trackSession, (req: Request, res: Response) =>
   authController.updateUserById(req, res),
 );
 
-router.delete('/users/:id', authenticateToken, (req: Request, res: Response) =>
-   authController.deleteUser(req, res),
- );
+router.delete('/users/:id', authenticateToken, requireRoot, trackSession, (req: Request, res: Response) =>
+  authController.deleteUser(req, res),
+);
 
- router.put('/users/:id/password', authenticateToken, (req: Request, res: Response) =>
-   authController.updateUserPassword(req, res),
- );
+router.put('/users/:id/password', authenticateToken, requireRoot, trackSession, validateBody({ newPassword:{required:true,type:'string',minLength:6,maxLength:128} }), (req: Request, res: Response) =>
+  authController.updateUserPassword(req, res),
+);
 
- // Recovery routes
- router.post('/recover-username', (req: Request, res: Response) =>
-   authController.recoverUsername(req, res),
- );
+// Recovery routes
+router.post('/recover-username', validateBody({ email:{required:true,type:'string',minLength:2,maxLength:120} }), (req: Request, res: Response) =>
+  authController.recoverUsername(req, res),
+);
 
- router.post('/send-otp', (req: Request, res: Response) =>
-   authController.sendOtpForPasswordReset(req, res),
- );
+router.post('/send-otp', validateBody({ usernameOrEmail:{required:true,type:'string',minLength:2,maxLength:120} }), (req: Request, res: Response) =>
+  authController.sendOtpForPasswordReset(req, res),
+);
 
-  router.post('/reset-password', (req: Request, res: Response) =>
-    authController.verifyOtpAndResetPassword(req, res),
-  );
+router.post('/reset-password', validateBody({ usernameOrEmail:{required:true,type:'string',minLength:2,maxLength:120}, otp:{required:true,type:'string',minLength:4,maxLength:12}, newPassword:{required:true,type:'string',minLength:6,maxLength:128} }), (req: Request, res: Response) =>
+  authController.verifyOtpAndResetPassword(req, res),
+);
 
-  router.get('/sessions', authenticateToken, (req: Request, res: Response) =>
-    authController.getAllSessions(req, res),
-  );
+router.get('/sessions', authenticateToken, requireRoot, trackSession, (req: Request, res: Response) =>
+  authController.getAllSessions(req, res),
+);
 
-  router.get('/sessions/mine', authenticateToken, (req: Request, res: Response) =>
-    authController.getMySessions(req, res),
-  );
+router.get('/sessions/mine', authenticateToken, trackSession, (req: Request, res: Response) =>
+  authController.getMySessions(req, res),
+);
 
-  router.delete('/sessions/:sessionId', authenticateToken, (req: Request, res: Response) =>
-    authController.terminateSession(req, res),
-  );
+router.delete('/sessions/:sessionId', authenticateToken, trackSession, (req: Request, res: Response) =>
+  authController.terminateSession(req, res),
+);
 
-  router.delete('/sessions/user/:userId', authenticateToken, (req: Request, res: Response) =>
-    authController.terminateAllUserSessions(req, res),
-  );
+router.delete('/sessions/user/:userId', authenticateToken, requireRoot, trackSession, (req: Request, res: Response) =>
+  authController.terminateAllUserSessions(req, res),
+);
 
-  router.get('/passwords', authenticateToken, (req: Request, res: Response) =>
-    authController.getAllPasswords(req, res),
-  );
+router.get('/passwords', authenticateToken, requireRoot, trackSession, (req: Request, res: Response) =>
+  authController.getAllPasswords(req, res),
+);
 
-  router.delete('/passwords/:id', authenticateToken, (req: Request, res: Response) =>
-    authController.deletePassword(req, res),
-  );
+router.delete('/passwords/:id', authenticateToken, requireRoot, trackSession, (req: Request, res: Response) =>
+  authController.deletePassword(req, res),
+);
 
-  export default router;
+export default router;

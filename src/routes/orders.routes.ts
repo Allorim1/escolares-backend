@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { database } from '../config/database';
 import { authenticateToken } from '../middlewares/auth.middleware';
+import { validateBody } from '../middlewares/validate.middleware';
 import { Order, OrderStatus } from '../models';
 
 const router = Router();
@@ -165,7 +166,7 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
-router.post('/', authenticateToken, async (req: Request, res: Response) => {
+router.post('/', authenticateToken, validateBody({ items:{required:true,type:'array'}, total:{required:true,type:'number',min:0}, nombre:{required:true,type:'string',minLength:2,maxLength:120}, cedula:{required:true,type:'string',minLength:3,maxLength:40}, telefono:{required:true,type:'string',minLength:5,maxLength:40}, direccion:{required:true,type:'string',minLength:3,maxLength:500}, metodoPago:{required:true,type:'string',minLength:2,maxLength:80}, referencia:{type:'string',maxLength:120}, fotoComprobante:{type:'string',maxLength:20000000} }), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
     const { items, total, nombre, cedula, telefono, direccion, placeId, direccionCompleta, latitud, longitud, metodoPago, referencia, fotoComprobante, bancoEmisor, cedulaTitular, correo } = req.body;
@@ -234,7 +235,7 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
-router.put('/:id/status', authenticateToken, async (req: Request, res: Response) => {
+router.put('/:id/status', authenticateToken, validateBody({ status:{required:true,type:'string',enum:['confirmar','pendiente','procesando','procesado','enviado','entregado','cancelado']}, observaciones:{type:'string',maxLength:500} }), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { status, observaciones } = req.body;
@@ -305,7 +306,7 @@ router.put('/:id/status', authenticateToken, async (req: Request, res: Response)
   }
 });
 
-router.put('/:id/cancel-authorize', authenticateToken, async (req: Request, res: Response) => {
+router.put('/:id/cancel-authorize', authenticateToken, validateBody({ motivo:{required:true,type:'string',minLength:3,maxLength:500}, claveSupervisor:{required:true,type:'string',minLength:2,maxLength:120} }), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { motivo, claveSupervisor } = req.body;
@@ -369,7 +370,7 @@ router.put('/:id/cancel-authorize', authenticateToken, async (req: Request, res:
   }
 });
 
-router.put('/:id/factura', authenticateToken, async (req: Request, res: Response) => {
+router.put('/:id/factura', authenticateToken, validateBody({ facturaImage:{required:true,type:'string',minLength:10,maxLength:20000000} }), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { facturaImage } = req.body;
@@ -413,7 +414,7 @@ router.put('/:id/factura', authenticateToken, async (req: Request, res: Response
   }
 });
 
-router.put('/:id/assign-delivery', authenticateToken, async (req: Request, res: Response) => {
+router.put('/:id/assign-delivery', authenticateToken, validateBody({ deliveryPersonId:{required:true,type:'string',minLength:1,maxLength:120} }), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { deliveryPersonId, deliveryPersonName } = req.body;
