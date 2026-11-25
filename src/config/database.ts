@@ -62,6 +62,19 @@ class Database {
     }
 
     try {
+      await this._db.collection('orders').createIndex({ id: 1 }, { unique: true });
+      await this._db.collection('orders').createIndex({ userId: 1, createdAt: -1 });
+      await this._db.collection('orders').createIndex({ status: 1, createdAt: -1 });
+      await this._db.collection('orders').createIndex({ deliveryPersonId: 1, status: 1, createdAt: -1 });
+      await this._db.collection('orders').createIndex(
+        { userId: 1, idempotencyKey: 1 },
+        { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+      );
+    } catch (indexError) {
+      console.error('Error creando índices de pedidos:', indexError);
+    }
+
+    try {
       await this._db.collection('creditos_usuarios').createIndex({ id: 1 }, { unique: true });
       await this._db.collection('creditos_usuarios').createIndex({ telefono: 1 }, { unique: true });
       await this._db.collection('creditos_solicitudes').createIndex({ id: 1 }, { unique: true });

@@ -496,25 +496,13 @@ res.json({
   async updateOrderStatus(req: Request, res: Response): Promise<void> {
     try {
       const { orderId } = req.params;
-      const { status, observaciones, facturaImage, productImage } = req.body;
+      const { status, observaciones, facturaImage, productImage } = req.body as { status: Order['status']; observaciones?: string; facturaImage?: string; productImage?: string };
       const userId = req.user?.userId;
 
-      if (!status) {
-        res.status(400).json({ error: 'Estado requerido' });
-        return;
-      }
-
-      const validDeliveryStatuses: Order['status'][] = ['enviado', 'entregado', 'procesado'];
-      if (!validDeliveryStatuses.includes(status)) {
-        res.status(400).json({ error: 'Estado inválido para repartidor' });
-        return;
-      }
+      if (!status) { res.status(400).json({ error: 'Estado requerido' }); return; }
 
       const order = await database.getCollection<Order>('orders').findOne({ id: orderId });
-      if (!order) {
-        res.status(404).json({ error: 'Pedido no encontrado' });
-        return;
-      }
+      if (!order) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
 
       const user = await database.getCollection('users').findOne({ id: userId });
       if (!user || user.deliveryPersonId !== order.deliveryPersonId) {
@@ -522,51 +510,52 @@ res.json({
         return;
       }
 
-      const statusLabels: Record<string, string> = {
-        enviado: 'Pedido enviado',
-        entregado: 'Pedido entregado',
-        procesado: 'Pedido aceptado por repartidor',
+      const allowed: Record<string, string[]> = {
+        procesando: ['procesado', 'enviado'],
+        procesado: ['enviado', 'procesando'],
+        enviado: ['entregado'],
+      };
+      const allowedNext = allowed[order.status] || [];
+      if (!allowedNext.includes(status)) {
+        res.status(409).json({ error: `Transición inválida: ${order.status} -> ${status}` });
+        return;
+      }
+
+      if (status === 'entregado' && !(facturaImage || order.facturaImage)) {
+        res.status(400).json({ error: 'Debe subir la factura/evidencia antes de marcar como entregado' });
+        return;
+      }
+
+      const statusLabels: Record<Order['status'], string> = {
+        confirmar: 'Confirmado', pendiente: 'Pendiente', procesando: 'Procesando', procesado: 'Aceptado por repartidor', enviado: 'En camino', entregado: 'Entregado', cancelado: 'Cancelado',
       };
 
       const updatedHistorial = [
         ...order.historial,
-        {
-          status: status as any,
-          fecha: new Date(),
-          observaciones: observaciones || statusLabels[status],
-        },
+        { status, fecha: new Date(), observaciones: observaciones || statusLabels[status] },
       ];
 
-      const updateData: any = {
-        status: status as any,
-        historial: updatedHistorial,
-        updatedAt: new Date(),
-      };
+      const updateData: any = { status, historial: updatedHistorial, updatedAt: new Date() };
+      if (facturaImage) updateData.facturaImage = facturaImage;
+      if (productImage) updateData.productImage = productImage;
 
-      if (status === 'entregado' && facturaImage) {
-        updateData.facturaImage = facturaImage;
-      }
-
-      if (status === 'entregado' && productImage) {
-        updateData.productImage = productImage;
+      const updateOp: any = { $set: updateData };
+      if (status === 'procesando') {
+        delete updateData.deliveryPersonId;
+        delete updateData.deliveryPersonName;
+        updateOp.$unset = { deliveryPersonId: '', deliveryPersonName: '' };
       }
 
       const result = await database.getCollection<Order>('orders').findOneAndUpdate(
         { id: orderId },
-        { $set: updateData },
+        updateOp,
         { returnDocument: 'after' }
       );
 
       const io = (req as any).app.get('io');
-      if (io) {
-        io.emit('pedido-estado-cambiado', {
-          orderId,
-          status,
-          deliveryPersonId: user.deliveryPersonId,
-        });
-      }
+      if (io) io.emit('pedido-estado-cambiado', { orderId, status, deliveryPersonId: user.deliveryPersonId });
 
-      await crearRegistro('Modificación', 'Pedidos', `Pedido #${orderId.slice(-8)} ${status}`, 
+      await crearRegistro('Modificación', 'Pedidos', `Pedido #${orderId.slice(-8)} ${status}`,
         { pedidoId: orderId, estadoNuevo: status }, user.nombreCompleto || user.username || 'Sistema');
 
       res.json(result);

@@ -162,6 +162,9 @@ export interface Order {
     timestamp: Date;
   };
   tiempoEstimadoLlegada?: string;
+  stockRestored?: boolean;
+  stockRestoredAt?: Date;
+  idempotencyKey?: string;
   propina?: number;
   comision?: number;
   createdAt: Date;
@@ -170,6 +173,16 @@ export interface Order {
 }
 
 export type OrderStatus = 'confirmar' | 'pendiente' | 'procesando' | 'procesado' | 'enviado' | 'entregado' | 'cancelado';
+
+export const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  confirmar: ['pendiente', 'cancelado'],
+  pendiente: ['procesando', 'cancelado'],
+  procesando: ['procesado', 'enviado', 'cancelado'],
+  procesado: ['enviado', 'procesando', 'cancelado'],
+  enviado: ['entregado', 'cancelado'],
+  entregado: [],
+  cancelado: [],
+};
 
 export interface OrderHistorial {
   status: OrderStatus;
