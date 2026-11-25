@@ -151,6 +151,7 @@ export interface Order {
   paidAt?: Date;
   amountCollected?: number;
   changeGiven?: number;
+  paymentProofImage?: string;
   referencia: string;
   fotoComprobante?: string;
   facturaImage?: string;

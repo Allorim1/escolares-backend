@@ -497,7 +497,7 @@ res.json({
     try {
       const userId = req.user?.userId;
       const orderId = req.params.id;
-      const { status, observaciones, facturaImage, productImage, amountCollected, changeGiven, paymentStatus, incident } = req.body;
+      const { status, observaciones, facturaImage, productImage, amountCollected, changeGiven, paymentStatus, paymentProofImage, incident } = req.body;
       if (!status) { res.status(400).json({ error: 'Estado requerido' }); return; }
       const order = await database.getCollection<Order>('orders').findOne({ id: orderId });
       if (!order) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
@@ -518,6 +518,7 @@ res.json({
       const setData: any = { status, updatedAt: now };
       if (facturaImage) setData.facturaImage = facturaImage;
       if (productImage) setData.productImage = productImage;
+      if (paymentProofImage) setData.paymentProofImage = paymentProofImage;
       if (status === 'enviado') setData.dispatchedAt = order.dispatchedAt || now;
       if (status === 'procesado') setData.acceptedAt = order.acceptedAt || now;
       if (status === 'entregado') {
