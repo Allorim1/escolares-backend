@@ -133,6 +133,10 @@ export interface Order {
   id: string;
   userId: string;
   items: OrderItem[];
+  subtotal?: number;
+  iva?: number;
+  shippingRef?: number;
+  shippingLabel?: string;
   total: number;
   nombre: string;
   cedula: string;
@@ -143,6 +147,10 @@ export interface Order {
   latitud?: number;
   longitud?: number;
   metodoPago: string;
+  paymentStatus?: 'pendiente' | 'pagado' | 'contra_entrega' | 'fallido';
+  paidAt?: Date;
+  amountCollected?: number;
+  changeGiven?: number;
   referencia: string;
   fotoComprobante?: string;
   facturaImage?: string;
@@ -167,21 +175,42 @@ export interface Order {
   idempotencyKey?: string;
   propina?: number;
   comision?: number;
+  deliveryType?: 'express' | 'programado';
+  scheduledFor?: string;
+  confirmedAt?: Date;
+  assignedAt?: Date;
+  acceptedAt?: Date;
+  dispatchedAt?: Date;
+  deliveredAt?: Date;
+  cancelledAt?: Date;
+  cancelReason?: string;
+  incident?: OrderIncident;
   createdAt: Date;
   updatedAt: Date;
   mensajes?: OrderMessage[];
 }
 
-export type OrderStatus = 'confirmar' | 'pendiente' | 'procesando' | 'procesado' | 'enviado' | 'entregado' | 'cancelado';
+export type OrderStatus = 'confirmar' | 'pendiente' | 'procesando' | 'procesado' | 'enviado' | 'entregado' | 'cancelado' | 'incidencia';
+
+export interface OrderIncident {
+  type: 'cliente_ausente' | 'direccion_incorrecta' | 'rechazo' | 'danado' | 'otro';
+  reason: string;
+  note?: string;
+  photo?: string;
+  reportedBy?: string;
+  reportedAt: Date;
+  resolution?: 'reprogramar' | 'devolver' | 'cancelar';
+}
 
 export const ORDER_STATUS_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   confirmar: ['pendiente', 'cancelado'],
   pendiente: ['procesando', 'cancelado'],
-  procesando: ['procesado', 'enviado', 'cancelado'],
-  procesado: ['enviado', 'procesando', 'cancelado'],
-  enviado: ['entregado', 'cancelado'],
+  procesando: ['procesado', 'enviado', 'cancelado', 'incidencia'],
+  procesado: ['enviado', 'procesando', 'cancelado', 'incidencia'],
+  enviado: ['entregado', 'cancelado', 'incidencia'],
   entregado: [],
   cancelado: [],
+  incidencia: ['procesando', 'cancelado'],
 };
 
 export interface OrderHistorial {

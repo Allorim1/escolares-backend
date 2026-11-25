@@ -189,13 +189,22 @@ router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
   }
 });
 
-router.post('/', authenticateToken, validateBody({ items:{required:true,type:'array'}, total:{required:true,type:'number',min:0}, nombre:{required:true,type:'string',minLength:2,maxLength:120}, cedula:{required:true,type:'string',minLength:3,maxLength:40}, telefono:{required:true,type:'string',minLength:5,maxLength:40}, direccion:{required:true,type:'string',minLength:3,maxLength:500}, metodoPago:{required:true,type:'string',minLength:2,maxLength:80}, referencia:{type:'string',maxLength:120}, fotoComprobante:{type:'string',maxLength:20000000}, idempotencyKey:{type:'string',minLength:8,maxLength:128}, deliveryType:{type:'string',enum:['express','programado']}, scheduledFor:{type:'string',maxLength:40}, shippingRef:{type:'number',min:0,max:1000000}, shippingLabel:{type:'string',maxLength:120}, direccionCompleta:{type:'string',maxLength:500}, placeId:{type:'string',maxLength:200}, latitud:{type:'number'}, longitud:{type:'number'}, bancoEmisor:{type:'string',maxLength:120}, cedulaTitular:{type:'string',maxLength:40}, correo:{type:'string',maxLength:200} }), async (req: Request, res: Response) => {
+const emitOrderEvent = (io: any, event: string, payload: any) => {
+  if (!io) return;
+  io.emit(event, payload);
+  io.emit('order-event', { event, ...payload, at: new Date().toISOString() });
+};
+
+router.post('/', authenticateToken, validateBody({ items:{required:true,type:'array'}, total:{required:true,type:'number',min:0}, nombre:{required:true,type:'string',minLength:2,maxLength:120}, cedula:{required:true,type:'string',minLength:3,maxLength:40}, telefono:{required:true,type:'string',minLength:5,maxLength:40}, direccion:{required:true,type:'string',minLength:3,maxLength:500}, metodoPago:{required:true,type:'string',minLength:2,maxLength:80}, referencia:{type:'string',maxLength:120}, fotoComprobante:{type:'string',maxLength:20000000}, idempotencyKey:{type:'string',minLength:8,maxLength:128}, deliveryType:{type:'string',enum:['express','programado']}, scheduledFor:{type:'string',maxLength:40}, shippingRef:{type:'number',min:0,max:1000000}, shippingLabel:{type:'string',maxLength:120}, direccionCompleta:{type:'string',maxLength:500}, placeId:{type:'string',maxLength:200}, latitud:{type:'number'}, longitud:{type:'number'}, bancoEmisor:{type:'string',maxLength:120}, cedulaTitular:{type:'string',maxLength:40}, correo:{type:'string',maxLength:200}, paymentStatus:{type:'string',enum:['pendiente','pagado','contra_entrega','fallido']} }), async (req: Request, res: Response) => {
   try {
     const userId = req.user?.userId;
-    const { items, total, nombre, cedula, telefono, direccion, placeId, direccionCompleta, latitud, longitud, metodoPago, referencia, fotoComprobante, bancoEmisor, cedulaTitular, correo, idempotencyKey, deliveryType, scheduledFor, shippingRef, shippingLabel } = req.body;
+    const { items, total, nombre, cedula, telefono, direccion, placeId, direccionCompleta, latitud, longitud, metodoPago, referencia, fotoComprobante, bancoEmisor, cedulaTitular, correo, idempotencyKey, deliveryType, scheduledFor, shippingRef, shippingLabel, paymentStatus } = req.body;
 
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     if (!Array.isArray(items) || items.length === 0) { res.status(400).json({ error: 'El pedido debe tener productos' }); return; }
+    if (typeof latitud !== 'number' || typeof longitud !== 'number' || Number.isNaN(latitud) || Number.isNaN(longitud)) {
+      res.status(400).json({ error: 'La dirección de entrega debe incluir coordenadas válidas (latitud/longitud).' }); return;
+    }
 
     const ordersCol = database.getCollection<Order>('orders');
     const idem = typeof idempotencyKey === 'string' ? idempotencyKey.trim() : '';
@@ -213,28 +222,19 @@ router.post('/', authenticateToken, validateBody({ items:{required:true,type:'ar
       const productId = String(raw?.productId ?? '').trim();
       const qty = Number(raw?.quantity);
       if (!productId || !Number.isInteger(qty) || qty < 1 || qty > 999) {
-        issues.push({ productId, message: 'Cantidad inválida' });
-        continue;
+        issues.push({ productId, message: 'Cantidad inválida' }); continue;
       }
       const product = await productsCol.findOne({ id: productId });
       if (!product) { issues.push({ productId, message: 'Producto no encontrado' }); continue; }
-
       const stock = Number(product.stock ?? product.existencia ?? product.cantidad ?? NaN);
       if (Number.isFinite(stock) && stock < qty) {
         issues.push({ productId, message: `Stock insuficiente (disponible: ${stock})`, available: stock, title: product.title });
       }
-
       const basePrice = Number(product.price ?? 0);
       const oferta = product.enOferta && Number(product.ofertaPorcentaje) > 0;
       const unitPrice = oferta ? +(basePrice * (1 - Number(product.ofertaPorcentaje) / 100)).toFixed(2) : +basePrice.toFixed(2);
       subtotal += unitPrice * qty;
-      normalizedItems.push({
-        productId,
-        title: String(product.title || raw.title || ''),
-        price: unitPrice,
-        quantity: qty,
-        image: String(product.image || raw.image || ''),
-      });
+      normalizedItems.push({ productId, title: String(product.title || raw.title || ''), price: unitPrice, quantity: qty, image: String(product.image || raw.image || '') });
     }
 
     if (issues.length > 0) { res.status(409).json({ error: 'No se pudo validar el pedido', details: issues }); return; }
@@ -248,7 +248,6 @@ router.post('/', authenticateToken, validateBody({ items:{required:true,type:'ar
       return;
     }
 
-    // stock decrement where tracked
     for (const item of normalizedItems) {
       const product = await productsCol.findOne({ id: item.productId });
       const stock = Number(product?.stock ?? product?.existencia ?? product?.cantidad ?? NaN);
@@ -259,48 +258,34 @@ router.post('/', authenticateToken, validateBody({ items:{required:true,type:'ar
         else if (product.existencia !== undefined) { inc.existencia = -item.quantity; filter.existencia = { $gte: item.quantity }; }
         else if (product.cantidad !== undefined) { inc.cantidad = -item.quantity; filter.cantidad = { $gte: item.quantity }; }
         const dec = await productsCol.updateOne(filter, { $inc: inc });
-        if (!dec.matchedCount) {
-          res.status(409).json({ error: 'Stock insuficiente', details: [{ productId: item.productId, title: item.title, message: 'Stock insuficiente al confirmar' }] });
-          return;
-        }
+        if (!dec.matchedCount) { res.status(409).json({ error: 'Stock insuficiente', details: [{ productId: item.productId, title: item.title, message: 'Stock insuficiente al confirmar' }] }); return; }
       } else {
         await productsCol.updateOne({ id: item.productId }, { $inc: { purchases: item.quantity } }).catch(() => {});
       }
     }
 
+    const method = String(metodoPago || '');
+    const resolvedPaymentStatus = paymentStatus || (method === 'efectivo' ? 'contra_entrega' : 'pendiente');
     const newOrder: any = {
-      id: Date.now().toString(),
-      userId,
-      items: normalizedItems,
-      total: computedTotal,
-      nombre,
-      cedula,
-      telefono,
-      direccion,
-      placeId: placeId || '',
-      direccionCompleta: direccionCompleta || direccion,
-      ...(typeof latitud === 'number' && !Number.isNaN(latitud) ? { latitud } : {}),
-      ...(typeof longitud === 'number' && !Number.isNaN(longitud) ? { longitud } : {}),
-      metodoPago,
-      referencia: referencia || '',
-      fotoComprobante: fotoComprobante || '',
-      bancoEmisor: bancoEmisor || '',
-      cedulaTitular: cedulaTitular || '',
-      correo: correo || '',
+      id: Date.now().toString(), userId, items: normalizedItems,
+      subtotal: +subtotal.toFixed(2), iva, shippingRef: safeShipping, shippingLabel: shippingLabel || '',
+      total: computedTotal, nombre, cedula, telefono, direccion,
+      placeId: placeId || '', direccionCompleta: direccionCompleta || direccion,
+      latitud, longitud,
+      metodoPago: method, paymentStatus: resolvedPaymentStatus,
+      ...(resolvedPaymentStatus === 'pagado' ? { paidAt: new Date() } : {}),
+      referencia: referencia || '', fotoComprobante: fotoComprobante || '',
+      bancoEmisor: bancoEmisor || '', cedulaTitular: cedulaTitular || '', correo: correo || '',
       ...(idem ? { idempotencyKey: idem } : {}),
-      deliveryType: deliveryType || 'express',
-      scheduledFor: scheduledFor || '',
-      shippingRef: safeShipping,
-      shippingLabel: shippingLabel || '',
+      deliveryType: deliveryType || 'express', scheduledFor: scheduledFor || '',
       status: 'pendiente',
       historial: [{ status: 'pendiente', fecha: new Date(), observaciones: 'Pedido recibido, esperando confirmación' }],
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: new Date(), updatedAt: new Date(),
     };
 
     await ordersCol.insertOne(newOrder);
     const io = req.app.get('io');
-    if (io) emitirNotificacionCompra(io, newOrder);
+    if (io) { emitirNotificacionCompra(io, newOrder); emitOrderEvent(io, 'pedido-creado', { orderId: newOrder.id, userId, status: newOrder.status }); }
     res.status(201).json(newOrder);
   } catch (error: any) {
     if (error?.code === 11000) {
@@ -333,7 +318,7 @@ router.put('/:id/status', authenticateToken, validateBody({ status:{required:tru
       return;
     }
 
-    const statusLabels: Record<OrderStatus, string> = {
+    const statusLabels: Record<string, string> = {
       confirmar: 'Esperando confirmación', pendiente: 'Pedido recibido', procesando: 'Pedido en proceso', procesado: 'Pedido aceptado por repartidor', enviado: 'Pedido enviado', entregado: 'Pedido entregado', cancelado: 'Pedido cancelado',
     };
 
@@ -418,6 +403,8 @@ router.put('/:id/cancel-authorize', authenticateToken, validateBody({ motivo:{re
       historial: updatedHistorial,
       autorizadoPor: supervisor.id,
       autorizadoNombre: supervisorNombre,
+      cancelReason: String(motivo),
+      cancelledAt: new Date(),
       updatedAt: new Date(),
     };
     if (!(order as any).stockRestored) {
@@ -445,7 +432,7 @@ router.put('/:id/cancel-authorize', authenticateToken, validateBody({ motivo:{re
     await crearRegistro(database, 'Cancelación', 'Pedidos', `Pedido #${id.slice(-8)} cancelado por ${supervisorNombre}`, { pedidoId: id, motivo, supervisorId: supervisor.id }, usuario);
 
     const io = req.app.get('io');
-    if (io) io.emit('pedido-estado-cambiado', { orderId: id, status: 'cancelado', previousStatus: order.status, actorId: req.user?.userId || null });
+    emitOrderEvent(io, 'pedido-estado-cambiado', { orderId: id, status: 'cancelado', previousStatus: order.status, actorId: req.user?.userId || null, order: result });
     res.json(result);
   } catch (error) {
     console.error('Error canceling order:', error);
@@ -527,6 +514,28 @@ router.put('/:id/assign-delivery', authenticateToken, validateBody({ deliveryPer
   }
 });
 
+
+router.put('/:id/incident', authenticateToken, validateBody({ type:{required:true,type:'string',enum:['cliente_ausente','direccion_incorrecta','rechazo','danado','otro']}, reason:{required:true,type:'string',minLength:3,maxLength:500}, note:{type:'string',maxLength:500}, photo:{type:'string',maxLength:20000000}, resolution:{type:'string',enum:['reprogramar','devolver','cancelar']} }), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { type, reason, note, photo, resolution } = req.body;
+    const order = await database.getCollection<Order>('orders').findOne({ id });
+    if (!order) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
+    const check = await canManageOrderStatus(req, order, 'incidencia' as any);
+    if (!check.ok) { res.status(check.code || 403).json({ error: check.error }); return; }
+    const actor = check.user;
+    const now = new Date();
+    const incident = { type, reason, note: note || '', photo: photo || '', reportedBy: actor?.id || '', reportedAt: now, ...(resolution ? { resolution } : {}) };
+    const historial = [...(order.historial || []), { status: 'incidencia' as any, fecha: now, observaciones: `Incidencia: ${reason}` }];
+    const result = await database.getCollection<Order>('orders').findOneAndUpdate({ id }, { $set: { status: 'incidencia', incident, historial, updatedAt: now } }, { returnDocument: 'after' });
+    await crearRegistro(database, 'Incidencia', 'Pedidos', `Pedido #${id.slice(-8)} reportó incidencia: ${reason}`, { pedidoId: id, incident }, actor?.nombreCompleto || actor?.username || 'Sistema');
+    emitOrderEvent(req.app.get('io'), 'pedido-incidencia', { orderId: id, status: 'incidencia', previousStatus: order.status, incident, actorId: actor?.id || null, order: result });
+    res.json(result);
+  } catch (error) {
+    console.error('Error reporting incident:', error);
+    res.status(500).json({ error: 'Error al reportar incidencia' });
+  }
+});
 router.delete('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -592,14 +601,15 @@ router.put('/:id/accept', authenticateToken, async (req: Request, res: Response)
       return;
     }
 
-    const statusLabels: Record<OrderStatus, string> = {
+    const statusLabels: Record<string, string> = {
       confirmar: 'Esperando confirmación',
       pendiente: 'Pedido recibido',
       procesando: 'Pedido en proceso',
       procesado: 'Pedido aceptado por repartidor',
-      enviado: 'Pedido enviado',
+      enviado: 'Pedido en camino',
       entregado: 'Pedido entregado',
       cancelado: 'Pedido cancelado',
+      incidencia: 'Incidencia reportada',
     };
 
     const updatedHistorial = [

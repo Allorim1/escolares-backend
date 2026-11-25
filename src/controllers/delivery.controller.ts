@@ -495,73 +495,52 @@ res.json({
 
   async updateOrderStatus(req: Request, res: Response): Promise<void> {
     try {
-      const { orderId } = req.params;
-      const { status, observaciones, facturaImage, productImage } = req.body as { status: Order['status']; observaciones?: string; facturaImage?: string; productImage?: string };
       const userId = req.user?.userId;
-
+      const orderId = req.params.id;
+      const { status, observaciones, facturaImage, productImage, amountCollected, changeGiven, paymentStatus, incident } = req.body;
       if (!status) { res.status(400).json({ error: 'Estado requerido' }); return; }
-
       const order = await database.getCollection<Order>('orders').findOne({ id: orderId });
       if (!order) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
-
       const user = await database.getCollection('users').findOne({ id: userId });
-      if (!user || user.deliveryPersonId !== order.deliveryPersonId) {
-        res.status(403).json({ error: 'No tienes permiso para este pedido' });
-        return;
-      }
+      if (!user || user.deliveryPersonId !== order.deliveryPersonId) { res.status(403).json({ error: 'No tienes permiso para este pedido' }); return; }
 
       const allowed: Record<string, string[]> = {
-        procesando: ['procesado', 'enviado'],
-        procesado: ['enviado', 'procesando'],
-        enviado: ['entregado'],
+        procesando: ['procesado', 'enviado', 'incidencia'],
+        procesado: ['enviado', 'procesando', 'incidencia'],
+        enviado: ['entregado', 'incidencia'],
+        incidencia: ['procesado', 'enviado', 'cancelado'],
       };
       const allowedNext = allowed[order.status] || [];
-      if (!allowedNext.includes(status)) {
-        res.status(409).json({ error: `Transición inválida: ${order.status} -> ${status}` });
-        return;
+      if (!allowedNext.includes(status)) { res.status(409).json({ error: `Transición inválida: ${order.status} -> ${status}` }); return; }
+      if (status === 'entregado' && !(facturaImage || order.facturaImage)) { res.status(400).json({ error: 'Debe subir la factura antes de marcar como entregado' }); return; }
+
+      const now = new Date();
+      const setData: any = { status, updatedAt: now };
+      if (facturaImage) setData.facturaImage = facturaImage;
+      if (productImage) setData.productImage = productImage;
+      if (status === 'enviado') setData.dispatchedAt = order.dispatchedAt || now;
+      if (status === 'procesado') setData.acceptedAt = order.acceptedAt || now;
+      if (status === 'entregado') {
+        setData.deliveredAt = now;
+        if (typeof amountCollected === 'number') setData.amountCollected = amountCollected;
+        if (typeof changeGiven === 'number') setData.changeGiven = changeGiven;
+        setData.paymentStatus = paymentStatus || (order.paymentStatus === 'contra_entrega' ? 'pagado' : order.paymentStatus || 'pendiente');
+        if (setData.paymentStatus === 'pagado') setData.paidAt = order.paidAt || now;
       }
-
-      if (status === 'entregado' && !(facturaImage || order.facturaImage)) {
-        res.status(400).json({ error: 'Debe subir la factura/evidencia antes de marcar como entregado' });
-        return;
+      if (status === 'incidencia' && incident) {
+        setData.incident = { ...incident, reportedBy: user.id, reportedAt: now };
+        setData.cancelReason = undefined;
       }
-
-      const statusLabels: Record<Order['status'], string> = {
-        confirmar: 'Confirmado', pendiente: 'Pendiente', procesando: 'Procesando', procesado: 'Aceptado por repartidor', enviado: 'En camino', entregado: 'Entregado', cancelado: 'Cancelado',
-      };
-
-      const updatedHistorial = [
-        ...order.historial,
-        { status, fecha: new Date(), observaciones: observaciones || statusLabels[status] },
-      ];
-
-      const updateData: any = { status, historial: updatedHistorial, updatedAt: new Date() };
-      if (facturaImage) updateData.facturaImage = facturaImage;
-      if (productImage) updateData.productImage = productImage;
-
-      const updateOp: any = { $set: updateData };
-      if (status === 'procesando') {
-        delete updateData.deliveryPersonId;
-        delete updateData.deliveryPersonName;
-        updateOp.$unset = { deliveryPersonId: '', deliveryPersonName: '' };
-      }
-
-      const result = await database.getCollection<Order>('orders').findOneAndUpdate(
-        { id: orderId },
-        updateOp,
-        { returnDocument: 'after' }
-      );
-
-      const io = (req as any).app.get('io');
-      if (io) io.emit('pedido-estado-cambiado', { orderId, status, deliveryPersonId: user.deliveryPersonId });
-
-      await crearRegistro('Modificación', 'Pedidos', `Pedido #${orderId.slice(-8)} ${status}`,
-        { pedidoId: orderId, estadoNuevo: status }, user.nombreCompleto || user.username || 'Sistema');
-
+      const statusLabels: Record<string, string> = { procesando: 'Pedido en proceso', procesado: 'Pedido aceptado por repartidor', enviado: 'Pedido en camino', entregado: 'Pedido entregado', incidencia: 'Incidencia reportada' };
+      const historial = [...(order.historial || []), { status, fecha: now, observaciones: observaciones || statusLabels[status] || '' }];
+      setData.historial = historial;
+      const result = await database.getCollection<Order>('orders').findOneAndUpdate({ id: orderId }, { $set: setData }, { returnDocument: 'after' });
+      const io = req.app.get('io');
+      if (io) { io.emit('pedido-estado-cambiado', { orderId, status, previousStatus: order.status, actorId: userId, order: result }); io.emit('order-event', { event: 'pedido-estado-cambiado', orderId, status, previousStatus: order.status, actorId: userId, at: now.toISOString() }); }
       res.json(result);
     } catch (error) {
-      console.error('Error updating order status:', error);
-      res.status(500).json({ error: 'Error al actualizar estado' });
+      console.error('Error updating delivery order status:', error);
+      res.status(500).json({ error: 'Error al actualizar estado del pedido' });
     }
   }
 
