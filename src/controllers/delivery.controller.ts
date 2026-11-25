@@ -570,44 +570,50 @@ res.json({
       const userId = req.user?.userId;
       const period = (req.query.period as string) || 'daily';
 
-      const user = await database.getCollection('users').findOne({ id: userId });
-      if (!user || user.rol !== 'repartidor' || !user.deliveryPersonId) {
+      const user = await database.getCollection<any>('users').findOne({ id: userId });
+      if (!user || user.rol !== 'repartidor') {
         res.status(403).json({ error: 'Acceso denegado' });
         return;
       }
 
-      const now = new Date();
-      let startDate: Date;
-      
-      if (period === 'weekly') {
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-      } else {
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      let deliveryPersonId = user.deliveryPersonId;
+      if (!deliveryPersonId) {
+        const dp = await database.getCollection<DeliveryPerson>('deliveryPersons').findOne({
+          $or: [{ userId: String(userId) }, { id: String(userId) }]
+        } as any);
+        if (dp?.id) {
+          deliveryPersonId = dp.id;
+          await database.getCollection('users').updateOne({ id: userId }, { $set: { deliveryPersonId: dp.id } }).catch(() => {});
+        }
       }
+      if (!deliveryPersonId) {
+        res.status(404).json({ error: 'Repartidor no encontrado. Contacta al administrador para vincular tu cuenta.' });
+        return;
+      }
+
+      const now = new Date();
+      const startDate = period === 'weekly'
+        ? new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7)
+        : new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
       const orders = await database.getCollection<Order>('orders')
         .find({
-          deliveryPersonId: user.deliveryPersonId,
+          deliveryPersonId,
           status: 'entregado',
-          createdAt: { $gte: startDate }
-        })
+          $or: [
+            { updatedAt: { $gte: startDate } },
+            { createdAt: { $gte: startDate } }
+          ]
+        } as any)
         .toArray();
 
       const deliveredCount = orders.length;
-      const totalEarnings = orders.reduce((sum, order) => sum + (order.total || 0), 0);
-      const totalPropinas = orders.reduce((sum, order) => sum + (order.propina || 0), 0);
-      const totalComisiones = orders.reduce((sum, order) => sum + (order.comision || 0), 0);
+      const totalEarnings = orders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
+      const totalPropinas = orders.reduce((sum, order) => sum + (Number((order as any).propina) || 0), 0);
+      const totalComisiones = orders.reduce((sum, order) => sum + (Number((order as any).comision) || 0), 0);
       const netEarnings = totalEarnings + totalPropinas - totalComisiones;
 
-      res.json({
-        deliveredCount,
-        totalEarnings,
-        totalPropinas,
-        totalComisiones,
-        netEarnings,
-        period,
-        startDate
-      });
+      res.json({ deliveredCount, totalEarnings, totalPropinas, totalComisiones, netEarnings, period, startDate });
     } catch (error) {
       console.error('Error getting earnings:', error);
       res.status(500).json({ error: 'Error al obtener ganancias' });
