@@ -219,15 +219,22 @@ router.put('/users/:id/password', authenticateToken, requireRoot, trackSession, 
 );
 
 // Recovery routes
-router.post('/recover-username', validateBody({ email:{required:true,type:'string',minLength:2,maxLength:120} }), (req: Request, res: Response) =>
+const recoveryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  message: { error: 'Demasiados intentos, intente en 15 minutos' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+router.post('/recover-username', recoveryLimiter, validateBody({ email:{required:true,type:'string',minLength:2,maxLength:120} }), (req: Request, res: Response) =>
   authController.recoverUsername(req, res),
 );
 
-router.post('/send-otp', validateBody({ usernameOrEmail:{required:true,type:'string',minLength:2,maxLength:120} }), (req: Request, res: Response) =>
+router.post('/send-otp', recoveryLimiter, validateBody({ usernameOrEmail:{required:true,type:'string',minLength:2,maxLength:120} }), (req: Request, res: Response) =>
   authController.sendOtpForPasswordReset(req, res),
 );
 
-router.post('/reset-password', validateBody({ usernameOrEmail:{required:true,type:'string',minLength:2,maxLength:120}, otp:{required:true,type:'string',minLength:4,maxLength:12}, newPassword:{required:true,type:'string',minLength:6,maxLength:128} }), (req: Request, res: Response) =>
+router.post('/reset-password', recoveryLimiter, validateBody({ usernameOrEmail:{required:true,type:'string',minLength:2,maxLength:120}, otp:{required:true,type:'string',minLength:4,maxLength:12}, newPassword:{required:true,type:'string',minLength:6,maxLength:128} }), (req: Request, res: Response) =>
   authController.verifyOtpAndResetPassword(req, res),
 );
 

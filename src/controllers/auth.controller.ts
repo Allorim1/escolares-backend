@@ -226,21 +226,11 @@ const newUser: User = {
 
       let validPassword = false;
 
-      if (user.password.startsWith('$argon2')) {
+      if (typeof user.password === 'string' && user.password.startsWith('$argon2')) {
         validPassword = await argon2.verify(user.password, password);
       } else {
-        validPassword = user.password === password;
-        if (validPassword && password.length >= 6) {
-          const hashedPassword = await argon2.hash(password, {
-            type: argon2.argon2id,
-            memoryCost: 65536,
-            timeCost: 3,
-            parallelism: 4,
-          });
-          await database
-            .getCollection<User>('users')
-            .updateOne({ id: user.id }, { $set: { password: hashedPassword } });
-        }
+        // Legacy plaintext passwords are not accepted. Require password reset/migration.
+        validPassword = false;
       }
 
       if (!validPassword) {
@@ -278,10 +268,14 @@ const newUser: User = {
         });
 
        const { password: _, ...userWithoutPassword } = user;
-        const responseData: any = { ...userWithoutPassword, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
-        // Include deliveryPersonId if user has one
+        const responseData: any = { ...userWithoutPassword };
         if (user.deliveryPersonId) {
           responseData.deliveryPersonId = user.deliveryPersonId;
+        }
+        // Native apps need tokens in body; web uses httpOnly cookies.
+        if (req.path.includes('/login-app')) {
+          responseData.accessToken = tokens.accessToken;
+          responseData.refreshToken = tokens.refreshToken;
         }
         res.json(responseData);
     } catch (error) {
@@ -642,10 +636,10 @@ await database.getCollection<User>('users').updateOne(
       }
 
       let validPassword = false;
-      if (user.password.startsWith('$argon2')) {
+      if (typeof user.password === 'string' && user.password.startsWith('$argon2')) {
         validPassword = await argon2.verify(user.password, currentPassword);
       } else {
-        validPassword = user.password === currentPassword;
+        validPassword = false;
       }
 
       if (!validPassword) {
@@ -670,7 +664,7 @@ await database.getCollection<User>('users').updateOne(
         userId: user.id || userId,
         username: user.username || '',
         email: user.email || '',
-        contrasena: newPassword,
+        contrasena: '[REDACTED]',
         rol: user.rol || 'usuario',
         fecha: new Date(),
         accion: 'cambiar',
@@ -857,7 +851,7 @@ await database.getCollection<User>('users').updateOne(
         userId: user.id || updateId || '',
         username: user.username || '',
         email: user.email || '',
-        contrasena: newPassword,
+        contrasena: '[REDACTED]',
         rol: user.rol || 'usuario',
         fecha: new Date(),
         accion: 'cambiar',
@@ -873,26 +867,25 @@ await database.getCollection<User>('users').updateOne(
   async recoverUsername(req: Request, res: Response): Promise<void> {
     try {
       const { email } = req.body;
-
-      if (!email) {
-        res.status(400).json({ error: 'El email o usuario es requerido' });
-        return;
-      }
-
-      const identifier = email.toLowerCase().trim();
+      if (!email) { res.status(400).json({ error: 'El email o usuario es requerido' }); return; }
+      const identifier = String(email).toLowerCase().trim();
       const user = await database.getCollection<User>('users').findOne({
         $or: [
           { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
           { username: { $regex: new RegExp(`^${identifier}$`, 'i') } }
         ]
       });
-
-      if (!user) {
-        res.status(404).json({ error: 'No se encontró ningún usuario con ese email o usuario' });
-        return;
+      if (user?.email && process.env.SMTP_USER && process.env.SMTP_PASS) {
+        try {
+          await transporter.sendMail({
+            from: process.env.SMTP_FROM || process.env.SMTP_USER,
+            to: user.email,
+            subject: 'Recuperación de usuario',
+            html: `<p>Tu usuario es: <strong>${user.username}</strong></p>`,
+          });
+        } catch (e) { console.error('Error sending username recovery email:', e); }
       }
-
-      res.json({ username: user.username, message: 'Usuario encontrado' });
+      res.json({ message: 'Si la cuenta existe, recibirás instrucciones en el correo registrado.' });
     } catch (error) {
       console.error('Error al recuperar usuario:', error);
       res.status(500).json({ error: 'Error al recuperar usuario' });
@@ -902,13 +895,8 @@ await database.getCollection<User>('users').updateOne(
   async sendOtpForPasswordReset(req: Request, res: Response): Promise<void> {
     try {
       const { usernameOrEmail } = req.body;
-
-      if (!usernameOrEmail) {
-        res.status(400).json({ error: 'Usuario o email son requeridos' });
-        return;
-      }
-
-      const identifier = usernameOrEmail.toLowerCase().trim();
+      if (!usernameOrEmail) { res.status(400).json({ error: 'Usuario o email son requeridos' }); return; }
+      const identifier = String(usernameOrEmail).toLowerCase().trim();
       const user = await database.getCollection<User>('users').findOne({
         $or: [
           { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
@@ -916,42 +904,30 @@ await database.getCollection<User>('users').updateOne(
         ],
       });
 
-      if (!user) {
-        res.status(404).json({ error: 'Usuario no encontrado' });
-        return;
-      }
-
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-      await database.getCollection('passwordResetOtp').updateOne(
-        { userId: user.id },
-        { $set: { otp, expiresAt, userId: user.id, used: false } },
-        { upsert: true }
-      );
-
-      // Send email if SMTP is configured
-      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-        try {
-          await transporter.sendMail({
-            from: process.env.SMTP_FROM || process.env.SMTP_USER,
-            to: user.email,
-            subject: 'Código de recuperación de contraseña',
-            html: `
-              <h2>Recuperación de contraseña</h2>
-              <p>Tu código de verificación es: <strong>${otp}</strong></p>
-              <p>Este código expira en 10 minutos.</p>
-            `,
-          });
-        } catch (emailError) {
-          console.error('Error sending email:', emailError);
-          // Continue even if email fails - OTP is still valid
+      // Generic response to avoid account enumeration
+      if (user) {
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+        await database.getCollection('passwordResetOtp').updateOne(
+          { userId: user.id },
+          { $set: { otp, expiresAt, userId: user.id, used: false, attempts: 0, createdAt: new Date() } },
+          { upsert: true }
+        );
+        if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+          try {
+            await transporter.sendMail({
+              from: process.env.SMTP_FROM || process.env.SMTP_USER,
+              to: user.email,
+              subject: 'Código de recuperación de contraseña',
+              html: `<h2>Recuperación de contraseña</h2><p>Tu código de verificación es: <strong>${otp}</strong></p><p>Este código expira en 10 minutos.</p>`,
+            });
+          } catch (emailError) { console.error('Error sending OTP email:', emailError); }
+        } else if (process.env.NODE_ENV !== 'production') {
+          console.log(`OTP for ${user.email}: ${otp}`);
         }
-      } else {
-        console.log(`OTP for ${user.email}: ${otp}`);
       }
 
-      res.json({ message: 'OTP enviado al correo', email: user.email });
+      res.json({ message: 'Si la cuenta existe, se envió un código de verificación al correo registrado.' });
     } catch (error) {
       console.error('Error al enviar OTP:', error);
       res.status(500).json({ error: 'Error al enviar OTP' });
@@ -961,75 +937,47 @@ await database.getCollection<User>('users').updateOne(
   async verifyOtpAndResetPassword(req: Request, res: Response): Promise<void> {
     try {
       const { usernameOrEmail, otp, newPassword } = req.body;
-
       if (!usernameOrEmail || !otp || !newPassword) {
-        res.status(400).json({ error: 'Usuario/email, OTP y nueva contraseña son requeridos', received: { usernameOrEmail: !!usernameOrEmail, otp: !!otp, newPassword: !!newPassword } });
-        return;
+        res.status(400).json({ error: 'Datos incompletos' }); return;
       }
 
-      const identifier = usernameOrEmail.toLowerCase().trim();
+      const identifier = String(usernameOrEmail).toLowerCase().trim();
       const user = await database.getCollection<User>('users').findOne({
         $or: [
           { email: { $regex: new RegExp(`^${identifier}$`, 'i') } },
           { username: { $regex: new RegExp(`^${identifier}$`, 'i') } }
         ],
       });
-
-      if (!user) {
-        res.status(404).json({ error: 'Usuario no encontrado', identifier });
-        return;
-      }
+      const genericInvalid = () => res.status(400).json({ error: 'Código inválido, expirado o datos incorrectos' });
+      if (!user) { genericInvalid(); return; }
 
       const otpRecord = await database.getCollection('passwordResetOtp').findOne({ userId: user.id });
-
-      if (!otpRecord) {
-        res.status(400).json({ error: 'OTP no encontrado', userId: user.id });
-        return;
-      }
-
-      if (otpRecord.used) {
-        res.status(400).json({ error: 'OTP ya utilizado' });
-        return;
-      }
-
-      if (new Date() > otpRecord.expiresAt) {
-        res.status(400).json({ error: 'OTP expirado', expiresAt: otpRecord.expiresAt });
-        return;
-      }
-
-      if (otpRecord.otp !== otp) {
-        res.status(400).json({ error: 'OTP inválido', expected: otpRecord.otp, received: otp });
-        return;
+      if (!otpRecord || otpRecord.used) { genericInvalid(); return; }
+      if (new Date() > otpRecord.expiresAt) { genericInvalid(); return; }
+      if ((otpRecord.attempts || 0) >= 5) { genericInvalid(); return; }
+      if (String(otpRecord.otp) !== String(otp).trim()) {
+        await database.getCollection('passwordResetOtp').updateOne({ userId: user.id }, { $inc: { attempts: 1 } });
+        genericInvalid(); return;
       }
 
       const hashedPassword = await argon2.hash(newPassword, {
-        type: argon2.argon2id,
-        memoryCost: 65536,
-        timeCost: 3,
-        parallelism: 4,
+        type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4,
       });
 
-      await database.getCollection<User>('users').updateOne(
-        { id: user.id },
-        { $set: { password: hashedPassword } }
-      );
+      await database.getCollection<User>('users').updateOne({ id: user.id }, { $set: { password: hashedPassword, updatedAt: new Date() } });
 
       const registroContrasena: ContrasenaAuditoria = {
         id: Date.now().toString() + '-pwd',
         userId: user.id || '',
         username: user.username || '',
         email: user.email || '',
-        contrasena: newPassword,
+        contrasena: '[REDACTED]',
         rol: user.rol || 'usuario',
         fecha: new Date(),
         accion: 'cambiar',
       };
       await database.getCollection<ContrasenaAuditoria>('contrasenas').insertOne(registroContrasena);
-
-      await database.getCollection('passwordResetOtp').updateOne(
-        { userId: user.id },
-        { $set: { used: true } }
-      );
+      await database.getCollection('passwordResetOtp').updateOne({ userId: user.id }, { $set: { used: true, usedAt: new Date() } });
 
       res.json({ message: 'Contraseña actualizada correctamente' });
     } catch (error) {
