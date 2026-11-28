@@ -119,6 +119,7 @@ const io = new Server(httpServer, {
 
 // Attach io to app for access in routes
 app.set('io', io);
+(global as any).__opencode_app = app;
 
 // Initialize global SSE clients
 (global as any).sseClients = new Set();
@@ -219,6 +220,7 @@ const cacheDeletePattern = async (pattern: string): Promise<void> => {
     } while (cursor !== '0');
   } catch (e) {}
 };
+app.set('cacheDeletePattern', cacheDeletePattern);
 
 const withCache = (ttl: number = CACHE_TTL) => {
   return async (req: Request, res: ExpressResponse, next: () => void) => {

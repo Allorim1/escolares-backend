@@ -189,7 +189,7 @@ async function guardarImagenesProducto(codigo: string, body: Record<string, unkn
  *   - imagen: null          → el producto ya no tiene foto
  *   - sin `imagen`          → se deja la que hay (sellhub no la reenvía si no cambió)
  */
-async function guardarProducto(body: Record<string, unknown>): Promise<ProductoCatalogo> {
+async function guardarProducto(body: Record<string, unknown>, app?: any): Promise<ProductoCatalogo> {
   const codigo = texto(body.codigo, 40);
   if (!codigo) throw new Error('Falta el c��digo del producto');
   const nombre = texto(body.nombre, 200);
@@ -216,14 +216,16 @@ async function guardarProducto(body: Record<string, unknown>): Promise<ProductoC
   };
   await coleccion().updateOne({ codigo }, { $set: producto }, { upsert: true });
   await sincronizarProductoSellhub(producto);
+  await invalidarCacheProductos(app || (global as any).__opencode_app, [sellhubId(codigo)]);
   return producto;
 }
 
-async function quitarProducto(codigo: string): Promise<boolean> {
+async function quitarProducto(codigo: string, app?: any): Promise<boolean> {
   const r = await coleccion().deleteOne({ codigo });
   borrarImagenes(codigo);
   deleteImageVariantsByPrefix(SUBCARPETA, codigoArchivo(codigo));
   await despublicarProductoSellhub(codigo);
+  await invalidarCacheProductos(app || (global as any).__opencode_app, [sellhubId(codigo)]);
   return r.deletedCount > 0;
 }
 
@@ -310,6 +312,23 @@ async function despublicarProductoSellhub(codigo: string): Promise<void> {
 
 const mensaje = (e: unknown) => (e instanceof Error ? e.message : 'Error inesperado');
 
+function getCacheDeletePattern(reqOrApp: any) {
+  const app = reqOrApp?.app ?? reqOrApp;
+  const fn = app?.get?.('cacheDeletePattern');
+  return typeof fn === 'function' ? fn : null;
+}
+async function invalidarCacheProductos(reqOrApp: any, ids: string[] = []) {
+  const delPattern = getCacheDeletePattern(reqOrApp);
+  if (!delPattern) return;
+  try {
+    await delPattern('products:*');
+    await delPattern('product:*');
+    await delPattern('req:/api/products*');
+    await delPattern('req:/api/home*');
+    for (const id of ids) await delPattern(`product:${id}`);
+  } catch {}
+}
+
 // ---------------------------------------------------------------- caja (sellhub)
 
 const caja = Router();
@@ -350,7 +369,7 @@ caja.put('/productos/:codigo', async (req: Request, res: Response) => {
 
 caja.delete('/productos/:codigo', async (req: Request, res: Response) => {
   try {
-    const quitado = await quitarProducto(String(req.params.codigo));
+    const quitado = await quitarProducto(String(req.params.codigo), req.app);
     res.json({ ok: true, quitado });
   } catch (e) {
     res.status(500).json({ message: mensaje(e) });
@@ -372,7 +391,7 @@ caja.post('/conservar', async (req: Request, res: Response) => {
     const sobran = await coleccion()
       .find({ codigo: { $nin: codigos } }, { projection: { _id: 0, codigo: 1 } })
       .toArray();
-    for (const { codigo } of sobran) await quitarProducto(codigo);
+    for (const { codigo } of sobran) await quitarProducto(codigo, req.app);
     res.json({ ok: true, quitados: sobran.length });
   } catch (e) {
     res.status(500).json({ message: mensaje(e) });
