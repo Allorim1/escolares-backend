@@ -221,12 +221,15 @@ router.post('/', authenticateToken, validateBody({ items:{required:true,type:'ar
     for (const raw of items) {
       const productId = String(raw?.productId ?? '').trim();
       const qty = Number(raw?.quantity);
+      const colorId = raw?.colorId ? String(raw.colorId) : undefined;
+      const colorNombre = raw?.colorNombre ? String(raw.colorNombre) : undefined;
       if (!productId || !Number.isInteger(qty) || qty < 1 || qty > 999) {
         issues.push({ productId, message: 'Cantidad inválida' }); continue;
       }
       const product = await productsCol.findOne({ id: productId });
       if (!product) { issues.push({ productId, message: 'Producto no encontrado' }); continue; }
-      const stock = Number(product.stock ?? product.existencia ?? product.cantidad ?? NaN);
+      if (product.visible === false || product.sellhubPublished === false) { issues.push({ productId, message: 'Producto no disponible' }); continue; }
+      const stock = Number(product.unidades ?? product.stock ?? product.existencia ?? product.cantidad ?? NaN);
       if (Number.isFinite(stock) && stock < qty) {
         issues.push({ productId, message: `Stock insuficiente (disponible: ${stock})`, available: stock, title: product.title });
       }
@@ -234,9 +237,20 @@ router.post('/', authenticateToken, validateBody({ items:{required:true,type:'ar
       const oferta = product.enOferta && Number(product.ofertaPorcentaje) > 0;
       const unitPrice = oferta ? +(basePrice * (1 - Number(product.ofertaPorcentaje) / 100)).toFixed(2) : +basePrice.toFixed(2);
       subtotal += unitPrice * qty;
-      normalizedItems.push({ productId, title: String(product.title || raw.title || ''), price: unitPrice, quantity: qty, image: String(product.image || raw.image || '') });
+      normalizedItems.push({
+        productId,
+        title: String(product.title || raw.title || ''),
+        price: unitPrice,
+        quantity: qty,
+        image: String(product.imageThumb || product.image || raw.image || ''),
+        ...(colorId ? { colorId } : {}),
+        ...(colorNombre ? { colorNombre } : {}),
+        ...(product.productGroupId ? { productGroupId: String(product.productGroupId), variantId: String(product.id), variantLabel: String(product.variantLabel || colorNombre || '') } : {}),
+        ...(product.source ? { source: product.source } : {}),
+        ...(product.externalCode || product.sellhubCodigo ? { externalCode: String(product.externalCode || product.sellhubCodigo) } : {}),
+        ...(product.codigo ? { codigo: String(product.codigo) } : {}),
+      });
     }
-
     if (issues.length > 0) { res.status(409).json({ error: 'No se pudo validar el pedido', details: issues }); return; }
 
     const safeShipping = Number.isFinite(Number(shippingRef)) && Number(shippingRef) >= 0 ? +Number(shippingRef).toFixed(2) : 0;
@@ -248,17 +262,36 @@ router.post('/', authenticateToken, validateBody({ items:{required:true,type:'ar
       return;
     }
 
+    const decremented: Array<{ productId: string; qty: number; decField: string|null; hadStockMirror: boolean; hadExistenciaMirror: boolean }> = [];
     for (const item of normalizedItems) {
       const product = await productsCol.findOne({ id: item.productId });
-      const stock = Number(product?.stock ?? product?.existencia ?? product?.cantidad ?? NaN);
+      const stock = Number(product?.unidades ?? product?.stock ?? product?.existencia ?? product?.cantidad ?? NaN);
       if (Number.isFinite(stock)) {
         const inc: any = { purchases: item.quantity };
         const filter: any = { id: item.productId };
-        if (product.stock !== undefined) { inc.stock = -item.quantity; filter.stock = { $gte: item.quantity }; }
-        else if (product.existencia !== undefined) { inc.existencia = -item.quantity; filter.existencia = { $gte: item.quantity }; }
-        else if (product.cantidad !== undefined) { inc.cantidad = -item.quantity; filter.cantidad = { $gte: item.quantity }; }
+        const decField = product.unidades !== undefined ? 'unidades' : (product.stock !== undefined ? 'stock' : (product.existencia !== undefined ? 'existencia' : (product.cantidad !== undefined ? 'cantidad' : null)));
+        const hadStockMirror = product.unidades !== undefined && product.stock !== undefined && decField !== 'stock';
+        const hadExistenciaMirror = product.unidades !== undefined && product.existencia !== undefined && decField !== 'existencia';
+        if (decField) {
+          inc[decField] = -item.quantity;
+          filter[decField] = { $gte: item.quantity };
+          if (hadStockMirror) inc.stock = -item.quantity;
+          if (hadExistenciaMirror) inc.existencia = -item.quantity;
+        }
         const dec = await productsCol.updateOne(filter, { $inc: inc });
-        if (!dec.matchedCount) { res.status(409).json({ error: 'Stock insuficiente', details: [{ productId: item.productId, title: item.title, message: 'Stock insuficiente al confirmar' }] }); return; }
+        if (!dec.matchedCount) {
+          // rollback previous decrements
+          for (const d of decremented.reverse()) {
+            const rinc: any = { purchases: -d.qty };
+            if (d.decField) rinc[d.decField] = d.qty;
+            if (d.hadStockMirror) rinc.stock = (rinc.stock || 0) + d.qty;
+            if (d.hadExistenciaMirror) rinc.existencia = (rinc.existencia || 0) + d.qty;
+            await productsCol.updateOne({ id: d.productId }, { $inc: rinc, $set: { estado: 'disponible' } }).catch(() => {});
+          }
+          res.status(409).json({ error: 'Stock insuficiente', details: [{ productId: item.productId, title: item.title, message: 'Stock insuficiente al confirmar' }] }); return;
+        }
+        decremented.push({ productId: item.productId, qty: item.quantity, decField, hadStockMirror, hadExistenciaMirror });
+        if (decField) await productsCol.updateOne({ id: item.productId, [decField]: { $lte: 0 } }, { $set: { estado: 'agotado' } }).catch(() => {});
       } else {
         await productsCol.updateOne({ id: item.productId }, { $inc: { purchases: item.quantity } }).catch(() => {});
       }
@@ -283,7 +316,18 @@ router.post('/', authenticateToken, validateBody({ items:{required:true,type:'ar
       createdAt: new Date(), updatedAt: new Date(),
     };
 
-    await ordersCol.insertOne(newOrder);
+    try {
+      await ordersCol.insertOne(newOrder);
+    } catch (insertErr) {
+      for (const d of decremented.reverse()) {
+        const rinc: any = { purchases: -d.qty };
+        if (d.decField) rinc[d.decField] = d.qty;
+        if (d.hadStockMirror) rinc.stock = (rinc.stock || 0) + d.qty;
+        if (d.hadExistenciaMirror) rinc.existencia = (rinc.existencia || 0) + d.qty;
+        await productsCol.updateOne({ id: d.productId }, { $inc: rinc, $set: { estado: 'disponible' } }).catch(() => {});
+      }
+      throw insertErr;
+    }
     const io = req.app.get('io');
     if (io) { emitirNotificacionCompra(io, newOrder); emitOrderEvent(io, 'pedido-creado', { orderId: newOrder.id, userId, status: newOrder.status }); }
     res.status(201).json(newOrder);
@@ -331,11 +375,13 @@ router.put('/:id/status', authenticateToken, validateBody({ status:{required:tru
       for (const item of order.items || []) {
         const product = await productsCol.findOne({ id: String(item.productId) });
         if (!product) continue;
-        const inc: any = { purchases: -Number(item.quantity || 0) };
-        if (product.stock !== undefined) inc.stock = Number(item.quantity || 0);
-        if (product.existencia !== undefined) inc.existencia = Number(item.quantity || 0);
-        if (product.cantidad !== undefined) inc.cantidad = Number(item.quantity || 0);
-        await productsCol.updateOne({ id: String(item.productId) }, { $inc: inc }).catch(() => {});
+          const inc: any = { purchases: -Number(item.quantity || 0) };
+          const q = Number(item.quantity || 0);
+          if (product.unidades !== undefined) inc.unidades = q;
+          if (product.stock !== undefined) inc.stock = q;
+          if (product.existencia !== undefined) inc.existencia = q;
+          if (product.cantidad !== undefined) inc.cantidad = q;
+          await productsCol.updateOne({ id: String(item.productId) }, { $inc: inc, $set: { estado: 'disponible' } }).catch(() => {});
       }
       setData.stockRestored = true;
       setData.stockRestoredAt = new Date();
@@ -412,11 +458,13 @@ router.put('/:id/cancel-authorize', authenticateToken, validateBody({ motivo:{re
       for (const item of order.items || []) {
         const product = await productsCol.findOne({ id: String(item.productId) });
         if (!product) continue;
-        const inc: any = { purchases: -Number(item.quantity || 0) };
-        if (product.stock !== undefined) inc.stock = Number(item.quantity || 0);
-        if (product.existencia !== undefined) inc.existencia = Number(item.quantity || 0);
-        if (product.cantidad !== undefined) inc.cantidad = Number(item.quantity || 0);
-        await productsCol.updateOne({ id: String(item.productId) }, { $inc: inc }).catch(() => {});
+          const inc: any = { purchases: -Number(item.quantity || 0) };
+          const q = Number(item.quantity || 0);
+          if (product.unidades !== undefined) inc.unidades = q;
+          if (product.stock !== undefined) inc.stock = q;
+          if (product.existencia !== undefined) inc.existencia = q;
+          if (product.cantidad !== undefined) inc.cantidad = q;
+          await productsCol.updateOne({ id: String(item.productId) }, { $inc: inc, $set: { estado: 'disponible' } }).catch(() => {});
       }
       cancelSet.stockRestored = true;
       cancelSet.stockRestoredAt = new Date();
@@ -484,36 +532,40 @@ router.put('/:id/factura', authenticateToken, validateBody({ facturaImage:{requi
   }
 });
 
-router.put('/:id/assign-delivery', authenticateToken, validateBody({ deliveryPersonId:{required:true,type:'string',minLength:1,maxLength:120}, deliveryPersonName:{type:'string',maxLength:200} }), async (req: Request, res: Response) => {
+router.put('/:id/assign-delivery', authenticateToken, validateBody({ deliveryPersonId:{required:true,type:'string',minLength:1,maxLength:120}, deliveryPersonName:{type:'string',maxLength:200}, motivo:{type:'string',maxLength:500} }), async (req: Request, res: Response) => {
   try {
-    const actor = await getAuthUser(req.user?.userId);
-    if (!isAdminRole(actor)) { res.status(403).json({ error: 'Acceso denegado' }); return; }
     const { id } = req.params;
-    const { deliveryPersonId } = req.body as { deliveryPersonId: string; deliveryPersonName?: string };
+    const { deliveryPersonId, deliveryPersonName, motivo } = req.body as any;
     const order = await database.getCollection<Order>('orders').findOne({ id });
     if (!order) { res.status(404).json({ error: 'Pedido no encontrado' }); return; }
-    if (['entregado', 'cancelado'].includes(order.status)) { res.status(409).json({ error: 'No se puede asignar repartidor a un pedido cerrado' }); return; }
+    const actor = await getAuthUser(req.user?.userId);
+    if (!isAdminRole(actor)) { res.status(403).json({ error: 'Solo admin puede asignar repartidor' }); return; }
+    if (['entregado', 'cancelado'].includes(order.status)) { res.status(409).json({ error: 'No se puede asignar/reasignar repartidor a un pedido cerrado' }); return; }
 
-    const deliveryPerson = await database.getCollection<any>('deliveryPersons').findOne({ id: String(deliveryPersonId) });
-    if (!deliveryPerson) { res.status(404).json({ error: 'Repartidor no encontrado' }); return; }
-
-    const result = await database.getCollection<Order>('orders').findOneAndUpdate(
-      { id },
-      { $set: { deliveryPersonId: String(deliveryPersonId), deliveryPersonName: String(deliveryPerson.nombre || ''), updatedAt: new Date() } },
-      { returnDocument: 'after' }
-    );
-
-    const usuario = actor?.nombreCompleto || actor?.username || actor?.email || 'Sistema';
-    await crearRegistro(database, 'Asignación', 'Pedidos', `Repartidor asignado a pedido #${id.slice(-8)}: ${deliveryPerson.nombre || ''}`, { pedidoId: id, deliveryPersonId, deliveryPersonName: deliveryPerson.nombre || '' }, usuario);
-    const io = req.app.get('io');
-    if (io) io.emit('pedido-repartidor-asignado', { orderId: id, deliveryPersonId: String(deliveryPersonId), deliveryPersonName: deliveryPerson.nombre || '', actorId: req.user?.userId || null });
+    const prev = order.deliveryPersonId || '';
+    const isReassign = !!prev && prev !== String(deliveryPersonId);
+    if (isReassign && !String(motivo || '').trim()) { res.status(400).json({ error: 'Indica motivo de reasignación' }); return; }
+    const now = new Date();
+    const update: any = {
+      deliveryPersonId: String(deliveryPersonId),
+      deliveryPersonName: String(deliveryPersonName || ''),
+      assignedAt: order.assignedAt || now,
+      reassignedAt: isReassign ? now : (order as any).reassignedAt,
+      updatedAt: now,
+    };
+    if (!['procesando','procesado','enviado','entregado','incidencia'].includes(order.status)) update.status = 'procesando';
+    const obs = isReassign ? `Reasignado a ${deliveryPersonName || deliveryPersonId}. Motivo: ${String(motivo).trim()}` : `Asignado a ${deliveryPersonName || deliveryPersonId}`;
+    const historial = [...(order.historial || []), { status: update.status || order.status, fecha: now, observaciones: obs }];
+    update.historial = historial;
+    const result = await database.getCollection<Order>('orders').findOneAndUpdate({ id }, { $set: update }, { returnDocument: 'after' });
+    await crearRegistro(database, isReassign ? 'Reasignación' : 'Asignación', 'Pedidos', `Pedido #${id.slice(-8)} ${isReassign ? 'reasignado' : 'asignado'} a ${deliveryPersonName || deliveryPersonId}`, { pedidoId: id, from: prev, to: deliveryPersonId, motivo: motivo || '' }, actor?.nombreCompleto || actor?.username || 'Sistema');
+    emitOrderEvent(req.app.get('io'), 'pedido-asignado', { orderId: id, status: result?.status || order.status, previousStatus: order.status, deliveryPersonId, deliveryPersonName, reassigned: isReassign, actorId: actor?.id || null, order: result });
     res.json(result);
   } catch (error) {
-    console.error('Error assigning delivery person:', error);
+    console.error('Error assigning delivery:', error);
     res.status(500).json({ error: 'Error al asignar repartidor' });
   }
 });
-
 
 router.put('/:id/incident', authenticateToken, validateBody({ type:{required:true,type:'string',enum:['cliente_ausente','direccion_incorrecta','rechazo','danado','otro']}, reason:{required:true,type:'string',minLength:3,maxLength:500}, note:{type:'string',maxLength:500}, photo:{type:'string',maxLength:20000000}, resolution:{type:'string',enum:['reprogramar','devolver','cancelar']} }), async (req: Request, res: Response) => {
   try {

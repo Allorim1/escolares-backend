@@ -71,7 +71,25 @@ class Database {
         { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
       );
     } catch (indexError) {
-      console.error('Error creando índices de pedidos:', indexError);
+      console.error('Error creando indices de pedidos:', indexError);
+    }
+
+    try {
+      await this._db.collection('products').createIndex({ id: 1 }, { unique: true });
+      await this._db.collection('products').createIndex({ source: 1, externalCode: 1 }, { unique: true, partialFilterExpression: { externalCode: { $type: 'string' } } });
+      await this._db.collection('products').createIndex({ productGroupId: 1, variantSort: 1 });
+      await this._db.collection('products').createIndex({ visible: 1, sellhubPublished: 1, category: 1 });
+    } catch (indexError) {
+      console.error('Error creando indices de productos:', indexError);
+    }
+
+    try {
+      await this._db.collection('products').createIndex({ id: 1 }, { unique: true });
+      await this._db.collection('products').createIndex({ source: 1, externalCode: 1 }, { unique: true, partialFilterExpression: { externalCode: { $type: 'string' } } });
+      await this._db.collection('products').createIndex({ productGroupId: 1, variantSort: 1 });
+      await this._db.collection('products').createIndex({ visible: 1, sellhubPublished: 1, category: 1 });
+    } catch (indexError) {
+      console.error('Error creando indices de productos:', indexError);
     }
 
     try {

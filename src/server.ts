@@ -1864,8 +1864,20 @@ app.use(['/uploads/creditos', '/api/uploads/creditos', '/uploads/whatsapp', '/ap
 });
 
 // Servir archivos estáticos desde el directorio uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
+const uploadsStaticDir = process.env.UPLOADS_PATH ? path.resolve(process.env.UPLOADS_PATH) : path.resolve(process.cwd(), 'uploads');
+const uploadsStaticOpts = {
+  maxAge: '7d',
+  setHeaders: (res: ExpressResponse, filePath: string) => {
+    const base = path.basename(filePath);
+    if (/-[a-f0-9]{8,32}(-thumb|-medium)?\.(webp|jpg|jpeg|png|avif)$/i.test(base) || /-\d{10,}-\d+\.(webp|jpg|jpeg|png|avif)$/i.test(base)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  }
+};
+app.use('/uploads', express.static(uploadsStaticDir, uploadsStaticOpts));
+app.use('/api/uploads', express.static(uploadsStaticDir, uploadsStaticOpts));
 
 app.use('/api/marcas', marcasRoutes);
 app.use('/api/lineas', lineasRoutes);

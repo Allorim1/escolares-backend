@@ -4,7 +4,9 @@ import path from 'path';
 import { Request, Response, Router } from 'express';
 import { database } from '../config/database';
 import { autenticarCaja, RequestCaja } from '../middlewares/autorizaciones.middleware';
+import { authenticateToken } from '../middlewares/auth.middleware';
 import { obtenerTasaUsdBcv } from '../services/tasa-bcv.service';
+import { processDataUrlImage, deleteImageVariantsByPrefix } from '../services/image-variants.service';
 
 /**
  * Catálogo web: productos de sellhub (EscolaresPRO) marcados con "Ver en web".
@@ -32,6 +34,7 @@ const EXTENSIONES: Record<string, string> = {
   'image/bmp': '.bmp',
 };
 
+interface ImagenCatalogo { url: string; thumb?: string | null; medium?: string | null; hash?: string | null; }
 interface ProductoCatalogo {
   codigo: string;
   nombre: string;
@@ -41,6 +44,10 @@ interface ProductoCatalogo {
   precioUsd: number | null;
   existencia: number;
   imagen: string | null;
+  imageThumb?: string | null;
+  imageMedium?: string | null;
+  imagenes?: ImagenCatalogo[];
+  imageMainIndex?: number;
   imagenHash: string | null;
   actualizado: Date;
 }
@@ -96,25 +103,84 @@ function borrarImagenes(codigo: string, salvo?: string): void {
 }
 
 /**
- * Guarda la foto (data URL) con el hash en el nombre, para que el navegador no muestre
- * la vieja cuando cambia. Devuelve la URL pública y el hash.
+ * Guarda la foto como variantes WebP optimizadas (thumb/medium/main).
  */
-function guardarImagen(codigo: string, dataUrl: string, hashEnviado: string | null): { url: string; hash: string } {
-  const m = /^data:(image\/[a-z]+);base64,(.+)$/i.exec(dataUrl);
-  if (!m) throw new Error('Imagen inválida');
-  const ext = EXTENSIONES[m[1].toLowerCase()];
-  if (!ext) throw new Error('Formato de imagen no admitido');
-  const buffer = Buffer.from(m[2], 'base64');
-  if (!buffer.length || buffer.length > MAX_IMAGEN_BYTES) throw new Error('La imagen está vacía o pesa más de 8 MB');
+async function guardarImagen(codigo: string, dataUrl: string, hashEnviado: string | null, suffix=''): Promise<{ url: string; thumb: string; medium: string; hash: string }> {
+  const out = await processDataUrlImage({
+    dataUrl,
+    folder: SUBCARPETA,
+    baseName: `${codigoArchivo(codigo)}${suffix ? `-${suffix}` : ''}`,
+    hashHint: hashEnviado,
+    maxBytes: MAX_IMAGEN_BYTES,
+  });
+  return { url: out.image, thumb: out.imageThumb || out.image, medium: out.imageMedium || out.image, hash: out.imageHash || hashEnviado || '' };
+}
 
-  // sellhub envía el hash de la foto original (la que manda puede ir reducida), para
-  // poder comparar después sin reenviarla.
-  const hash = hashEnviado ?? crypto.createHash('sha1').update(buffer).digest('hex').slice(0, 12);
-  const nombre = `${codigoArchivo(codigo)}-${hash}${ext}`;
-  fs.mkdirSync(carpetaImagenes, { recursive: true });
-  fs.writeFileSync(path.join(carpetaImagenes, nombre), buffer);
-  borrarImagenes(codigo, nombre);
-  return { url: `/api/uploads/${SUBCARPETA}/${nombre}`, hash };
+function normalizarImagenesInput(body: Record<string, unknown>): Array<{ dataUrl?: string|null; url?: string|null; hash?: string|null }> | null {
+  const raw = body.imagenes;
+  if (!Array.isArray(raw)) return null;
+  return raw.slice(0, 12).map((it: any) => ({
+    dataUrl: typeof it?.dataUrl === 'string' ? it.dataUrl : (typeof it?.imagen === 'string' ? it.imagen : (typeof it === 'string' ? it : null)),
+    url: typeof it?.url === 'string' ? it.url : null,
+    hash: typeof it?.hash === 'string' ? it.hash : (typeof it?.imagenHash === 'string' ? it.imagenHash : null),
+  }));
+}
+
+async function guardarImagenesProducto(codigo: string, body: Record<string, unknown>, actual: any): Promise<{ imagen: string|null; imageThumb: string|null; imageMedium: string|null; imagenes: ImagenCatalogo[]; imageMainIndex: number; imagenHash: string|null; }> {
+  const mainIndexRaw = Number(body.imageMainIndex ?? body.imagenPrincipalIndex ?? actual?.imageMainIndex ?? 0);
+  const imagenesInput = normalizarImagenesInput(body);
+  let imagen = actual?.imagen ?? null;
+  let imageThumb = actual?.imageThumb ?? null;
+  let imageMedium = actual?.imageMedium ?? null;
+  let imagenHash = actual?.imagenHash ?? null;
+  let imagenes: ImagenCatalogo[] = Array.isArray(actual?.imagenes) ? actual.imagenes : (imagen ? [{ url: imagen, thumb: imageThumb, medium: imageMedium, hash: imagenHash }] : []);
+  let imageMainIndex = Number.isFinite(mainIndexRaw) ? Math.max(0, Math.floor(mainIndexRaw)) : 0;
+
+  if (imagenesInput) {
+    const next: ImagenCatalogo[] = [];
+    for (let i = 0; i < imagenesInput.length; i++) {
+      const item = imagenesInput[i];
+      const prev = imagenes[i];
+      const hash = item.hash && /^[a-f0-9]{8,64}$/i.test(item.hash) ? item.hash.toLowerCase() : (prev?.hash || null);
+      if (typeof item.dataUrl === 'string' && item.dataUrl.startsWith('data:')) {
+        if (prev?.hash && hash === prev.hash && prev.url) { next.push(prev); continue; }
+        const g = await guardarImagen(codigo, item.dataUrl, hash, String(i + 1));
+        next.push({ url: g.url, thumb: g.thumb, medium: g.medium, hash: g.hash });
+      } else if (typeof item.url === 'string' && item.url) {
+        next.push({ url: item.url, thumb: prev?.thumb || item.url, medium: prev?.medium || item.url, hash: hash || prev?.hash || null });
+      } else if (prev?.url) {
+        next.push(prev);
+      }
+    }
+    imagenes = next;
+    const keep = new Set(imagenes.flatMap(img => [img.url, img.thumb, img.medium].filter(Boolean).map((u:any)=>String(u).split('/').pop())));
+    try {
+      const prefijo = `${codigoArchivo(codigo)}-`;
+      for (const f of fs.readdirSync(carpetaImagenes)) {
+        if (f.startsWith(prefijo) && !keep.has(f)) fs.unlinkSync(path.join(carpetaImagenes, f));
+      }
+    } catch {}
+  } else if (typeof body.imagen === 'string' && body.imagen) {
+    const hashEnviado = typeof body.imagenHash === 'string' && /^[a-f0-9]{8,64}$/i.test(body.imagenHash) ? body.imagenHash.toLowerCase() : null;
+    if (!hashEnviado || hashEnviado !== imagenHash || !imagenes.length) {
+      const guardada = await guardarImagen(codigo, body.imagen, hashEnviado, '1');
+      imagenes = [{ url: guardada.url, thumb: guardada.thumb, medium: guardada.medium, hash: guardada.hash }, ...imagenes.slice(1)];
+      imageMainIndex = 0;
+    }
+  } else if (body.imagen === null) {
+    borrarImagenes(codigo);
+    deleteImageVariantsByPrefix(SUBCARPETA, codigoArchivo(codigo));
+    imagenes = [];
+    imageMainIndex = 0;
+  }
+
+  if (imagenes.length) imageMainIndex = Math.min(imageMainIndex, imagenes.length - 1);
+  const main = imagenes[imageMainIndex] || imagenes[0] || null;
+  imagen = main?.url || null;
+  imageThumb = main?.thumb || main?.url || null;
+  imageMedium = main?.medium || main?.url || null;
+  imagenHash = main?.hash || null;
+  return { imagen, imageThumb, imageMedium, imagenes, imageMainIndex, imagenHash };
 }
 
 /**
@@ -125,26 +191,12 @@ function guardarImagen(codigo: string, dataUrl: string, hashEnviado: string | nu
  */
 async function guardarProducto(body: Record<string, unknown>): Promise<ProductoCatalogo> {
   const codigo = texto(body.codigo, 40);
-  if (!codigo) throw new Error('Falta el código del producto');
+  if (!codigo) throw new Error('Falta el c��digo del producto');
   const nombre = texto(body.nombre, 200);
   if (!nombre) throw new Error(`El producto ${codigo} no tiene nombre`);
 
   const actual = await coleccion().findOne({ codigo });
-  let imagen = actual?.imagen ?? null;
-  let imagenHash = actual?.imagenHash ?? null;
-  const hashEnviado = typeof body.imagenHash === 'string' && /^[a-f0-9]{8,64}$/i.test(body.imagenHash) ? body.imagenHash.toLowerCase() : null;
-
-  if (typeof body.imagen === 'string' && body.imagen) {
-    if (!hashEnviado || hashEnviado !== imagenHash) {
-      const guardada = guardarImagen(codigo, body.imagen, hashEnviado);
-      imagen = guardada.url;
-      imagenHash = guardada.hash;
-    }
-  } else if (body.imagen === null) {
-    borrarImagenes(codigo);
-    imagen = null;
-    imagenHash = null;
-  }
+  const imgs = await guardarImagenesProducto(codigo, body, actual as any);
 
   const producto: ProductoCatalogo = {
     codigo,
@@ -154,18 +206,106 @@ async function guardarProducto(body: Record<string, unknown>): Promise<ProductoC
     etiquetas: lista(body.etiquetas),
     precioUsd: numero(body.precioUsd),
     existencia: numero(body.existencia) ?? 0,
-    imagen,
-    imagenHash,
+    imagen: imgs.imagen,
+    imageThumb: imgs.imageThumb,
+    imageMedium: imgs.imageMedium,
+    imagenes: imgs.imagenes,
+    imageMainIndex: imgs.imageMainIndex,
+    imagenHash: imgs.imagenHash,
     actualizado: new Date(),
   };
   await coleccion().updateOne({ codigo }, { $set: producto }, { upsert: true });
+  await sincronizarProductoSellhub(producto);
   return producto;
 }
 
 async function quitarProducto(codigo: string): Promise<boolean> {
   const r = await coleccion().deleteOne({ codigo });
   borrarImagenes(codigo);
+  deleteImageVariantsByPrefix(SUBCARPETA, codigoArchivo(codigo));
+  await despublicarProductoSellhub(codigo);
   return r.deletedCount > 0;
+}
+
+const sellhubId = (codigo: string) => `sh_${codigo.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+
+async function sincronizarProductoSellhub(p: ProductoCatalogo): Promise<void> {
+  const products = database.getCollection<any>('products');
+  const id = sellhubId(p.codigo);
+  const existing = await products.findOne({ $or: [{ id }, { source: 'sellhub', externalCode: p.codigo }] });
+  const existencia = Number(p.existencia ?? 0);
+  const disponible = existencia > 0;
+  const set: any = {
+    id,
+    source: 'sellhub',
+    externalCode: p.codigo,
+    sellhubCodigo: p.codigo,
+    title: p.nombre,
+    description: p.descripcion || '',
+    category: (p.categorias && p.categorias[0]) || 'Sin categoría',
+    etiquetas: p.etiquetas || [],
+    price: typeof p.precioUsd === 'number' ? p.precioUsd : 0,
+    image: p.imagen || '',
+    imageThumb: (p as any).imageThumb || p.imagen || '',
+    imageMedium: (p as any).imageMedium || p.imagen || '',
+    imageHash: p.imagenHash || null,
+    images: Array.isArray((p as any).imagenes) ? (p as any).imagenes.map((i:any)=>i?.url).filter(Boolean) : (p.imagen ? [p.imagen] : []),
+    imageThumbs: Array.isArray((p as any).imagenes) ? (p as any).imagenes.map((i:any)=>i?.thumb||i?.url).filter(Boolean) : ((p as any).imageThumb ? [(p as any).imageThumb] : []),
+    imageMediums: Array.isArray((p as any).imagenes) ? (p as any).imagenes.map((i:any)=>i?.medium||i?.url).filter(Boolean) : ((p as any).imageMedium ? [(p as any).imageMedium] : []),
+    imageMainIndex: Number((p as any).imageMainIndex || 0),
+    unidades: existencia,
+    stock: existencia,
+    existencia,
+    estado: disponible ? 'disponible' : 'agotado',
+    sellhubPublished: true,
+    visible: true,
+    sellhubSyncAt: new Date(),
+    updatedAt: new Date(),
+  };
+  // Campos administrados por web/admin: no pisar si ya existen
+  if (!existing) {
+    set.rating = { rate: 0, count: 0 };
+    set.marca = null;
+    set.lineaId = null;
+    set.linea = null;
+    set.iva = false;
+    set.ivaPercentage = 16;
+    set.enOferta = false;
+    set.ofertaPorcentaje = 0;
+    set.ofertaPrecio = 0;
+    set.views = 0;
+    set.purchases = 0;
+    set.colorido = false;
+    set.colores = [];
+    set.createdAt = new Date();
+  } else {
+    if (existing.rating) set.rating = existing.rating;
+    if (existing.marca !== undefined) set.marca = existing.marca;
+    if (existing.lineaId !== undefined) set.lineaId = existing.lineaId;
+    if (existing.linea !== undefined) set.linea = existing.linea;
+    if (existing.iva !== undefined) set.iva = existing.iva;
+    if (existing.ivaPercentage !== undefined) set.ivaPercentage = existing.ivaPercentage;
+    if (existing.enOferta !== undefined) set.enOferta = existing.enOferta;
+    if (existing.ofertaPorcentaje !== undefined) set.ofertaPorcentaje = existing.ofertaPorcentaje;
+    if (existing.ofertaPrecio !== undefined) set.ofertaPrecio = existing.ofertaPrecio;
+    if (existing.fichaTecnica !== undefined) set.fichaTecnica = existing.fichaTecnica;
+    if (existing.colorido !== undefined) set.colorido = existing.colorido;
+    if (existing.colores !== undefined) set.colores = existing.colores;
+    if (existing.productGroupId !== undefined) set.productGroupId = existing.productGroupId;
+    if (existing.variantLabel !== undefined) set.variantLabel = existing.variantLabel;
+    if (existing.variantKind !== undefined) set.variantKind = existing.variantKind;
+    if (existing.variantSort !== undefined) set.variantSort = existing.variantSort;
+    if (existing.isGroupDefault !== undefined) set.isGroupDefault = existing.isGroupDefault;
+  }
+  await products.updateOne({ id }, { $set: set }, { upsert: true });
+}
+
+async function despublicarProductoSellhub(codigo: string): Promise<void> {
+  const products = database.getCollection<any>('products');
+  await products.updateOne(
+    { $or: [{ id: sellhubId(codigo) }, { source: 'sellhub', externalCode: codigo }] },
+    { $set: { sellhubPublished: false, visible: false, estado: 'agotado', unidades: 0, stock: 0, existencia: 0, updatedAt: new Date() } }
+  );
 }
 
 const mensaje = (e: unknown) => (e instanceof Error ? e.message : 'Error inesperado');
@@ -187,8 +327,12 @@ caja.use((req: Request, res: Response, next) => {
 caja.get('/estado', async (_req: Request, res: Response) => {
   try {
     await asegurarIndices();
-    const filas = await coleccion().find({}, { projection: { _id: 0, codigo: 1, imagenHash: 1 } }).toArray();
-    res.json(filas);
+    const filas = await coleccion().find({}, { projection: { _id: 0, codigo: 1, imagenHash: 1, imagenes: 1 } }).toArray();
+    res.json(filas.map((f: any) => ({
+      codigo: f.codigo,
+      imagenHash: f.imagenHash || null,
+      imagenesHash: Array.isArray(f.imagenes) ? f.imagenes.map((i:any)=>i?.hash).filter(Boolean).join(',') : (f.imagenHash || null),
+    })));
   } catch (e) {
     res.status(500).json({ message: mensaje(e) });
   }
@@ -240,6 +384,26 @@ caja.post('/conservar', async (req: Request, res: Response) => {
 const router = Router();
 router.use('/caja', caja);
 
+router.post('/sync-products', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const anyReq = req as any;
+    const rol = String(anyReq.user?.rol || anyReq.userRol || '');
+    const isAdmin = rol === 'root' || rol === 'admin' || rol === 'administrador' || anyReq.user?.isAdmin === true;
+    const key = String(req.headers['x-admin-sync-key'] || '');
+    const expected = String(process.env.ADMIN_SYNC_KEY || '');
+    const hasSyncKey = !!expected && key === expected;
+    if (!isAdmin && !hasSyncKey) return res.status(403).json({ error: 'No autorizado' });
+    await asegurarIndices();
+    const docs = await coleccion().find({}).toArray();
+    let synced = 0;
+    for (const d of docs) { await sincronizarProductoSellhub(d as any); synced++; }
+    res.json({ ok: true, synced });
+  } catch (e) {
+    console.error('[catalogo-web] sync-products', e);
+    res.status(500).json({ error: 'No se pudo sincronizar productos Sellhub' });
+  }
+});
+
 router.get('/productos', async (_req: Request, res: Response) => {
   try {
     const productos = await coleccion()
@@ -262,7 +426,11 @@ router.get('/productos', async (_req: Request, res: Response) => {
         etiquetas: p.etiquetas ?? [],
         precioUsd: p.precioUsd,
         disponible: (p.existencia ?? 0) > 0,
-        imagen: p.imagen,
+        imagen: (p as any).imageMedium || p.imagen,
+        imageThumb: (p as any).imageThumb || p.imagen,
+        imageMedium: (p as any).imageMedium || p.imagen,
+        imagenes: Array.isArray((p as any).imagenes) ? (p as any).imagenes.map((i:any)=>({ url:i?.medium||i?.url, thumb:i?.thumb||i?.url, hash:i?.hash||null })).filter((i:any)=>i.url) : [],
+        imageMainIndex: Number((p as any).imageMainIndex || 0),
       })),
     });
   } catch (e) {

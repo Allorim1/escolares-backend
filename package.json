@@ -8,7 +8,8 @@
     "start": "node --no-deprecation=DEP0169 dist/server.js",
     "dev": "ts-node src/server.ts",
     "swagger": "ts-node src/swagger.ts",
-    "test": "jest"
+    "test": "jest",
+    "backfill:image-variants": "ts-node scripts/backfill-image-variants.ts"
   },
   "dependencies": {
     "argon2": "^0.44.0",
@@ -26,6 +27,7 @@
     "nodemailer": "^8.0.5",
     "qrcode": "^1.5.4",
     "redis": "^5.11.0",
+    "sharp": "^0.35.5",
     "socket.io": "^4.8.3",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",

@@ -80,20 +80,56 @@ export interface Color {
 
 export interface Product {
   _id?: string;
-  id: number;
-  name: string;
+  id: number | string;
+  title?: string;
+  name?: string;
   description: string;
   price: number;
   image: string;
+  imageThumb?: string;
+  imageMedium?: string;
+  imageHash?: string | null;
   images?: string[];
+  imageThumbs?: string[];
+  imageMediums?: string[];
+  imageMainIndex?: number;
+  category?: string;
+  marca?: string | null;
   marcaId?: string;
+  linea?: string | null;
   lineaId?: string;
   categoriaId?: string;
+  rating?: { rate: number; count: number };
+  iva?: boolean;
+  ivaPercentage?: number;
+  estado?: "disponible" | "agotado";
+  enOferta?: boolean;
+  ofertaPorcentaje?: number;
+  ofertaPrecio?: number;
+  unidades?: number;
+  stock?: number;
+  existencia?: number;
+  fichaTecnica?: Record<string, string>;
   colorido?: boolean;
   colores?: Color[];
   codigo?: string;
-  views: number;
-  purchases: number;
+  views?: number;
+  purchases?: number;
+  // Sellhub sync / source of truth
+  source?: "local" | "sellhub";
+  externalCode?: string;
+  sellhubCodigo?: string;
+  sellhubPublished?: boolean;
+  sellhubSyncAt?: Date;
+  visible?: boolean;
+  // Variants / groups
+  productGroupId?: string;
+  variantLabel?: string;
+  variantKind?: "color" | "modelo" | "presentacion" | "otro";
+  variantSort?: number;
+  isGroupDefault?: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface InvProducto {
@@ -126,6 +162,14 @@ export interface OrderItem {
   price: number;
   quantity: number;
   image: string;
+  colorId?: string;
+  colorNombre?: string;
+  variantId?: string;
+  variantLabel?: string;
+  productGroupId?: string;
+  source?: "local" | "sellhub";
+  externalCode?: string;
+  codigo?: string;
 }
 
 export interface Order {
