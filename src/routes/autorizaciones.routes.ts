@@ -51,6 +51,7 @@ import {
   secundarioPorDispositivo,
   vincular,
   vinculoPorDispositivo,
+  vinculoPorId,
   VinculoAutorizaciones,
   coleccionSecundarios,
   vinculosDeTienda,
@@ -58,7 +59,7 @@ import {
   vistaVinculo,
   vistaVinculoCaja,
 } from '../services/autorizaciones-vinculos.service';
-import { ErrorTiendas, nombreTienda, prepararMultitienda } from '../services/autorizaciones-tiendas.service';
+import { ErrorTiendas, nombreTienda, prepararMultitienda, uid } from '../services/autorizaciones-tiendas.service';
 import {
   cerrarVista,
   crearVista,
@@ -73,6 +74,17 @@ import {
   vistasDePc,
 } from '../services/autorizaciones-pantallas.service';
 import { celularesConectados } from '../services/autorizaciones-socket.service';
+import {
+  MAX_FOTO_FACTURA_BYTES,
+  archivoFotoFactura,
+  cancelarFotoFactura,
+  estadoFotoFactura,
+  fotosFacturaPendientes,
+  iniciarLimpiezaFotosFactura,
+  pedirFotoFactura,
+  recibirFotoFactura,
+  rechazarFotoFactura,
+} from '../services/autorizaciones-fotos-factura.service';
 
 /**
  * Autorizaciones con clave de supervisor desde el celular: une las cajas de sellhub
@@ -177,6 +189,8 @@ caja.post('/consultas/:id/respuesta', (req, res) => {
 /** Fotos de pantalla (JPEG crudo, hasta MAX_FRAME_BYTES). */
 const cuerpoImagen = express.raw({ type: 'image/jpeg', limit: MAX_FRAME_BYTES });
 const imagenDe = (req: Request): Buffer => (Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0));
+/** La foto de la cámara puede venir como JPEG, PNG o WebP; se guarda tal cual. */
+const cuerpoFotoFactura = express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_FOTO_FACTURA_BYTES });
 
 /** "Ver pantalla" desde el celular: lo que piden ver de ESTA sesión de EscolaresPRO. */
 caja.get('/pantallas', (req, res) => {
@@ -186,6 +200,33 @@ caja.get('/pantallas', (req, res) => {
 /** Una foto de la pantalla de esta PC; { seguir: false } = ya nadie mira. */
 caja.post('/pantallas/:id/frame', cuerpoImagen, (req, res) => {
   res.json(frameDePc(tiendaDe(req), String(req.params.id), imagenDe(req)));
+});
+
+// ---------------------------------------------------------------- fotos de factura (celular)
+
+/** Pide una foto al celular vinculado que eligió la caja (Seguridad → Celulares). */
+caja.post('/fotos-factura', async (req, res) => {
+  const usuarioId = String(req.body?.usuarioId ?? '').trim();
+  if (!usuarioId) throw new ErrorAutorizaciones(400, 'Falta elegir el celular');
+  const vinculo = await vinculoPorId(uid(tiendaDe(req), usuarioId));
+  if (!vinculo) throw new ErrorAutorizaciones(404, 'Ese usuario ya no tiene celular vinculado');
+  res.status(201).json(await pedirFotoFactura(tiendaDe(req), vinculo, req.body ?? {}));
+});
+
+/** Estado de la solicitud mientras la caja espera la foto. */
+caja.get('/fotos-factura/:id', (req, res) => {
+  res.json(estadoFotoFactura(tiendaDe(req), String(req.params.id)));
+});
+
+/** El JPEG que tomó el celular (raw; la caja lo guarda en su bandeja). */
+caja.get('/fotos-factura/:id/archivo', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.type('image/jpeg').send(archivoFotoFactura(tiendaDe(req), String(req.params.id)));
+});
+
+caja.delete('/fotos-factura/:id', (req, res) => {
+  cancelarFotoFactura(tiendaDe(req), String(req.params.id));
+  res.status(204).end();
 });
 
 // ---------------------------------------------------------------- celular
@@ -455,6 +496,23 @@ movil.post('/pantallas/:id/terminar', exigirVinculo, (req: RequestMovil, res) =>
   res.status(204).end();
 });
 
+/** Pedidos sin responder que le llegan a este celular (al conectar la app). */
+movil.get('/fotos-factura', exigirVinculo, (req: RequestMovil, res) => {
+  res.json(fotosFacturaPendientes(req.usuarios!, req.dispositivoId!));
+});
+
+/** El celular elegido sube la foto que acaba de tomar. */
+movil.post('/fotos-factura/:id/foto', exigirVinculo, cuerpoFotoFactura, (req: RequestMovil, res) => {
+  recibirFotoFactura(String(req.params.id), req.usuarios!, req.usuario!.userId, req.dispositivoId!, imagenDe(req));
+  res.json({ ok: true });
+});
+
+/** El supervisor canceló la cámara o no pudo enviar la foto. */
+movil.post('/fotos-factura/:id/rechazar', exigirVinculo, (req: RequestMovil, res) => {
+  rechazarFotoFactura(String(req.params.id), req.usuarios!, req.usuario!.userId, req.dispositivoId!, req.body?.motivo);
+  res.json({ ok: true });
+});
+
 movil.get('/consultas/:id', exigirVinculo, (req: RequestMovil, res) => {
   res.json(consultaPara(req.usuarios!, String(req.params.id)));
 });
@@ -568,6 +626,7 @@ export function registrarAutorizaciones(io: Server): void {
   prepararMultitienda().catch((error) => console.error('Autorizaciones: no se pudo preparar multitienda:', error));
   iniciarLimpieza();
   iniciarLimpiezaPantallas();
+  iniciarLimpiezaFotosFactura();
   iniciarCierreDelDia();
 }
 
