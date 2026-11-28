@@ -264,6 +264,7 @@ router.get('/', async (req: Request, res: Response) => {
     if (cached) { res.header('X-Cache', 'HIT'); return res.json(JSON.parse(cached)); }
 
     const projection: any = {
+      id:1,
       title:1,price:1,description:1,category:1,image:1,imageThumb:1,imageMedium:1,images:1,imageThumbs:1,imageMediums:1,imageMainIndex:1,
       rating:1,marca:1,lineaId:1,linea:1,iva:1,ivaPercentage:1,estado:1,unidades:1,stock:1,existencia:1,enOferta:1,ofertaPorcentaje:1,ofertaPrecio:1,
       source:1,externalCode:1,sellhubCodigo:1,visible:1,sellhubPublished:1,productGroupId:1,variantLabel:1,variantKind:1,variantSort:1,isGroupDefault:1,
